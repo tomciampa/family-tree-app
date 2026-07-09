@@ -3,6 +3,8 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --tree-line: #9ca3af;
+  --tree-muted: #6b7280;
 }
 
 @theme inline {
@@ -16,6 +18,8 @@
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+    --tree-line: #52525b;
+    --tree-muted: #a1a1aa;
   }
 }
 

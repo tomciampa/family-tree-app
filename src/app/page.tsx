@@ -19,9 +19,14 @@ export default async function Home() {
       <p className="text-gray-500">
         Signed in as <strong>{user.email}</strong>
       </p>
-      <Link href="/people" className="underline">
-        View people
-      </Link>
+      <div className="flex gap-4">
+        <Link href="/people" className="underline">
+          View people
+        </Link>
+        <Link href="/tree" className="underline">
+          Family tree
+        </Link>
+      </div>
       <form action={signOut}>
         <button
           type="submit"
