@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { signOut } from "./actions";
@@ -18,6 +19,9 @@ export default async function Home() {
       <p className="text-gray-500">
         Signed in as <strong>{user.email}</strong>
       </p>
+      <Link href="/people" className="underline">
+        View people
+      </Link>
       <form action={signOut}>
         <button
           type="submit"
