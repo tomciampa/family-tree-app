@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { FamilyTree } from "@/components/family-tree";
+import { AddFirstPersonForm } from "./add-first-person-form";
 
 export default async function TreePage() {
   const supabase = await createClient();
@@ -35,9 +36,11 @@ export default async function TreePage() {
         <p className="mx-auto text-sm text-red-500">{error.message}</p>
       )}
 
-      {!error && (
+      {!error && people && people.length === 0 && <AddFirstPersonForm />}
+
+      {!error && people && people.length > 0 && (
         <FamilyTree
-          people={people ?? []}
+          people={people}
           unions={unions ?? []}
           unionChildren={unionChildren ?? []}
         />

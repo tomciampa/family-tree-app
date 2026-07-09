@@ -6,26 +6,27 @@ type UnionRow = Tables<"unions">;
 type UnionChild = Tables<"union_children">;
 
 const now = "2026-07-08T00:00:00Z";
+const familyId = "dev-preview-family";
 
 const people: Person[] = [
-  { id: "1", name: "Grandpa Al", birth_estimate: "1900", death_estimate: "1970", notes: null, is_placeholder: false, is_root: true, created_at: now },
-  { id: "2", name: "Grandma Bea", birth_estimate: "1902", death_estimate: "1975", notes: null, is_placeholder: false, is_root: true, created_at: now },
-  { id: "3", name: "Carl", birth_estimate: "1925", death_estimate: null, notes: null, is_placeholder: false, is_root: false, created_at: now },
-  { id: "4", name: "Grandpa Dan", birth_estimate: "1898", death_estimate: "1960", notes: null, is_placeholder: false, is_root: true, created_at: now },
-  { id: "5", name: "Grandma Edna", birth_estimate: "1901", death_estimate: "1980", notes: null, is_placeholder: false, is_root: true, created_at: now },
-  { id: "6", name: "Frances", birth_estimate: "1927", death_estimate: null, notes: null, is_placeholder: false, is_root: false, created_at: now },
-  { id: "7", name: "Gina", birth_estimate: "1950", death_estimate: null, notes: null, is_placeholder: false, is_root: false, created_at: now },
-  { id: "8", name: "Hank", birth_estimate: "1952", death_estimate: null, notes: null, is_placeholder: false, is_root: false, created_at: now },
-  { id: "9", name: "Irene", birth_estimate: "1930", death_estimate: null, notes: null, is_placeholder: false, is_root: true, created_at: now },
-  { id: "10", name: "Jack", birth_estimate: "1955", death_estimate: null, notes: null, is_placeholder: false, is_root: false, created_at: now },
-  { id: "11", name: "Karen (unplaced)", birth_estimate: "1980", death_estimate: null, notes: null, is_placeholder: false, is_root: false, created_at: now },
+  { id: "1", name: "Grandpa Al", birth_estimate: "1900", death_estimate: "1970", notes: null, is_placeholder: false, is_root: true, created_at: now, family_id: familyId },
+  { id: "2", name: "Grandma Bea", birth_estimate: "1902", death_estimate: "1975", notes: null, is_placeholder: false, is_root: true, created_at: now, family_id: familyId },
+  { id: "3", name: "Carl", birth_estimate: "1925", death_estimate: null, notes: null, is_placeholder: false, is_root: false, created_at: now, family_id: familyId },
+  { id: "4", name: "Grandpa Dan", birth_estimate: "1898", death_estimate: "1960", notes: null, is_placeholder: false, is_root: true, created_at: now, family_id: familyId },
+  { id: "5", name: "Grandma Edna", birth_estimate: "1901", death_estimate: "1980", notes: null, is_placeholder: false, is_root: true, created_at: now, family_id: familyId },
+  { id: "6", name: "Frances", birth_estimate: "1927", death_estimate: null, notes: null, is_placeholder: false, is_root: false, created_at: now, family_id: familyId },
+  { id: "7", name: "Gina", birth_estimate: "1950", death_estimate: null, notes: null, is_placeholder: false, is_root: false, created_at: now, family_id: familyId },
+  { id: "8", name: "Hank", birth_estimate: "1952", death_estimate: null, notes: null, is_placeholder: false, is_root: false, created_at: now, family_id: familyId },
+  { id: "9", name: "Irene", birth_estimate: "1930", death_estimate: null, notes: null, is_placeholder: false, is_root: true, created_at: now, family_id: familyId },
+  { id: "10", name: "Jack", birth_estimate: "1955", death_estimate: null, notes: null, is_placeholder: false, is_root: false, created_at: now, family_id: familyId },
+  { id: "11", name: "Karen (unplaced)", birth_estimate: "1980", death_estimate: null, notes: null, is_placeholder: false, is_root: false, created_at: now, family_id: familyId },
 ];
 
 const unions: UnionRow[] = [
-  { id: "u1", parent1_id: "1", parent2_id: "2", note: "m. 1922", created_at: now },
-  { id: "u2", parent1_id: "4", parent2_id: "5", note: "m. 1920", created_at: now },
-  { id: "u3", parent1_id: "3", parent2_id: "6", note: "m. 1948", created_at: now },
-  { id: "u4", parent1_id: "3", parent2_id: "9", note: "m. 1960 (2nd marriage)", created_at: now },
+  { id: "u1", parent1_id: "1", parent2_id: "2", note: "m. 1922", created_at: now, family_id: familyId },
+  { id: "u2", parent1_id: "4", parent2_id: "5", note: "m. 1920", created_at: now, family_id: familyId },
+  { id: "u3", parent1_id: "3", parent2_id: "6", note: "m. 1948", created_at: now, family_id: familyId },
+  { id: "u4", parent1_id: "3", parent2_id: "9", note: "m. 1960 (2nd marriage)", created_at: now, family_id: familyId },
 ];
 
 const unionChildren: UnionChild[] = [

@@ -108,19 +108,17 @@ export function FamilyTree({
     );
   }
 
-  if (rootUnions.length === 0 && unplacedPeople.length === people.length) {
-    return <p className="text-gray-500">No people yet.</p>;
-  }
-
   return (
     <div className={styles.wrapper}>
-      <div className={styles.tree}>
-        <ul>
-          {rootUnions.map((u) => (
-            <li key={u.id}>{renderUnionNode(u, new Set())}</li>
-          ))}
-        </ul>
-      </div>
+      {rootUnions.length > 0 && (
+        <div className={styles.tree}>
+          <ul>
+            {rootUnions.map((u) => (
+              <li key={u.id}>{renderUnionNode(u, new Set())}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {unplacedPeople.length > 0 && (
         <div className="mt-10 border-t border-gray-200 pt-6 dark:border-gray-800">
