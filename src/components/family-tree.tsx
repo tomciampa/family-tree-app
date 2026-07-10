@@ -229,10 +229,45 @@ export function FamilyTree({
       // through reveals the rest, including any siblings.
       .setMiniTree(true);
 
+    // Clicking the card itself only re-centers the tree on that person —
+    // family-chart's own default click behavior, nothing more. Opening our
+    // "add to this person's record" panel is a separate, explicit action
+    // (the "+" button below), not something that should happen just from
+    // navigating the tree.
     f3Card.setOnCardClick((e: MouseEvent, d: TreeDatum) => {
       f3Card.onCardClickDefault(e, d);
-      const person = peopleByIdRef.current.get(d.data.id);
-      if (person) onPersonClickRef.current?.(person);
+    });
+
+    // CardHtml has no built-in "add relative" button of its own (that UI
+    // only exists in family-chart's separate, opt-in EditTree feature,
+    // which we don't use — we have our own PersonPanel). setOnCardUpdate is
+    // called every time a card's DOM is (re)rendered, right after its base
+    // markup is set, so it's the supported hook for attaching extra
+    // elements without reimplementing the card template ourselves. The
+    // button's own click listener stops propagation so it doesn't also
+    // trigger the card's re-center click above.
+    f3Card.setOnCardUpdate(function (this: HTMLElement, d: TreeDatum) {
+      const cardEl = this.querySelector<HTMLElement>(".card");
+      if (!cardEl) return;
+
+      const addButton = document.createElement("button");
+      addButton.type = "button";
+      addButton.textContent = "+";
+      addButton.setAttribute(
+        "aria-label",
+        `Add to ${d.data.data["first name"]}'s record`,
+      );
+      addButton.style.cssText =
+        "position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; " +
+        "border-radius: 50%; border: none; background: #2563eb; color: white; " +
+        "font-size: 14px; line-height: 1; cursor: pointer; display: flex; " +
+        "align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,0.4);";
+      addButton.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const person = peopleByIdRef.current.get(d.data.id);
+        if (person) onPersonClickRef.current?.(person);
+      });
+      cardEl.appendChild(addButton);
     });
 
     f3Chart.updateTree({ initial: true });
