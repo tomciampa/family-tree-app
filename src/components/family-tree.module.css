@@ -127,3 +127,11 @@
   color: var(--tree-muted);
   font-style: italic;
 }
+
+.siblingPlaceholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  opacity: 0.75;
+}

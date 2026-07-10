@@ -99,6 +99,34 @@ export function FamilyTree({
     return renderPersonFanned(personId, path, depth);
   }
 
+  // A sibling who's fully expanded elsewhere (e.g. shown under their own
+  // marriage) still gets a small, non-expanding reference card in their
+  // correct position here, instead of being omitted — so it stays visible
+  // that their parents had this many children, not one fewer.
+  function renderSiblingPlaceholder(personId: string) {
+    const person = peopleById.get(personId);
+    if (!person) return null;
+
+    const spouseNames = (unionsByParent.get(personId) ?? [])
+      .map((u) => {
+        const spouseId = u.parent1_id === personId ? u.parent2_id : u.parent1_id;
+        return spouseId ? peopleById.get(spouseId)?.name : undefined;
+      })
+      .filter((name): name is string => !!name);
+
+    const hint =
+      spouseNames.length > 0
+        ? `→ shown with ${spouseNames.join(" & ")}`
+        : "→ shown elsewhere in the tree";
+
+    return (
+      <div key={personId} className={styles.siblingPlaceholder}>
+        <PersonCard person={person} onClick={onPersonClick} />
+        <p className={styles.hoistedLabel}>{hint}</p>
+      </div>
+    );
+  }
+
   // Hiding a union's descendants must be final: mark that whole branch
   // (children, and anyone further down through their own marriages) as
   // accounted for, so the top-level fallback pass never redraws them as
@@ -138,9 +166,7 @@ export function FamilyTree({
       );
     }
 
-    const childIds = (childrenByUnion.get(union.id) ?? []).filter(
-      (cid) => cid !== excludeChildId,
-    );
+    const childIds = childrenByUnion.get(union.id) ?? [];
 
     return (
       <div className={styles.unionBlock} key={union.id}>
@@ -154,7 +180,11 @@ export function FamilyTree({
         {union.note && <p className={styles.note}>{union.note}</p>}
         {childIds.length > 0 && (
           <div className={styles.childrenRow}>
-            {childIds.map((cid) => renderPersonFanned(cid, path, depth + 1))}
+            {childIds.map((cid) =>
+              cid === excludeChildId
+                ? renderSiblingPlaceholder(cid)
+                : renderPersonFanned(cid, path, depth + 1),
+            )}
           </div>
         )}
       </div>
