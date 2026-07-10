@@ -210,7 +210,15 @@ export function FamilyTree({
 
     const f3Card = f3Chart
       .setCardHtml()
-      .setCardDisplay([["first name"], ["dates"]]);
+      .setCardDisplay([["first name"], ["dates"]])
+      // family-chart's own built-in indicator: shows a small icon on a
+      // card whenever that person's parents, spouses, or children aren't
+      // all present in the currently-rendered tree (ancestry/progeny
+      // depth limits, or a not-yet-explored branch). Not a sibling count
+      // specifically, but a person whose own parents aren't shown yet is
+      // exactly the "there might be more here" cue we want — clicking
+      // through reveals the rest, including any siblings.
+      .setMiniTree(true);
 
     f3Card.setOnCardClick((e: MouseEvent, d: TreeDatum) => {
       f3Card.onCardClickDefault(e, d);
