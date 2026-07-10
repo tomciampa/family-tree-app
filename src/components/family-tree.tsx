@@ -59,6 +59,13 @@ export function FamilyTree({
   for (const uc of unionChildren) touchedIds.add(uc.child_id);
   const unplacedPeople = people.filter((p) => !touchedIds.has(p.id));
 
+  // A union can be reachable from two different root ancestors when both
+  // partners have their own recorded parents (e.g. someone who married in
+  // from a documented family). Track which unions have already been drawn
+  // so each one — and its descendants — renders fully only once; any later
+  // path to the same union shows a plain, non-expanding card instead.
+  const renderedUnionIds = new Set<string>();
+
   function renderChildEntries(personId: string, path: Set<string>) {
     const person = peopleById.get(personId);
     if (!person) return [];
@@ -71,7 +78,9 @@ export function FamilyTree({
       ];
     }
 
-    const ownUnions = unionsByParent.get(personId) ?? [];
+    const ownUnions = (unionsByParent.get(personId) ?? []).filter(
+      (u) => !renderedUnionIds.has(u.id),
+    );
     if (ownUnions.length === 0) {
       return [
         <li key={personId}>
@@ -81,9 +90,10 @@ export function FamilyTree({
     }
 
     const nextPath = new Set(path).add(personId);
-    return ownUnions.map((u) => (
-      <li key={u.id}>{renderUnionNode(u, nextPath)}</li>
-    ));
+    return ownUnions.map((u) => {
+      renderedUnionIds.add(u.id);
+      return <li key={u.id}>{renderUnionNode(u, nextPath)}</li>;
+    });
   }
 
   function renderUnionNode(union: UnionRow, path: Set<string>) {
@@ -115,9 +125,10 @@ export function FamilyTree({
       {rootUnions.length > 0 && (
         <div className={styles.tree}>
           <ul>
-            {rootUnions.map((u) => (
-              <li key={u.id}>{renderUnionNode(u, new Set())}</li>
-            ))}
+            {rootUnions.map((u) => {
+              renderedUnionIds.add(u.id);
+              return <li key={u.id}>{renderUnionNode(u, new Set())}</li>;
+            })}
           </ul>
         </div>
       )}
