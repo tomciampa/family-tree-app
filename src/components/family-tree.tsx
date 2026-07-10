@@ -263,9 +263,15 @@ export function FamilyTree({
   }
 
   return (
-    <div className={styles.wrapper}>
+    <div>
+      <div className={styles.wrapper}>
+        {topLevelBlocks.length > 0 && (
+          <div className={styles.forest}>{topLevelBlocks}</div>
+        )}
+      </div>
+
       {topLevelBlocks.length > 0 && (
-        <div className={styles.forest}>{topLevelBlocks}</div>
+        <p className={styles.scrollHint}>← scroll to see the full tree →</p>
       )}
 
       {unplacedPeople.length > 0 && (

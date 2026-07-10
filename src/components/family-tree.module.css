@@ -3,8 +3,21 @@
   padding: 1rem;
 }
 
+.scrollHint {
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--tree-muted);
+  margin-top: 0.5rem;
+}
+
 .forest {
-  display: flex;
+  /* inline-flex (not flex) shrink-wraps to the content's natural width
+     when it overflows, instead of being clamped to the scroll
+     container's width — so the true left edge sits at scrollLeft: 0
+     and stays reachable. min-width: 100% keeps it centered via
+     justify-content when the content is narrower than the viewport. */
+  display: inline-flex;
+  min-width: 100%;
   flex-wrap: wrap;
   gap: 3rem;
   justify-content: center;
