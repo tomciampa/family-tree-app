@@ -9,6 +9,7 @@ import {
   addAnotherChild,
   addFact,
   addStory,
+  extractFactFromDocument,
 } from "./actions";
 import { FACT_SOURCE_TYPES } from "./constants";
 
@@ -63,6 +64,8 @@ export function PersonPanel({
     FACT_SOURCE_TYPES[0],
   );
   const [factSourceRef, setFactSourceRef] = useState("");
+  const [factDocumentId, setFactDocumentId] = useState<string | null>(null);
+  const [isExtracting, setIsExtracting] = useState(false);
   const [storyText, setStoryText] = useState("");
   const [whoToldIt, setWhoToldIt] = useState("");
 
@@ -79,8 +82,28 @@ export function PersonPanel({
     setFactValue("");
     setFactSourceType(FACT_SOURCE_TYPES[0]);
     setFactSourceRef("");
+    setFactDocumentId(null);
+    setIsExtracting(false);
     setStoryText("");
     setWhoToldIt("");
+  }
+
+  async function handleDocumentUpload(file: File) {
+    setIsExtracting(true);
+    setError(null);
+    const formData = new FormData();
+    formData.set("file", file);
+    const result = await extractFactFromDocument(person.id, formData);
+    setIsExtracting(false);
+    if ("error" in result) {
+      setError(result.error);
+      return;
+    }
+    setFactField(result.field);
+    setFactValue(result.value);
+    setFactSourceType(result.sourceType);
+    setFactSourceRef(result.sourceRef);
+    setFactDocumentId(result.documentId);
   }
 
   function handleClose() {
@@ -435,6 +458,7 @@ export function PersonPanel({
                   factValue,
                   factSourceType,
                   factSourceRef,
+                  factDocumentId,
                 );
                 if (result?.error) {
                   setError(result.error);
@@ -445,6 +469,27 @@ export function PersonPanel({
             }}
             className="flex flex-col gap-3"
           >
+            <label className="flex flex-col gap-1 text-sm text-gray-500">
+              Upload a document (PDF) to auto-fill the fields below
+              <input
+                type="file"
+                accept="application/pdf"
+                disabled={isExtracting}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleDocumentUpload(file);
+                }}
+                className={inputClassName}
+              />
+            </label>
+            {isExtracting && (
+              <p className="text-sm text-gray-500">Reading document…</p>
+            )}
+            {factDocumentId && !isExtracting && (
+              <p className="text-sm text-gray-500">
+                Extracted from document — review the fields below before saving.
+              </p>
+            )}
             <label className="flex flex-col gap-1 text-sm text-gray-500">
               Field (e.g. Birth, Occupation, Immigration)
               <input

@@ -2,6 +2,8 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { generateObject } from "ai";
+import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { getFamilyId } from "@/lib/family";
 import { FACT_SOURCE_TYPES } from "./constants";
@@ -286,6 +288,7 @@ export async function addFact(
   value: string,
   sourceType: string,
   sourceRef: string,
+  documentId?: string | null,
 ) {
   const fieldTrimmed = field.trim();
   const valueTrimmed = value.trim();
@@ -304,6 +307,7 @@ export async function addFact(
     value: valueTrimmed,
     source_type: sourceType,
     source_ref: sourceRef.trim() || null,
+    document_id: documentId ?? null,
     family_id: familyId,
     recorded_at: new Date().toISOString(),
   });
@@ -311,6 +315,112 @@ export async function addFact(
 
   revalidatePath("/tree");
   return {};
+}
+
+type ExtractFactResult =
+  | { error: string }
+  | {
+      documentId: string;
+      field: string;
+      value: string;
+      sourceType: string;
+      sourceRef: string;
+    };
+
+export async function extractFactFromDocument(
+  personId: string,
+  formData: FormData,
+): Promise<ExtractFactResult> {
+  const file = formData.get("file");
+  if (!(file instanceof File)) return { error: "No file provided." };
+  if (file.type !== "application/pdf") {
+    return { error: "Only PDF files are supported right now." };
+  }
+
+  const supabase = await requireUser();
+  const familyId = await getFamilyId();
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const storagePath = `${familyId}/${crypto.randomUUID()}-${file.name}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from("documents")
+    .upload(storagePath, bytes, { contentType: file.type });
+  if (uploadError) return { error: uploadError.message };
+
+  let extracted;
+  try {
+    const result = await generateObject({
+      model: "anthropic/claude-sonnet-5",
+      schema: z.object({
+        field: z
+          .string()
+          .describe(
+            "Short label for what this fact records, e.g. 'Death', 'Birth', 'Occupation', 'Immigration'",
+          ),
+        value: z
+          .string()
+          .describe(
+            "The specific fact value in plain text, e.g. a date, place, or description",
+          ),
+        sourceType: z
+          .enum(FACT_SOURCE_TYPES)
+          .describe("How this fact is documented — this is a scanned document, so usually 'document'"),
+        sourceRef: z
+          .string()
+          .describe(
+            "Human-readable reference for the document, e.g. 'Death certificate, filed 1954, Suffolk County'",
+          ),
+        rawText: z
+          .string()
+          .describe("The full transcribed text content of the document"),
+      }),
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "This is a genealogy source document (e.g. a certificate, letter, or record). Extract the single most important fact it documents, along with the full transcribed text.",
+            },
+            { type: "file", data: bytes, mediaType: "application/pdf", filename: file.name },
+          ],
+        },
+      ],
+    });
+    extracted = result.object;
+  } catch (err) {
+    await supabase.storage.from("documents").remove([storagePath]);
+    return { error: err instanceof Error ? err.message : "Extraction failed." };
+  }
+
+  const { data: document, error: documentError } = await supabase
+    .from("documents")
+    .insert({
+      file_path: storagePath,
+      document_type: "pdf",
+      transcription_raw: extracted.rawText,
+      family_id: familyId,
+    })
+    .select("id")
+    .single();
+  if (documentError || !document) {
+    await supabase.storage.from("documents").remove([storagePath]);
+    return { error: documentError?.message ?? "Could not save document record." };
+  }
+
+  const { error: linkError } = await supabase
+    .from("document_people")
+    .insert({ document_id: document.id, person_id: personId });
+  if (linkError) return { error: linkError.message };
+
+  return {
+    documentId: document.id,
+    field: extracted.field,
+    value: extracted.value,
+    sourceType: extracted.sourceType,
+    sourceRef: extracted.sourceRef,
+  };
 }
 
 export async function addStory(

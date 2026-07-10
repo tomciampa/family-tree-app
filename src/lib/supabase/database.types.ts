@@ -258,6 +258,7 @@ export type Database = {
         Row: {
           confidence: string | null
           contributor_id: string | null
+          document_id: string | null
           family_id: string | null
           field: string
           id: string
@@ -270,6 +271,7 @@ export type Database = {
         Insert: {
           confidence?: string | null
           contributor_id?: string | null
+          document_id?: string | null
           family_id?: string | null
           field: string
           id?: string
@@ -282,6 +284,7 @@ export type Database = {
         Update: {
           confidence?: string | null
           contributor_id?: string | null
+          document_id?: string | null
           family_id?: string | null
           field?: string
           id?: string
@@ -297,6 +300,13 @@ export type Database = {
             columns: ["contributor_id"]
             isOneToOne: false
             referencedRelation: "contributors"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "facts_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
             referencedColumns: ["id"]
           },
           {
