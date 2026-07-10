@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { FamilyTree } from "@/components/family-tree";
+import { TreeView } from "./tree-view";
 import { AddFirstPersonForm } from "./add-first-person-form";
 
 export default async function TreePage() {
@@ -39,7 +39,7 @@ export default async function TreePage() {
       {!error && people && people.length === 0 && <AddFirstPersonForm />}
 
       {!error && people && people.length > 0 && (
-        <FamilyTree
+        <TreeView
           people={people}
           unions={unions ?? []}
           unionChildren={unionChildren ?? []}

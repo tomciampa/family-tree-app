@@ -10,10 +10,12 @@ export function FamilyTree({
   people,
   unions,
   unionChildren,
+  onPersonClick,
 }: {
   people: Person[];
   unions: UnionRow[];
   unionChildren: UnionChild[];
+  onPersonClick?: (person: Person) => void;
 }) {
   const peopleById = new Map(people.map((p) => [p.id, p]));
 
@@ -64,7 +66,7 @@ export function FamilyTree({
     if (path.has(personId)) {
       return [
         <li key={personId}>
-          <PersonCard person={person} />
+          <PersonCard person={person} onClick={onPersonClick} />
         </li>,
       ];
     }
@@ -73,7 +75,7 @@ export function FamilyTree({
     if (ownUnions.length === 0) {
       return [
         <li key={personId}>
-          <PersonCard person={person} />
+          <PersonCard person={person} onClick={onPersonClick} />
         </li>,
       ];
     }
@@ -95,9 +97,9 @@ export function FamilyTree({
     return (
       <>
         <div className={styles.couple}>
-          {p1 && <PersonCard person={p1} />}
+          {p1 && <PersonCard person={p1} onClick={onPersonClick} />}
           {p1 && p2 && <span className={styles.marriageLink} />}
-          {p2 && <PersonCard person={p2} />}
+          {p2 && <PersonCard person={p2} onClick={onPersonClick} />}
           {!p1 && !p2 && (
             <span className="text-sm text-gray-400">Unknown parents</span>
           )}
@@ -128,7 +130,7 @@ export function FamilyTree({
           <ul className="flex flex-wrap gap-2">
             {unplacedPeople.map((p) => (
               <li key={p.id}>
-                <PersonCard person={p} />
+                <PersonCard person={p} onClick={onPersonClick} />
               </li>
             ))}
           </ul>
@@ -138,18 +140,37 @@ export function FamilyTree({
   );
 }
 
-function PersonCard({ person }: { person: Person }) {
-  return (
-    <Link
-      href={`/people/${person.id}`}
-      className="flex min-w-[8rem] flex-col items-center rounded border border-gray-300 bg-white px-3 py-2 text-center text-sm shadow-sm transition-colors hover:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:hover:border-gray-600"
-    >
+function PersonCard({
+  person,
+  onClick,
+}: {
+  person: Person;
+  onClick?: (person: Person) => void;
+}) {
+  const cardClassName =
+    "flex min-w-[8rem] flex-col items-center rounded border border-gray-300 bg-white px-3 py-2 text-center text-sm shadow-sm transition-colors hover:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:hover:border-gray-600";
+  const inner = (
+    <>
       <span className="font-medium">{person.name}</span>
       <span className="text-xs text-gray-500">
         {person.birth_estimate ?? "?"}
         {" – "}
         {person.death_estimate ?? ""}
       </span>
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button type="button" onClick={() => onClick(person)} className={cardClassName}>
+        {inner}
+      </button>
+    );
+  }
+
+  return (
+    <Link href={`/people/${person.id}`} className={cardClassName}>
+      {inner}
     </Link>
   );
 }
