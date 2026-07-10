@@ -161,6 +161,15 @@ export function FamilyTree({
   const connected = people.filter((p) => touched.has(p.id));
   const unplacedPeople = people.filter((p) => !touched.has(p.id));
 
+  // Read via a ref inside the effect instead of listing onPersonClick as a
+  // dependency: an inline callback from the caller changes identity on
+  // every render, and re-running this effect tears down and rebuilds the
+  // whole chart (via container.innerHTML = "") — which would silently
+  // undo family-chart's own re-center-on-click every time a click also
+  // triggers a parent re-render (e.g. to open a detail panel).
+  const onPersonClickRef = useRef(onPersonClick);
+  onPersonClickRef.current = onPersonClick;
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container || connected.length === 0) return;
@@ -206,7 +215,7 @@ export function FamilyTree({
     f3Card.setOnCardClick((e: MouseEvent, d: TreeDatum) => {
       f3Card.onCardClickDefault(e, d);
       const person = peopleById.get(d.data.id);
-      if (person) onPersonClick?.(person);
+      if (person) onPersonClickRef.current?.(person);
     });
 
     f3Chart.updateTree({ initial: true });
@@ -214,7 +223,7 @@ export function FamilyTree({
     return () => {
       container.innerHTML = "";
     };
-  }, [people, unions, unionChildren, onPersonClick]);
+  }, [people, unions, unionChildren]);
 
   if (people.length === 0) return null;
 

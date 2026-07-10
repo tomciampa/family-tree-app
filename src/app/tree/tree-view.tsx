@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { FamilyTree } from "@/components/family-tree";
 import { PersonPanel } from "./person-panel";
 import type { Tables } from "@/lib/supabase/database.types";
@@ -25,6 +25,14 @@ export function TreeView({
   anecdotes: Anecdote[];
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Stable identity across re-renders — an inline arrow function here would
+  // change reference every time selectedId changes, and FamilyTree's effect
+  // (keyed in part on this callback) would tear down and rebuild the whole
+  // chart on every click, undoing the library's own re-center-on-click.
+  const handlePersonClick = useCallback(
+    (person: Person) => setSelectedId(person.id),
+    [],
+  );
 
   const peopleById = new Map(people.map((p) => [p.id, p]));
   const childToUnion = new Map(
@@ -63,7 +71,7 @@ export function TreeView({
         people={people}
         unions={unions}
         unionChildren={unionChildren}
-        onPersonClick={(person) => setSelectedId(person.id)}
+        onPersonClick={handlePersonClick}
       />
       {selectedPerson && (
         <PersonPanel
