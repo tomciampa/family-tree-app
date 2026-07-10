@@ -157,26 +157,35 @@ export function FamilyTree({
   onPersonClick?: (person: Person) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<ReturnType<typeof f3.createChart> | null>(null);
   const touched = touchedIds(unions, unionChildren);
   const connected = people.filter((p) => touched.has(p.id));
   const unplacedPeople = people.filter((p) => !touched.has(p.id));
+  const hasConnected = connected.length > 0;
 
-  // Read via a ref inside the effect instead of listing onPersonClick as a
-  // dependency: an inline callback from the caller changes identity on
-  // every render, and re-running this effect tears down and rebuilds the
-  // whole chart (via container.innerHTML = "") — which would silently
-  // undo family-chart's own re-center-on-click every time a click also
-  // triggers a parent re-render (e.g. to open a detail panel).
+  // Read via refs inside the effects instead of listing these as
+  // dependencies: an inline onPersonClick callback from the caller changes
+  // identity on every render, and people/unions change identity on every
+  // save (a fresh server-fetched array each time). None of that should
+  // tear down the chart — see the two effects below.
   const onPersonClickRef = useRef(onPersonClick);
   onPersonClickRef.current = onPersonClick;
+  const peopleByIdRef = useRef(new Map<string, Person>());
+  peopleByIdRef.current = new Map(people.map((p) => [p.id, p]));
+  const unionsRef = useRef(unions);
+  unionsRef.current = unions;
 
+  // Create the chart once (and only re-create if the container itself goes
+  // away and comes back, e.g. the tree has no connected people yet). This
+  // intentionally does NOT depend on people/unions/unionChildren — see the
+  // updateData effect below, which is what keeps the chart in sync with new
+  // data without tearing down and losing the current focused person.
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || connected.length === 0) return;
+    if (!container || !hasConnected) return;
 
-    const peopleById = new Map(people.map((p) => [p.id, p]));
     const unionBetween = (id1: string, id2: string) =>
-      unions.find(
+      unionsRef.current.find(
         (u) =>
           (u.parent1_id === id1 && u.parent2_id === id2) ||
           (u.parent1_id === id2 && u.parent2_id === id1),
@@ -222,15 +231,31 @@ export function FamilyTree({
 
     f3Card.setOnCardClick((e: MouseEvent, d: TreeDatum) => {
       f3Card.onCardClickDefault(e, d);
-      const person = peopleById.get(d.data.id);
+      const person = peopleByIdRef.current.get(d.data.id);
       if (person) onPersonClickRef.current?.(person);
     });
 
     f3Chart.updateTree({ initial: true });
+    chartRef.current = f3Chart;
 
     return () => {
-      container.innerHTML = "";
+      chartRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasConnected]);
+
+  // Keep the chart's data in sync with new saves via family-chart's own
+  // updateData(), instead of tearing down and recreating the chart (the
+  // previous approach). updateData() only resets the focused/main person if
+  // that person no longer exists in the new data — otherwise it's left
+  // alone, so adding a second child to Joe and Adriana while viewing them
+  // keeps them in focus instead of resetting to the tree's root person.
+  useEffect(() => {
+    if (!chartRef.current) return;
+    const data = toF3Data(connected, unions, unionChildren);
+    chartRef.current.updateData(data);
+    chartRef.current.updateTree({ initial: false, tree_position: "inherit" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [people, unions, unionChildren]);
 
   if (people.length === 0) return null;
