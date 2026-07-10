@@ -2,9 +2,10 @@
 
 import { useEffect, useRef } from "react";
 import * as f3 from "family-chart";
-import type { Data as F3Data, TreeDatum } from "family-chart";
+import type { Data as F3Data, Datum, TreeDatum } from "family-chart";
 import "family-chart/styles/family-chart.css";
 import type { Tables } from "@/lib/supabase/database.types";
+import { updatePersonName, deletePerson } from "@/app/tree/actions";
 
 type Person = Tables<"people">;
 type UnionRow = Tables<"unions">;
@@ -238,14 +239,77 @@ export function FamilyTree({
       f3Card.onCardClickDefault(e, d);
     });
 
-    // CardHtml has no built-in "add relative" button of its own (that UI
-    // only exists in family-chart's separate, opt-in EditTree feature,
-    // which we don't use — we have our own PersonPanel). setOnCardUpdate is
-    // called every time a card's DOM is (re)rendered, right after its base
-    // markup is set, so it's the supported hook for attaching extra
-    // elements without reimplementing the card template ourselves. The
-    // button's own click listener stops propagation so it doesn't also
-    // trigger the card's re-center click above.
+    // EditTree gives us a ready-made name-edit + delete form (slide-out
+    // panel, docked via the library's own .f3-form-cont) instead of us
+    // building a custom one. We only use it for editing a person's name and
+    // deleting them — its own "add relative" / "remove relative"
+    // sub-flows only mutate family-chart's in-memory copy, not our Supabase
+    // tables, so they're disabled (setCanAdd + CSS, see globals.css) in
+    // favor of the "+" button below, which is already wired to our real
+    // add-relative forms.
+    const f3EditTree = f3Chart
+      .editTree()
+      .setFields([{ type: "text", label: "Name", id: "first name" }])
+      .setEditFirst(true)
+      .setCanAdd(() => ({ parent: false, spouse: false, child: false }))
+      .setOnSubmit(
+        async (
+          e: Event,
+          datum: Datum,
+          _applyChanges: () => void,
+          postSubmit: () => void,
+        ) => {
+          e.preventDefault();
+          const formData = new FormData(e.target as HTMLFormElement);
+          const newName = String(formData.get("first name") ?? "").trim();
+          if (!newName) {
+            window.alert("Name is required.");
+            return;
+          }
+          const result = await updatePersonName(datum.id, newName);
+          if (result?.error) {
+            window.alert(result.error);
+            return;
+          }
+          // Don't call applyChanges() — the corrected name will arrive
+          // through the normal Supabase refetch + updateData() sync below,
+          // so the chart and the database never briefly disagree.
+          postSubmit();
+        },
+      )
+      .setOnDelete(
+        async (
+          datum: Datum,
+          _deletePersonLocally: () => void,
+          postSubmit: (props: unknown) => void,
+        ) => {
+          const label = datum.data["first name"] ?? "this person";
+          if (
+            !window.confirm(
+              `Delete ${label}? This removes them and their relationships from the tree permanently.`,
+            )
+          ) {
+            return;
+          }
+          const result = await deletePerson(datum.id);
+          if (result?.error) {
+            window.alert(result.error);
+            return;
+          }
+          // The library's postSubmit for a delete already carries { delete:
+          // true } internally (baked in by EditTree before calling us) —
+          // see its onDelete wiring. Close the form ourselves too since
+          // is_fixed (the default) otherwise leaves it open after a delete.
+          postSubmit(undefined);
+          f3EditTree.closeForm();
+        },
+      );
+
+    // setOnCardUpdate is called every time a card's DOM is (re)rendered,
+    // right after its base markup is set — the supported hook for
+    // attaching extra elements without reimplementing the card template
+    // ourselves. Both buttons stop propagation so they don't also trigger
+    // the card's re-center click above.
     f3Card.setOnCardUpdate(function (this: HTMLElement, d: TreeDatum) {
       const cardEl = this.querySelector<HTMLElement>(".card");
       if (!cardEl) return;
@@ -268,6 +332,24 @@ export function FamilyTree({
         if (person) onPersonClickRef.current?.(person);
       });
       cardEl.appendChild(addButton);
+
+      const editButton = document.createElement("button");
+      editButton.type = "button";
+      editButton.textContent = "✎";
+      editButton.setAttribute(
+        "aria-label",
+        `Edit or delete ${d.data.data["first name"]}`,
+      );
+      editButton.style.cssText =
+        "position: absolute; top: -6px; left: -6px; width: 22px; height: 22px; " +
+        "border-radius: 50%; border: none; background: #52525b; color: white; " +
+        "font-size: 12px; line-height: 1; cursor: pointer; display: flex; " +
+        "align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,0.4);";
+      editButton.addEventListener("click", (e) => {
+        e.stopPropagation();
+        f3EditTree.openFormWithId(d.data.id);
+      });
+      cardEl.appendChild(editButton);
     });
 
     f3Chart.updateTree({ initial: true });

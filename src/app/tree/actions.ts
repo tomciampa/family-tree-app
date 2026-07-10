@@ -195,6 +195,91 @@ export async function addAnotherChild(unionId: string, childName: string) {
   return {};
 }
 
+export async function updatePersonName(personId: string, newName: string) {
+  const trimmed = newName.trim();
+  if (!trimmed) return { error: "Name is required." };
+
+  const supabase = await requireUser();
+
+  const { error } = await supabase
+    .from("people")
+    .update({ name: trimmed })
+    .eq("id", personId);
+  if (error) return { error: error.message };
+
+  revalidatePath("/tree");
+  return {};
+}
+
+export async function deletePerson(personId: string) {
+  const supabase = await requireUser();
+
+  // Remove this person as a listed child anywhere — their birth parents'
+  // union itself is left intact, since it's still a valid record of that
+  // relationship even with one fewer child listed.
+  const { error: childUnlinkError } = await supabase
+    .from("union_children")
+    .delete()
+    .eq("child_id", personId);
+  if (childUnlinkError) return { error: childUnlinkError.message };
+
+  // Unions where this person is a parent: if the union has children, keep
+  // it (with just this person's parent slot cleared) so those children
+  // don't lose their parent record. If it has no children, the union is
+  // meaningless once this person is gone, so drop it entirely rather than
+  // leaving an orphaned one- or zero-parent row behind.
+  const { data: unionsAsParent, error: unionsError } = await supabase
+    .from("unions")
+    .select("id, parent1_id, parent2_id")
+    .or(`parent1_id.eq.${personId},parent2_id.eq.${personId}`);
+  if (unionsError) return { error: unionsError.message };
+
+  for (const union of unionsAsParent ?? []) {
+    const { count, error: countError } = await supabase
+      .from("union_children")
+      .select("*", { count: "exact", head: true })
+      .eq("union_id", union.id);
+    if (countError) return { error: countError.message };
+
+    if (count && count > 0) {
+      const remainingParentId =
+        union.parent1_id === personId ? union.parent2_id : union.parent1_id;
+      const { error: updateError } = await supabase
+        .from("unions")
+        .update({ parent1_id: remainingParentId, parent2_id: null })
+        .eq("id", union.id);
+      if (updateError) return { error: updateError.message };
+    } else {
+      const { error: deleteUnionError } = await supabase
+        .from("unions")
+        .delete()
+        .eq("id", union.id);
+      if (deleteUnionError) return { error: deleteUnionError.message };
+    }
+  }
+
+  const { error: factsError } = await supabase
+    .from("facts")
+    .delete()
+    .eq("person_id", personId);
+  if (factsError) return { error: factsError.message };
+
+  const { error: anecdotesError } = await supabase
+    .from("anecdotes")
+    .delete()
+    .eq("person_id", personId);
+  if (anecdotesError) return { error: anecdotesError.message };
+
+  const { error: personError } = await supabase
+    .from("people")
+    .delete()
+    .eq("id", personId);
+  if (personError) return { error: personError.message };
+
+  revalidatePath("/tree");
+  return {};
+}
+
 export async function addFact(
   personId: string,
   field: string,
