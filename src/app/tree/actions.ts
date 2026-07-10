@@ -82,3 +82,39 @@ export async function addParents(
   revalidatePath("/tree");
   return {};
 }
+
+export async function addSibling(personId: string, siblingName: string) {
+  const trimmed = siblingName.trim();
+  if (!trimmed) return { error: "Sibling's name is required." };
+
+  const supabase = await requireUser();
+  const familyId = await getFamilyId();
+
+  const { data: existingLink, error: linkError } = await supabase
+    .from("union_children")
+    .select("union_id")
+    .eq("child_id", personId)
+    .limit(1)
+    .maybeSingle();
+  if (linkError) return { error: linkError.message };
+  if (!existingLink) {
+    return { error: "This person doesn't have parents recorded yet." };
+  }
+
+  const { data: sibling, error: siblingError } = await supabase
+    .from("people")
+    .insert({ name: trimmed, family_id: familyId })
+    .select("id")
+    .single();
+  if (siblingError || !sibling) {
+    return { error: siblingError?.message ?? "Could not create sibling." };
+  }
+
+  const { error: unionChildError } = await supabase
+    .from("union_children")
+    .insert({ union_id: existingLink.union_id, child_id: sibling.id });
+  if (unionChildError) return { error: unionChildError.message };
+
+  revalidatePath("/tree");
+  return {};
+}

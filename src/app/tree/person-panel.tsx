@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import type { Tables } from "@/lib/supabase/database.types";
-import { addParents } from "./actions";
+import { addParents, addSibling } from "./actions";
 
 type Person = Tables<"people">;
 
@@ -20,17 +20,21 @@ export function PersonPanel({
   hasParents: boolean;
   onClose: () => void;
 }) {
-  const [activeForm, setActiveForm] = useState<null | "add-parents">(null);
+  const [activeForm, setActiveForm] = useState<
+    null | "add-parents" | "add-sibling"
+  >(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [parent1, setParent1] = useState("");
   const [parent2, setParent2] = useState("");
+  const [siblingName, setSiblingName] = useState("");
 
   function closeForm() {
     setActiveForm(null);
     setError(null);
     setParent1("");
     setParent2("");
+    setSiblingName("");
   }
 
   function handleClose() {
@@ -72,6 +76,15 @@ export function PersonPanel({
                   + Add parents
                 </button>
               )}
+              {hasParents && (
+                <button
+                  type="button"
+                  onClick={() => setActiveForm("add-sibling")}
+                  className={actionButtonClassName}
+                >
+                  + Add sibling
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -106,6 +119,53 @@ export function PersonPanel({
               <input
                 value={parent2}
                 onChange={(e) => setParent2(e.target.value)}
+                className={inputClassName}
+              />
+            </label>
+
+            {error && <p className="text-sm text-red-500">{error}</p>}
+
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={isPending}
+                className="rounded border border-gray-300 px-3 py-2 text-sm hover:border-gray-400 disabled:opacity-50 dark:border-gray-700 dark:hover:border-gray-600"
+              >
+                {isPending ? "Saving…" : "Save"}
+              </button>
+              <button
+                type="button"
+                onClick={closeForm}
+                className="rounded px-3 py-2 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
+
+        {activeForm === "add-sibling" && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              startTransition(async () => {
+                const result = await addSibling(person.id, siblingName);
+                if (result?.error) {
+                  setError(result.error);
+                  return;
+                }
+                handleClose();
+              });
+            }}
+            className="flex flex-col gap-3"
+          >
+            <label className="flex flex-col gap-1 text-sm text-gray-500">
+              Sibling&apos;s name
+              <input
+                value={siblingName}
+                onChange={(e) => setSiblingName(e.target.value)}
+                autoFocus
+                required
                 className={inputClassName}
               />
             </label>
