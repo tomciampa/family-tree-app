@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactElement } from "react";
 import type { Tables } from "@/lib/supabase/database.types";
 import styles from "./family-tree.module.css";
 
@@ -79,11 +80,23 @@ export function FamilyTree({
   // marriages fan off asymmetrically).
   const renderedPersonIds = new Set<string>();
 
-  function renderParentSlot(personId: string | null, path: Set<string>) {
+  // When a spouse's own birth family is discovered fresh (not yet drawn
+  // anywhere), it belongs one generation above the couple — but the couple
+  // itself may already be nested several levels deep (e.g. a child's own
+  // marriage branch). Rendering it inline at that nesting depth puts it on
+  // the same visual row as the couple instead of the row above. Instead,
+  // such ascending couples are collected here, keyed by depth (relative to
+  // the same depth=0 every top-level anchor starts from), and rendered as
+  // shared rows above the main tree — so any two ascending branches that
+  // land on the same depth always end up on the same row, however they
+  // were each reached.
+  const hoistedRows = new Map<number, { anchorName: string; node: ReactElement }[]>();
+
+  function renderParentSlot(personId: string | null, path: Set<string>, depth: number) {
     if (!personId || !peopleById.has(personId)) {
       return <span className={styles.unknownParent}>Unknown</span>;
     }
-    return renderPersonFanned(personId, path);
+    return renderPersonFanned(personId, path, depth);
   }
 
   // Hiding a union's descendants must be final: mark that whole branch
@@ -103,38 +116,45 @@ export function FamilyTree({
     }
   }
 
-  function renderUnionCouple(union: UnionRow, path: Set<string>) {
+  function renderUnionCouple(
+    union: UnionRow,
+    path: Set<string>,
+    depth: number,
+    excludeChildId?: string,
+  ) {
     if (collapsedUnionIds.has(union.id)) {
       markDescendantsHidden(union);
       return (
         <div className={styles.unionBlock} key={union.id}>
           <div className={styles.couple}>
-            {renderParentSlot(union.parent1_id, path)}
+            {renderParentSlot(union.parent1_id, path, depth)}
             {union.parent1_id && union.parent2_id && (
               <span className={styles.marriageLink} />
             )}
-            {renderParentSlot(union.parent2_id, path)}
+            {renderParentSlot(union.parent2_id, path, depth)}
           </div>
           <p className={styles.unknownParent}>(collapsed)</p>
         </div>
       );
     }
 
-    const childIds = childrenByUnion.get(union.id) ?? [];
+    const childIds = (childrenByUnion.get(union.id) ?? []).filter(
+      (cid) => cid !== excludeChildId,
+    );
 
     return (
       <div className={styles.unionBlock} key={union.id}>
         <div className={styles.couple}>
-          {renderParentSlot(union.parent1_id, path)}
+          {renderParentSlot(union.parent1_id, path, depth)}
           {union.parent1_id && union.parent2_id && (
             <span className={styles.marriageLink} />
           )}
-          {renderParentSlot(union.parent2_id, path)}
+          {renderParentSlot(union.parent2_id, path, depth)}
         </div>
         {union.note && <p className={styles.note}>{union.note}</p>}
         {childIds.length > 0 && (
           <div className={styles.childrenRow}>
-            {childIds.map((cid) => renderPersonFanned(cid, path))}
+            {childIds.map((cid) => renderPersonFanned(cid, path, depth + 1))}
           </div>
         )}
       </div>
@@ -145,6 +165,7 @@ export function FamilyTree({
     union: UnionRow,
     anchorPersonId: string,
     path: Set<string>,
+    depth: number,
   ) {
     const spouseId =
       union.parent1_id === anchorPersonId
@@ -160,7 +181,7 @@ export function FamilyTree({
             {union.note && (
               <span className={styles.marriageLabel}>{union.note}</span>
             )}
-            {renderParentSlot(spouseId, path)}
+            {renderParentSlot(spouseId, path, depth)}
             <span className={styles.unknownParent}>(collapsed)</span>
           </div>
         </div>
@@ -178,18 +199,18 @@ export function FamilyTree({
           {union.note && (
             <span className={styles.marriageLabel}>{union.note}</span>
           )}
-          {renderParentSlot(spouseId, path)}
+          {renderParentSlot(spouseId, path, depth)}
         </div>
         {childIds.length > 0 && (
           <div className={styles.childrenRow}>
-            {childIds.map((cid) => renderPersonFanned(cid, nextPath))}
+            {childIds.map((cid) => renderPersonFanned(cid, nextPath, depth + 1))}
           </div>
         )}
       </div>
     );
   }
 
-  function renderPersonFanned(personId: string, path: Set<string>) {
+  function renderPersonFanned(personId: string, path: Set<string>, depth: number) {
     const person = peopleById.get(personId);
     if (!person) return null;
 
@@ -203,19 +224,25 @@ export function FamilyTree({
     }
 
     // If this person's own birth family hasn't been drawn anywhere yet,
-    // draw it now — couple plus all of their children, this person
-    // included — and let this person emerge in that children row with
-    // their own marriage fan intact. The renderedUnionIds guard means
-    // when we reach this same person again a level down, their incoming
-    // union is already claimed, so it falls through to the plain
-    // card-plus-marriages case below instead of recursing forever.
+    // draw it now. It belongs one row above wherever this person's own
+    // card ends up (depth - 1) — not nested inline at this person's own
+    // depth — so it lands on the same row as any other ascending branch
+    // at that depth, however each was reached. It's collected into
+    // hoistedRows rather than returned directly; this person still
+    // renders normally (own card + marriages) below, so they're excluded
+    // from the hoisted couple's own children row (their siblings there
+    // still show normally) to avoid drawing their card twice.
     const incomingUnionId = childToUnionId.get(personId);
     const incomingUnion = incomingUnionId
       ? unionsById.get(incomingUnionId)
       : undefined;
     if (incomingUnion && !renderedUnionIds.has(incomingUnion.id)) {
       renderedUnionIds.add(incomingUnion.id);
-      return renderUnionCouple(incomingUnion, path);
+      const hoistDepth = depth - 1;
+      const node = renderUnionCouple(incomingUnion, path, hoistDepth, personId);
+      const row = hoistedRows.get(hoistDepth) ?? [];
+      row.push({ anchorName: person.name, node });
+      hoistedRows.set(hoistDepth, row);
     }
 
     const nextPath = new Set(path).add(personId);
@@ -225,7 +252,7 @@ export function FamilyTree({
 
     const marriageBranches = marriages.map((union) => {
       renderedUnionIds.add(union.id);
-      return renderMarriageBranch(union, personId, nextPath);
+      return renderMarriageBranch(union, personId, nextPath, depth);
     });
 
     renderedPersonIds.add(personId);
@@ -259,14 +286,47 @@ export function FamilyTree({
   for (const person of orderedTopLevelPeople) {
     if (renderedPersonIds.has(person.id)) continue;
     if (!touchedIds.has(person.id)) continue; // unplaced people render separately below
-    topLevelBlocks.push(renderPersonFanned(person.id, new Set()));
+    topLevelBlocks.push(renderPersonFanned(person.id, new Set(), 0));
+  }
+
+  // Depth 0 is shared by two sources: the top-level anchors above, and any
+  // ascending couple hoisted from a depth-1 person's spouse (e.g. Tom &
+  // Mary McGloin, hoisted from Laurie at depth 1, land at depth 0 — the
+  // same row as Robert & Peggy Ciampa, a genuine depth-0 top-level anchor).
+  // Those must render in the same row container, not two stacked ones.
+  const hoistedAtZero = hoistedRows.get(0) ?? [];
+  hoistedRows.delete(0);
+
+  // Remaining hoisted rows (always < 0, ancestors of a top-level anchor's
+  // own spouse) render shallowest-first, above depth 0, so the oldest
+  // known generation ends up at the very top.
+  const hoistedDepths = [...hoistedRows.keys()].sort((a, b) => a - b);
+
+  function renderHoistedItem(
+    { anchorName, node }: { anchorName: string; node: ReactElement },
+    key: number,
+  ) {
+    return (
+      <div key={key} className={styles.hoistedItem}>
+        {node}
+        <p className={styles.hoistedLabel}>parents of {anchorName}</p>
+      </div>
+    );
   }
 
   return (
     <div>
       <div className={styles.wrapper}>
-        {topLevelBlocks.length > 0 && (
-          <div className={styles.forest}>{topLevelBlocks}</div>
+        {hoistedDepths.map((depth) => (
+          <div className={styles.forest} key={`hoisted-${depth}`}>
+            {hoistedRows.get(depth)!.map((item, i) => renderHoistedItem(item, i))}
+          </div>
+        ))}
+        {(topLevelBlocks.length > 0 || hoistedAtZero.length > 0) && (
+          <div className={styles.forest}>
+            {hoistedAtZero.map((item, i) => renderHoistedItem(item, i))}
+            {topLevelBlocks}
+          </div>
         )}
       </div>
 

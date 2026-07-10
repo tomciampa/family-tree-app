@@ -15,10 +15,13 @@
      when it overflows, instead of being clamped to the scroll
      container's width — so the true left edge sits at scrollLeft: 0
      and stays reachable. min-width: 100% keeps it centered via
-     justify-content when the content is narrower than the viewport. */
+     justify-content when the content is narrower than the viewport.
+     No flex-wrap: each .forest is one generation row, and wrapping
+     would let a wide item push later same-row content onto a visual
+     second line — indistinguishable from being a whole row lower.
+     Overflow scrolls horizontally instead (see .wrapper). */
   display: inline-flex;
   min-width: 100%;
-  flex-wrap: wrap;
   gap: 3rem;
   justify-content: center;
 }
@@ -108,4 +111,19 @@
   font-size: 0.875rem;
   color: var(--tree-muted);
   white-space: nowrap;
+}
+
+.hoistedItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 2px dashed var(--tree-line);
+}
+
+.hoistedLabel {
+  font-size: 0.65rem;
+  color: var(--tree-muted);
+  font-style: italic;
 }
