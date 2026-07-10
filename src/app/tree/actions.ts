@@ -227,3 +227,27 @@ export async function addFact(
   revalidatePath("/tree");
   return {};
 }
+
+export async function addStory(
+  personId: string,
+  storyText: string,
+  whoToldIt: string,
+) {
+  const textTrimmed = storyText.trim();
+  if (!textTrimmed) return { error: "Story text is required." };
+
+  const supabase = await requireUser();
+  const familyId = await getFamilyId();
+
+  const { error: insertError } = await supabase.from("anecdotes").insert({
+    person_id: personId,
+    story_text: textTrimmed,
+    who_told_it: whoToldIt.trim() || null,
+    family_id: familyId,
+    recorded_at: new Date().toISOString(),
+  });
+  if (insertError) return { error: insertError.message };
+
+  revalidatePath("/tree");
+  return {};
+}

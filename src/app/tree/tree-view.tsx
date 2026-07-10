@@ -9,17 +9,20 @@ type Person = Tables<"people">;
 type UnionRow = Tables<"unions">;
 type UnionChild = Tables<"union_children">;
 type Fact = Tables<"facts">;
+type Anecdote = Tables<"anecdotes">;
 
 export function TreeView({
   people,
   unions,
   unionChildren,
   facts,
+  anecdotes,
 }: {
   people: Person[];
   unions: UnionRow[];
   unionChildren: UnionChild[];
   facts: Fact[];
+  anecdotes: Anecdote[];
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -50,6 +53,10 @@ export function TreeView({
     ? facts.filter((f) => f.person_id === selectedPerson.id)
     : [];
 
+  const personAnecdotes = selectedPerson
+    ? anecdotes.filter((a) => a.person_id === selectedPerson.id)
+    : [];
+
   return (
     <>
       <FamilyTree
@@ -64,6 +71,7 @@ export function TreeView({
           hasParents={childToUnion.has(selectedPerson.id)}
           marriages={marriages}
           facts={personFacts}
+          anecdotes={personAnecdotes}
           onClose={() => setSelectedId(null)}
         />
       )}
