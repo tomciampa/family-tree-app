@@ -20,10 +20,28 @@ export function TreeView({
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  const peopleById = new Map(people.map((p) => [p.id, p]));
   const childToUnion = new Map(
     unionChildren.map((uc) => [uc.child_id, uc.union_id]),
   );
   const selectedPerson = people.find((p) => p.id === selectedId) ?? null;
+
+  const marriages = selectedPerson
+    ? unions
+        .filter(
+          (u) =>
+            u.parent1_id === selectedPerson.id ||
+            u.parent2_id === selectedPerson.id,
+        )
+        .map((u) => {
+          const spouseId =
+            u.parent1_id === selectedPerson.id ? u.parent2_id : u.parent1_id;
+          return {
+            unionId: u.id,
+            spouseName: spouseId ? (peopleById.get(spouseId)?.name ?? null) : null,
+          };
+        })
+    : [];
 
   return (
     <>
@@ -37,6 +55,7 @@ export function TreeView({
         <PersonPanel
           person={selectedPerson}
           hasParents={childToUnion.has(selectedPerson.id)}
+          marriages={marriages}
           onClose={() => setSelectedId(null)}
         />
       )}

@@ -118,3 +118,78 @@ export async function addSibling(personId: string, siblingName: string) {
   revalidatePath("/tree");
   return {};
 }
+
+export async function addSpouseAndChild(
+  personId: string,
+  spouseName: string,
+  childName: string,
+) {
+  const spouseTrimmed = spouseName.trim();
+  if (!spouseTrimmed) return { error: "Spouse's name is required." };
+  const childTrimmed = childName.trim();
+
+  const supabase = await requireUser();
+  const familyId = await getFamilyId();
+
+  const { data: spouse, error: spouseError } = await supabase
+    .from("people")
+    .insert({ name: spouseTrimmed, family_id: familyId })
+    .select("id")
+    .single();
+  if (spouseError || !spouse) {
+    return { error: spouseError?.message ?? "Could not create spouse." };
+  }
+
+  const { data: union, error: unionError } = await supabase
+    .from("unions")
+    .insert({ parent1_id: personId, parent2_id: spouse.id, family_id: familyId })
+    .select("id")
+    .single();
+  if (unionError || !union) {
+    return { error: unionError?.message ?? "Could not create union." };
+  }
+
+  if (childTrimmed) {
+    const { data: child, error: childError } = await supabase
+      .from("people")
+      .insert({ name: childTrimmed, family_id: familyId })
+      .select("id")
+      .single();
+    if (childError || !child) {
+      return { error: childError?.message ?? "Could not create child." };
+    }
+
+    const { error: unionChildError } = await supabase
+      .from("union_children")
+      .insert({ union_id: union.id, child_id: child.id });
+    if (unionChildError) return { error: unionChildError.message };
+  }
+
+  revalidatePath("/tree");
+  return {};
+}
+
+export async function addAnotherChild(unionId: string, childName: string) {
+  const trimmed = childName.trim();
+  if (!trimmed) return { error: "Child's name is required." };
+
+  const supabase = await requireUser();
+  const familyId = await getFamilyId();
+
+  const { data: child, error: childError } = await supabase
+    .from("people")
+    .insert({ name: trimmed, family_id: familyId })
+    .select("id")
+    .single();
+  if (childError || !child) {
+    return { error: childError?.message ?? "Could not create child." };
+  }
+
+  const { error: unionChildError } = await supabase
+    .from("union_children")
+    .insert({ union_id: unionId, child_id: child.id });
+  if (unionChildError) return { error: unionChildError.message };
+
+  revalidatePath("/tree");
+  return {};
+}
