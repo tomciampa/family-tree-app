@@ -76,9 +76,18 @@
 }
 
 .marriages {
+  /* Side by side (row), not stacked (column): a column would place the
+     second marriage branch below the FIRST branch's entire height —
+     including its children row — instead of at this person's own row,
+     since branches can be taller or shorter than each other depending
+     on whether that marriage has children. Row placement with
+     align-items: flex-start keeps every branch's connector starting at
+     the same row as this person's own card, however tall any one
+     branch's children row makes it. */
   display: flex;
-  flex-direction: column;
-  gap: 1rem;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 1.5rem;
 }
 
 .marriageBranch {
