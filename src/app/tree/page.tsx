@@ -14,14 +14,19 @@ export default async function TreePage() {
     redirect("/login");
   }
 
-  const [{ data: people, error: peopleError }, { data: unions, error: unionsError }, { data: unionChildren, error: unionChildrenError }] =
-    await Promise.all([
-      supabase.from("people").select("*").order("created_at"),
-      supabase.from("unions").select("*").order("created_at"),
-      supabase.from("union_children").select("*"),
-    ]);
+  const [
+    { data: people, error: peopleError },
+    { data: unions, error: unionsError },
+    { data: unionChildren, error: unionChildrenError },
+    { data: facts, error: factsError },
+  ] = await Promise.all([
+    supabase.from("people").select("*").order("created_at"),
+    supabase.from("unions").select("*").order("created_at"),
+    supabase.from("union_children").select("*"),
+    supabase.from("facts").select("*").order("recorded_at"),
+  ]);
 
-  const error = peopleError ?? unionsError ?? unionChildrenError;
+  const error = peopleError ?? unionsError ?? unionChildrenError ?? factsError;
 
   return (
     <main className="flex min-h-screen flex-col gap-6 p-8">
@@ -43,6 +48,7 @@ export default async function TreePage() {
           people={people}
           unions={unions ?? []}
           unionChildren={unionChildren ?? []}
+          facts={facts ?? []}
         />
       )}
     </main>

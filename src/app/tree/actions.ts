@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getFamilyId } from "@/lib/family";
+import { FACT_SOURCE_TYPES } from "./constants";
 
 async function requireUser() {
   const supabase = await createClient();
@@ -189,6 +190,39 @@ export async function addAnotherChild(unionId: string, childName: string) {
     .from("union_children")
     .insert({ union_id: unionId, child_id: child.id });
   if (unionChildError) return { error: unionChildError.message };
+
+  revalidatePath("/tree");
+  return {};
+}
+
+export async function addFact(
+  personId: string,
+  field: string,
+  value: string,
+  sourceType: string,
+  sourceRef: string,
+) {
+  const fieldTrimmed = field.trim();
+  const valueTrimmed = value.trim();
+  if (!fieldTrimmed) return { error: "Field is required." };
+  if (!valueTrimmed) return { error: "Value is required." };
+  if (!FACT_SOURCE_TYPES.includes(sourceType as (typeof FACT_SOURCE_TYPES)[number])) {
+    return { error: "Invalid source type." };
+  }
+
+  const supabase = await requireUser();
+  const familyId = await getFamilyId();
+
+  const { error } = await supabase.from("facts").insert({
+    person_id: personId,
+    field: fieldTrimmed,
+    value: valueTrimmed,
+    source_type: sourceType,
+    source_ref: sourceRef.trim() || null,
+    family_id: familyId,
+    recorded_at: new Date().toISOString(),
+  });
+  if (error) return { error: error.message };
 
   revalidatePath("/tree");
   return {};

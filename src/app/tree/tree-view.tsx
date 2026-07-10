@@ -8,15 +8,18 @@ import type { Tables } from "@/lib/supabase/database.types";
 type Person = Tables<"people">;
 type UnionRow = Tables<"unions">;
 type UnionChild = Tables<"union_children">;
+type Fact = Tables<"facts">;
 
 export function TreeView({
   people,
   unions,
   unionChildren,
+  facts,
 }: {
   people: Person[];
   unions: UnionRow[];
   unionChildren: UnionChild[];
+  facts: Fact[];
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -43,6 +46,10 @@ export function TreeView({
         })
     : [];
 
+  const personFacts = selectedPerson
+    ? facts.filter((f) => f.person_id === selectedPerson.id)
+    : [];
+
   return (
     <>
       <FamilyTree
@@ -56,6 +63,7 @@ export function TreeView({
           person={selectedPerson}
           hasParents={childToUnion.has(selectedPerson.id)}
           marriages={marriages}
+          facts={personFacts}
           onClose={() => setSelectedId(null)}
         />
       )}
