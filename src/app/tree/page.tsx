@@ -16,8 +16,8 @@ export default async function TreePage() {
 
   const [{ data: people, error: peopleError }, { data: unions, error: unionsError }, { data: unionChildren, error: unionChildrenError }] =
     await Promise.all([
-      supabase.from("people").select("*"),
-      supabase.from("unions").select("*"),
+      supabase.from("people").select("*").order("created_at"),
+      supabase.from("unions").select("*").order("created_at"),
       supabase.from("union_children").select("*"),
     ]);
 

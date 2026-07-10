@@ -3,93 +3,29 @@
   padding: 1rem;
 }
 
-.tree,
-.tree ul {
+.forest {
   display: flex;
+  flex-wrap: wrap;
+  gap: 3rem;
   justify-content: center;
-  position: relative;
 }
 
-.tree ul {
-  padding-top: 2.5rem;
-}
-
-.tree li {
+.unionBlock {
   display: flex;
   flex-direction: column;
   align-items: center;
-  list-style: none;
-  position: relative;
-  padding: 2.5rem 0.75rem 0 0.75rem;
-}
-
-.tree li::before,
-.tree li::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: 50%;
-  width: 50%;
-  height: 2.5rem;
-  border-top: 2px solid var(--tree-line);
-}
-
-.tree li::after {
-  right: auto;
-  left: 50%;
-  border-left: 2px solid var(--tree-line);
-}
-
-.tree li:only-child::before,
-.tree li:only-child::after {
-  display: none;
-}
-
-.tree li:only-child {
-  padding-top: 0;
-}
-
-.tree li:first-child::before,
-.tree li:last-child::after {
-  border: 0 none;
-}
-
-.tree li:last-child::before {
-  border-right: 2px solid var(--tree-line);
-  border-radius: 0 6px 0 0;
-}
-
-.tree li:first-child::after {
-  border-radius: 6px 0 0 0;
-}
-
-.tree > ul {
-  padding-top: 0;
-}
-
-.tree > ul::before {
-  display: none;
-}
-
-.tree ul::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 50%;
-  border-left: 2px solid var(--tree-line);
-  width: 0;
-  height: 2.5rem;
 }
 
 .couple {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.5rem;
 }
 
 .marriageLink {
   width: 1.25rem;
   height: 2px;
+  margin-top: 1.35rem;
   background: var(--tree-line);
   flex-shrink: 0;
 }
@@ -98,5 +34,65 @@
   font-size: 0.7rem;
   color: var(--tree-muted);
   margin-top: 0.25rem;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.childrenRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.5rem;
+  padding-top: 1.25rem;
+  margin-top: 0.5rem;
+  border-top: 2px solid var(--tree-line);
+}
+
+.personFanned {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.personRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.marriages {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.marriageBranch {
+  display: flex;
+  flex-direction: column;
+}
+
+.marriageConnectorRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
+.marriageConnectorLine {
+  width: 1.25rem;
+  height: 2px;
+  margin-top: 1.35rem;
+  background: var(--tree-line);
+  flex-shrink: 0;
+}
+
+.marriageLabel {
+  font-size: 0.65rem;
+  color: var(--tree-muted);
+  white-space: nowrap;
+  margin-top: 1.35rem;
+}
+
+.unknownParent {
+  font-size: 0.875rem;
+  color: var(--tree-muted);
   white-space: nowrap;
 }
