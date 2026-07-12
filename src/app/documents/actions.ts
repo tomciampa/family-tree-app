@@ -165,6 +165,7 @@ export type PersonMatch = {
   personName: string;
   score: number;
   dateSignal: "overlap" | "conflict" | null;
+  relationSignal?: boolean;
 };
 
 export type CandidateWithMatch = CandidatePerson & {
@@ -188,6 +189,157 @@ const HIGH_CONFIDENCE_MARGIN = 0.15;
 const MATCH_FLOOR = 0.2;
 const DATE_OVERLAP_BONUS = 0.15;
 const DATE_CONFLICT_PENALTY = 0.2;
+// An existing recorded relationship (this candidate already IS the
+// anchor's spouse/parent/child in the tree) is a much stronger signal
+// than any amount of name-string similarity — comfortably above anything
+// a same-surname coincidence could produce, but short of the 1.0 reserved
+// for an exact name match.
+const RELATIONSHIP_MATCH_SCORE = 0.95;
+
+function classifyRelationType(
+  relation: string | null,
+): "spouse" | "parent" | "child" | null {
+  if (!relation) return null;
+  const r = relation.toLowerCase();
+  if (/spouse|wife|husband|married/.test(r)) return "spouse";
+  if (/father|mother|parent/.test(r)) return "parent";
+  if (/son|daughter|child/.test(r)) return "child";
+  return null;
+}
+
+function isMainSubjectRelation(relation: string | null): boolean {
+  if (!relation) return false;
+  return /deceased|self|subject|newborn/i.test(relation);
+}
+
+type SupabaseClient = Awaited<ReturnType<typeof requireUser>>;
+
+async function getRealSpouseIds(
+  supabase: SupabaseClient,
+  personId: string,
+): Promise<string[]> {
+  const { data } = await supabase
+    .from("unions")
+    .select("parent1_id, parent2_id")
+    .or(`parent1_id.eq.${personId},parent2_id.eq.${personId}`);
+  return (data ?? [])
+    .map((u) => (u.parent1_id === personId ? u.parent2_id : u.parent1_id))
+    .filter((id): id is string => !!id);
+}
+
+async function getRealParentIds(
+  supabase: SupabaseClient,
+  personId: string,
+): Promise<string[]> {
+  const { data: links } = await supabase
+    .from("union_children")
+    .select("union_id")
+    .eq("child_id", personId);
+  if (!links || links.length === 0) return [];
+
+  const { data: unions } = await supabase
+    .from("unions")
+    .select("parent1_id, parent2_id")
+    .in(
+      "id",
+      links.map((l) => l.union_id),
+    );
+  const ids: string[] = [];
+  for (const u of unions ?? []) {
+    if (u.parent1_id) ids.push(u.parent1_id);
+    if (u.parent2_id) ids.push(u.parent2_id);
+  }
+  return ids;
+}
+
+async function getRealChildIds(
+  supabase: SupabaseClient,
+  personId: string,
+): Promise<string[]> {
+  const { data: unions } = await supabase
+    .from("unions")
+    .select("id")
+    .or(`parent1_id.eq.${personId},parent2_id.eq.${personId}`);
+  if (!unions || unions.length === 0) return [];
+
+  const { data: links } = await supabase
+    .from("union_children")
+    .select("child_id")
+    .in(
+      "union_id",
+      unions.map((u) => u.id),
+    );
+  return (links ?? []).map((l) => l.child_id);
+}
+
+function reclassify(matches: PersonMatch[]): CandidateWithMatch["matchStatus"] {
+  matches.sort((a, b) => b.score - a.score);
+  const [top, runnerUp] = matches;
+  if (!top) return "no_match";
+  const isClearWinner =
+    top.score >= HIGH_CONFIDENCE_THRESHOLD &&
+    (!runnerUp || top.score - runnerUp.score >= HIGH_CONFIDENCE_MARGIN);
+  return isClearWinner ? "high_confidence" : "multiple_matches";
+}
+
+// Boosts (or adds) a match for anyone who is ALREADY recorded, in the tree,
+// as having the relationship to the anchor that the document says they
+// have — e.g. the document calls them "spouse of Vincenzo" and they're
+// literally Vincenzo's spouse in the unions table. This is far more
+// reliable than name similarity alone, which can't tell a maiden name or
+// an Anglicized name from an unrelated same-surname coincidence.
+async function applyRelationshipSignal(
+  supabase: SupabaseClient,
+  results: CandidateWithMatch[],
+): Promise<void> {
+  const familyCandidates = results.filter((r) => r.roleCategory === "family");
+  const resolvedAnchors = familyCandidates.filter(
+    (r) => r.matchStatus === "high_confidence" && r.matches.length > 0,
+  );
+  if (resolvedAnchors.length === 0) return;
+
+  const mainSubject =
+    resolvedAnchors.find((r) => isMainSubjectRelation(r.relation)) ??
+    [...resolvedAnchors].sort(
+      (a, b) => b.matches[0].score - a.matches[0].score,
+    )[0];
+  const anchorId = mainSubject.matches[0].personId;
+
+  for (const candidate of familyCandidates) {
+    if (candidate === mainSubject) continue;
+    const relType = classifyRelationType(candidate.relation);
+    if (!relType) continue;
+
+    const realRelatedIds =
+      relType === "spouse"
+        ? await getRealSpouseIds(supabase, anchorId)
+        : relType === "parent"
+          ? await getRealParentIds(supabase, anchorId)
+          : await getRealChildIds(supabase, anchorId);
+    if (realRelatedIds.length === 0) continue;
+
+    // Only boost matches this candidate's own name search already turned
+    // up — never inject a real-related person with zero name corroboration.
+    // "parent" covers both father and mother (no gender data to tell them
+    // apart), and a person can have more than one real spouse or child, so
+    // realRelatedIds is often a set, not a single answer: without an
+    // existing name-based match to anchor it to a specific candidate,
+    // there's no reliable way to know which real relative belongs to
+    // which document candidate. Recording the wrong one confidently would
+    // be worse than leaving it ambiguous.
+    let boosted = false;
+    for (const match of candidate.matches) {
+      if (realRelatedIds.includes(match.personId)) {
+        match.score = Math.max(match.score, RELATIONSHIP_MATCH_SCORE);
+        match.relationSignal = true;
+        boosted = true;
+      }
+    }
+    if (!boosted) continue;
+
+    candidate.matchStatus = reclassify(candidate.matches);
+  }
+}
 
 type MatchCandidatesResult =
   | { error: string }
@@ -255,21 +407,16 @@ export async function matchCandidatesForDocument(
         dateSignal,
       };
     });
-    matches.sort((a, b) => b.score - a.score);
-
-    const [top, runnerUp] = matches;
-    const isClearWinner =
-      top.score >= HIGH_CONFIDENCE_THRESHOLD &&
-      (!runnerUp || top.score - runnerUp.score >= HIGH_CONFIDENCE_MARGIN);
-    const matchStatus: CandidateWithMatch["matchStatus"] =
-      matches.length === 0
-        ? "no_match"
-        : isClearWinner
-          ? "high_confidence"
-          : "multiple_matches";
+    const matchStatus = reclassify(matches);
 
     results.push({ ...candidate, matchStatus, matches });
   }
+
+  // Second pass: for candidates the name-similarity pass left ambiguous
+  // (or ranked low), check whether they already have the recorded
+  // relationship the document describes to another candidate that DID
+  // resolve confidently — a much stronger signal than name text alone.
+  await applyRelationshipSignal(supabase, results);
 
   const { error: updateError } = await supabase
     .from("documents")
