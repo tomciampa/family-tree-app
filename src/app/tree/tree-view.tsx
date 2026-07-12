@@ -10,6 +10,13 @@ type UnionRow = Tables<"unions">;
 type UnionChild = Tables<"union_children">;
 type Fact = Tables<"facts">;
 type Anecdote = Tables<"anecdotes">;
+type PersonDocument = {
+  personId: string;
+  id: string;
+  filename: string | null;
+  documentType: string | null;
+  viewUrl: string | null;
+};
 
 export function TreeView({
   people,
@@ -17,12 +24,14 @@ export function TreeView({
   unionChildren,
   facts,
   anecdotes,
+  personDocuments,
 }: {
   people: Person[];
   unions: UnionRow[];
   unionChildren: UnionChild[];
   facts: Fact[];
   anecdotes: Anecdote[];
+  personDocuments: PersonDocument[];
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Stable identity across re-renders — an inline arrow function here would
@@ -65,6 +74,10 @@ export function TreeView({
     ? anecdotes.filter((a) => a.person_id === selectedPerson.id)
     : [];
 
+  const selectedPersonDocuments = selectedPerson
+    ? personDocuments.filter((d) => d.personId === selectedPerson.id)
+    : [];
+
   return (
     <>
       <FamilyTree
@@ -80,6 +93,7 @@ export function TreeView({
           marriages={marriages}
           facts={personFacts}
           anecdotes={personAnecdotes}
+          documents={selectedPersonDocuments}
           onClose={() => setSelectedId(null)}
         />
       )}

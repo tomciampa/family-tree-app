@@ -17,6 +17,13 @@ type Person = Tables<"people">;
 type Fact = Tables<"facts">;
 type Anecdote = Tables<"anecdotes">;
 type Marriage = { unionId: string; spouseName: string | null };
+type PersonDocument = {
+  personId: string;
+  id: string;
+  filename: string | null;
+  documentType: string | null;
+  viewUrl: string | null;
+};
 
 const inputClassName =
   "rounded border border-gray-300 px-3 py-2 text-sm text-black dark:border-gray-700 dark:bg-gray-800 dark:text-white";
@@ -40,6 +47,7 @@ export function PersonPanel({
   marriages,
   facts,
   anecdotes,
+  documents,
   onClose,
 }: {
   person: Person;
@@ -47,6 +55,7 @@ export function PersonPanel({
   marriages: Marriage[];
   facts: Fact[];
   anecdotes: Anecdote[];
+  documents: PersonDocument[];
   onClose: () => void;
 }) {
   const [activeForm, setActiveForm] = useState<ActiveForm>(null);
@@ -158,6 +167,36 @@ export function PersonPanel({
                   <span className="mt-1 block text-xs not-italic text-gray-500">
                     — recorded from {anecdote.who_told_it}
                   </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {documents.length > 0 && (
+          <div className="mb-4 flex flex-col gap-2 border-b border-gray-200 pb-4 dark:border-gray-800">
+            <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+              Documents
+            </p>
+            {documents.map((doc) => (
+              <div
+                key={doc.id}
+                className="flex items-center justify-between gap-2 text-sm"
+              >
+                {doc.viewUrl ? (
+                  <a
+                    href={doc.viewUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline hover:text-gray-500"
+                  >
+                    {doc.filename ?? "View document"}
+                  </a>
+                ) : (
+                  <span>{doc.filename ?? "Document"}</span>
+                )}
+                {doc.documentType && (
+                  <span className={sourceBadgeClassName}>{doc.documentType}</span>
                 )}
               </div>
             ))}

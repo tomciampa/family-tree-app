@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getSignedDocumentUrls } from "@/lib/documents";
 import { DocumentsView, type DocumentRow } from "./documents-view";
 
 export default async function DocumentsPage() {
@@ -18,6 +19,15 @@ export default async function DocumentsPage() {
     .select("id, filename, file_path, status, recorded_at, candidate_people")
     .order("recorded_at", { ascending: false });
 
+  const urlByPath = await getSignedDocumentUrls(
+    supabase,
+    (documents ?? []).map((d) => d.file_path),
+  );
+  const documentsWithUrls = (documents ?? []).map((d) => ({
+    ...d,
+    viewUrl: urlByPath.get(d.file_path) ?? null,
+  }));
+
   return (
     <main className="flex min-h-screen flex-col gap-6 p-8">
       <div className="mx-auto flex w-full max-w-2xl items-center justify-between">
@@ -32,7 +42,7 @@ export default async function DocumentsPage() {
       )}
 
       {!error && (
-        <DocumentsView documents={(documents ?? []) as unknown as DocumentRow[]} />
+        <DocumentsView documents={documentsWithUrls as unknown as DocumentRow[]} />
       )}
     </main>
   );

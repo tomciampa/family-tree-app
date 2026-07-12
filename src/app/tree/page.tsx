@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getSignedDocumentUrls } from "@/lib/documents";
 import { TreeView } from "./tree-view";
 import { AddFirstPersonForm } from "./add-first-person-form";
 
@@ -20,16 +21,41 @@ export default async function TreePage() {
     { data: unionChildren, error: unionChildrenError },
     { data: facts, error: factsError },
     { data: anecdotes, error: anecdotesError },
+    { data: documentLinks, error: documentLinksError },
   ] = await Promise.all([
     supabase.from("people").select("*").order("created_at"),
     supabase.from("unions").select("*").order("created_at"),
     supabase.from("union_children").select("*"),
     supabase.from("facts").select("*").order("recorded_at"),
     supabase.from("anecdotes").select("*").order("recorded_at"),
+    supabase
+      .from("document_people")
+      .select("person_id, documents(id, filename, file_path, document_type)"),
   ]);
 
   const error =
-    peopleError ?? unionsError ?? unionChildrenError ?? factsError ?? anecdotesError;
+    peopleError ??
+    unionsError ??
+    unionChildrenError ??
+    factsError ??
+    anecdotesError ??
+    documentLinksError;
+
+  const urlByPath = await getSignedDocumentUrls(
+    supabase,
+    (documentLinks ?? [])
+      .map((l) => l.documents?.file_path)
+      .filter((p): p is string => !!p),
+  );
+  const personDocuments = (documentLinks ?? [])
+    .filter((l) => l.documents)
+    .map((l) => ({
+      personId: l.person_id,
+      id: l.documents!.id,
+      filename: l.documents!.filename,
+      documentType: l.documents!.document_type,
+      viewUrl: urlByPath.get(l.documents!.file_path) ?? null,
+    }));
 
   return (
     <main className="flex min-h-screen flex-col gap-6 p-8">
@@ -53,6 +79,7 @@ export default async function TreePage() {
           unionChildren={unionChildren ?? []}
           facts={facts ?? []}
           anecdotes={anecdotes ?? []}
+          personDocuments={personDocuments}
         />
       )}
     </main>

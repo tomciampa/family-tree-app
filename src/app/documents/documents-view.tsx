@@ -43,6 +43,7 @@ export type DocumentRow = {
   status: string;
   recorded_at: string | null;
   candidate_people: CandidatePerson[] | null;
+  viewUrl: string | null;
 };
 
 const statusStyles: Record<string, string> = {
@@ -183,7 +184,18 @@ function DocumentItem({ doc }: { doc: DocumentRow }) {
   return (
     <div className="rounded border border-gray-200 px-4 py-3 text-sm dark:border-gray-800">
       <div className="flex items-center justify-between gap-4">
-        <span className="truncate">{doc.filename ?? doc.file_path}</span>
+        {doc.viewUrl ? (
+          <a
+            href={doc.viewUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="truncate underline hover:text-gray-500"
+          >
+            {doc.filename ?? doc.file_path}
+          </a>
+        ) : (
+          <span className="truncate">{doc.filename ?? doc.file_path}</span>
+        )}
         <span className="flex items-center gap-3">
           <span className="text-xs text-gray-500">
             {doc.recorded_at
