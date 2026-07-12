@@ -143,8 +143,10 @@ export type Database = {
           document_type: string | null
           family_id: string | null
           file_path: string
+          filename: string | null
           id: string
           recorded_at: string | null
+          status: string
           transcription_raw: string | null
           uploaded_by: string | null
         }
@@ -152,8 +154,10 @@ export type Database = {
           document_type?: string | null
           family_id?: string | null
           file_path: string
+          filename?: string | null
           id?: string
           recorded_at?: string | null
+          status?: string
           transcription_raw?: string | null
           uploaded_by?: string | null
         }
@@ -161,8 +165,10 @@ export type Database = {
           document_type?: string | null
           family_id?: string | null
           file_path?: string
+          filename?: string | null
           id?: string
           recorded_at?: string | null
+          status?: string
           transcription_raw?: string | null
           uploaded_by?: string | null
         }

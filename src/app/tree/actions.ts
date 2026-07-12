@@ -398,9 +398,11 @@ export async function extractFactFromDocument(
     .from("documents")
     .insert({
       file_path: storagePath,
+      filename: file.name,
       document_type: "pdf",
       transcription_raw: extracted.rawText,
       family_id: familyId,
+      status: "matched",
     })
     .select("id")
     .single();

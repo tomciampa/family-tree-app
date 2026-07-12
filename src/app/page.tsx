@@ -26,6 +26,9 @@ export default async function Home() {
         <Link href="/tree" className="underline">
           Family tree
         </Link>
+        <Link href="/documents" className="underline">
+          Documents
+        </Link>
       </div>
       <form action={signOut}>
         <button
