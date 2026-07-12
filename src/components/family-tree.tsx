@@ -347,7 +347,7 @@ function renderSupplementaryOverlay(
     const card = document.createElement("div");
     card.className = "supplementary-node";
     card.dataset.id = pos.id;
-    card.style.cssText = `position: absolute; top: 0; left: 0; width: ${SUPPLEMENTARY_CARD_W}px; height: ${SUPPLEMENTARY_CARD_H}px; transform: translate(${pos.x - SUPPLEMENTARY_CARD_W / 2}px, ${pos.y - SUPPLEMENTARY_CARD_H / 2}px); background: var(--genderless-color, #f7f1e3); color: var(--text-color, #2b2015); border-radius: 6px; border: 1px solid rgba(43,32,21,0.35); box-shadow: 0 1px 3px rgba(0,0,0,0.15); display: flex; align-items: center; padding: 0 12px; font-size: 13px; line-height: 1.2;`;
+    card.style.cssText = `position: absolute; top: 0; left: 0; width: ${SUPPLEMENTARY_CARD_W}px; height: ${SUPPLEMENTARY_CARD_H}px; transform: translate(${pos.x - SUPPLEMENTARY_CARD_W / 2}px, ${pos.y - SUPPLEMENTARY_CARD_H / 2}px); background: var(--genderless-color, #f7f1e3); color: var(--text-color, #2b2015); border-radius: 6px; border: 1px solid rgba(43,32,21,0.35); box-shadow: 0 1px 3px rgba(0,0,0,0.15); display: flex; align-items: center; padding: 0 12px; font-size: 13px; line-height: 1.2; pointer-events: none;`;
     card.textContent = person
       ? person.is_placeholder
         ? `${person.name} (?)`
@@ -687,7 +687,32 @@ export function FamilyTree({
     // re-renders for any reason (new main, data change) — setAfterUpdate
     // is a supported public hook for exactly this ("run something after
     // every tree update"), not a workaround.
-    f3Chart.setAfterUpdate(() => syncOverlayRef.current());
+    //
+    // Crucially, this resync can't happen synchronously inside the hook
+    // itself: family-chart's own card repositioning (updateCardsHtml, in
+    // its source) runs via a d3 .transition().style("transform", ...) that
+    // hasn't applied its first interpolated frame yet at the moment
+    // setAfterUpdate fires (both happen in the same synchronous call
+    // stack, before any repaint). Reading a card's position at that instant
+    // via getCardWorldPos returns its PRE-update transform — stale, not
+    // the new one — with nothing to correct it afterward, since
+    // setAfterUpdate only fires once per update. On a recenter that
+    // actually moves the anchor card (e.g. expanding Peggy's ancestry, then
+    // clicking Robert to make him main), this stranded the overlay at
+    // Peggy's old on-screen position while her real card glided away to
+    // its new spot — which reads exactly like "her chain disappeared" once
+    // the stale spot lands somewhere unhelpful. Deferring the resync until
+    // after the transition completes (using the actual transition_time
+    // family-chart hands back in props, not a guessed constant) reads the
+    // anchor's final settled position instead.
+    f3Chart.setAfterUpdate((props?: { transition_time?: number }) => {
+      const transitionTime = props?.transition_time ?? 0;
+      if (transitionTime > 0) {
+        window.setTimeout(() => syncOverlayRef.current(), transitionTime + 50);
+      } else {
+        syncOverlayRef.current();
+      }
+    });
 
     f3Chart.updateTree({ initial: true });
     chartRef.current = f3Chart;
