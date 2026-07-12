@@ -6,6 +6,7 @@ import { generateObject } from "ai";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { getFamilyId } from "@/lib/family";
+import { addFirstPerson } from "@/app/tree/actions";
 
 async function requireUser() {
   const supabase = await createClient();
@@ -168,9 +169,16 @@ export type PersonMatch = {
   relationSignal?: boolean;
 };
 
+export type CandidateResolution = {
+  action: "confirmed" | "created" | "skipped";
+  personId?: string;
+  factId?: string;
+};
+
 export type CandidateWithMatch = CandidatePerson & {
   matchStatus: "high_confidence" | "multiple_matches" | "no_match";
   matches: PersonMatch[];
+  resolution?: CandidateResolution;
 };
 
 function extractYears(text: string | null): number[] {
@@ -426,4 +434,224 @@ export async function matchCandidatesForDocument(
 
   revalidatePath("/documents");
   return { candidates: results };
+}
+
+function factFieldForRelation(relation: string | null): string {
+  if (!relation) return "Document";
+  const r = relation.toLowerCase();
+  if (r.includes("deceas")) return "Death";
+  if (r.includes("birth") || r === "newborn") return "Birth";
+  return relation.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function factValueForCandidate(candidate: CandidatePerson): string {
+  const parts = [candidate.dates, candidate.note].filter(
+    (v): v is string => !!v,
+  );
+  if (parts.length > 0) return parts.join(" · ");
+  return candidate.relation
+    ? `Named as ${candidate.relation} in this document`
+    : "Named in this document";
+}
+
+// After any resolution action, check whether every family candidate on
+// this document now has a resolution (confirmed, created, or explicitly
+// skipped) — if so, the document is done and moves out of pending_match.
+async function maybeMarkDocumentMatched(
+  supabase: SupabaseClient,
+  documentId: string,
+  candidates: CandidateWithMatch[],
+) {
+  const familyCandidates = candidates.filter((c) => c.roleCategory === "family");
+  const allResolved =
+    familyCandidates.length > 0 &&
+    familyCandidates.every((c) => !!c.resolution);
+  if (allResolved) {
+    await supabase
+      .from("documents")
+      .update({ status: "matched" })
+      .eq("id", documentId);
+  }
+}
+
+async function loadCandidates(
+  supabase: SupabaseClient,
+  documentId: string,
+): Promise<
+  | { error: string }
+  | { filename: string | null; candidates: CandidateWithMatch[] }
+> {
+  const { data: document, error } = await supabase
+    .from("documents")
+    .select("filename, candidate_people")
+    .eq("id", documentId)
+    .single();
+  if (error || !document) {
+    return { error: error?.message ?? "Document not found." };
+  }
+  return {
+    filename: document.filename,
+    candidates: (document.candidate_people ??
+      []) as unknown as CandidateWithMatch[],
+  };
+}
+
+type ResolveResult = { error: string } | { candidates: CandidateWithMatch[] };
+
+// Links the document to an existing person (a suggested match the user
+// confirmed, or one they picked from the multiple_matches alternatives)
+// and records a fact on that person sourced from this document. Nothing
+// is written until this is explicitly called — matching alone never
+// touches document_people or facts.
+export async function confirmCandidateMatch(
+  documentId: string,
+  candidateIndex: number,
+  personId: string,
+): Promise<ResolveResult> {
+  const supabase = await requireUser();
+  const familyId = await getFamilyId();
+
+  const loaded = await loadCandidates(supabase, documentId);
+  if ("error" in loaded) return loaded;
+  const { filename, candidates } = loaded;
+  const candidate = candidates[candidateIndex];
+  if (!candidate) return { error: "Candidate not found." };
+
+  const { error: linkError } = await supabase
+    .from("document_people")
+    .insert({ document_id: documentId, person_id: personId });
+  if (linkError && linkError.code !== "23505") {
+    // 23505 = already linked (unique violation) — fine, not an error here.
+    return { error: linkError.message };
+  }
+
+  const { data: fact, error: factError } = await supabase
+    .from("facts")
+    .insert({
+      person_id: personId,
+      field: factFieldForRelation(candidate.relation),
+      value: factValueForCandidate(candidate),
+      source_type: "document",
+      source_ref: filename ?? "uploaded document",
+      document_id: documentId,
+      family_id: familyId,
+      recorded_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
+  if (factError || !fact) {
+    return { error: factError?.message ?? "Could not create fact." };
+  }
+
+  candidates[candidateIndex] = {
+    ...candidate,
+    resolution: { action: "confirmed", personId, factId: fact.id },
+  };
+
+  const { error: updateError } = await supabase
+    .from("documents")
+    .update({ candidate_people: candidates })
+    .eq("id", documentId);
+  if (updateError) return { error: updateError.message };
+
+  await maybeMarkDocumentMatched(supabase, documentId, candidates);
+
+  revalidatePath("/documents");
+  revalidatePath("/tree");
+  return { candidates };
+}
+
+// For no_match candidates, or when the user rejects every suggested
+// match — creates a brand-new person via the same addFirstPerson action
+// the tree's own "+ Add first person" flow uses (no separate person-
+// creation code path), then links and records a fact exactly like
+// confirming an existing match does.
+export async function createPersonForCandidate(
+  documentId: string,
+  candidateIndex: number,
+  name: string,
+): Promise<ResolveResult> {
+  const supabase = await requireUser();
+  const familyId = await getFamilyId();
+
+  const loaded = await loadCandidates(supabase, documentId);
+  if ("error" in loaded) return loaded;
+  const { filename, candidates } = loaded;
+  const candidate = candidates[candidateIndex];
+  if (!candidate) return { error: "Candidate not found." };
+
+  const created = await addFirstPerson(name);
+  if ("error" in created) return { error: created.error };
+  const personId = created.personId;
+
+  const { error: linkError } = await supabase
+    .from("document_people")
+    .insert({ document_id: documentId, person_id: personId });
+  if (linkError && linkError.code !== "23505") {
+    return { error: linkError.message };
+  }
+
+  const { data: fact, error: factError } = await supabase
+    .from("facts")
+    .insert({
+      person_id: personId,
+      field: factFieldForRelation(candidate.relation),
+      value: factValueForCandidate(candidate),
+      source_type: "document",
+      source_ref: filename ?? "uploaded document",
+      document_id: documentId,
+      family_id: familyId,
+      recorded_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
+  if (factError || !fact) {
+    return { error: factError?.message ?? "Could not create fact." };
+  }
+
+  candidates[candidateIndex] = {
+    ...candidate,
+    resolution: { action: "created", personId, factId: fact.id },
+  };
+
+  const { error: updateError } = await supabase
+    .from("documents")
+    .update({ candidate_people: candidates })
+    .eq("id", documentId);
+  if (updateError) return { error: updateError.message };
+
+  await maybeMarkDocumentMatched(supabase, documentId, candidates);
+
+  revalidatePath("/documents");
+  revalidatePath("/tree");
+  return { candidates };
+}
+
+export async function skipCandidateResolution(
+  documentId: string,
+  candidateIndex: number,
+): Promise<ResolveResult> {
+  const supabase = await requireUser();
+
+  const loaded = await loadCandidates(supabase, documentId);
+  if ("error" in loaded) return loaded;
+  const { candidates } = loaded;
+  const candidate = candidates[candidateIndex];
+  if (!candidate) return { error: "Candidate not found." };
+
+  candidates[candidateIndex] = {
+    ...candidate,
+    resolution: { action: "skipped" },
+  };
+
+  const { error: updateError } = await supabase
+    .from("documents")
+    .update({ candidate_people: candidates })
+    .eq("id", documentId);
+  if (updateError) return { error: updateError.message };
+
+  await maybeMarkDocumentMatched(supabase, documentId, candidates);
+
+  revalidatePath("/documents");
+  return { candidates };
 }

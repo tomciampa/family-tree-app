@@ -17,21 +17,25 @@ async function requireUser() {
   return supabase;
 }
 
-export async function addFirstPerson(name: string) {
+export async function addFirstPerson(
+  name: string,
+): Promise<{ error: string } | { personId: string }> {
   const trimmed = name.trim();
   if (!trimmed) return { error: "Name is required." };
 
   const supabase = await requireUser();
   const familyId = await getFamilyId();
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("people")
-    .insert({ name: trimmed, family_id: familyId });
+    .insert({ name: trimmed, family_id: familyId })
+    .select("id")
+    .single();
 
   if (error) return { error: error.message };
 
   revalidatePath("/tree");
-  return {};
+  return { personId: data.id };
 }
 
 export async function addParents(

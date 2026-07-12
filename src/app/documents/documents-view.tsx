@@ -1,10 +1,14 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
+import { useRef } from "react";
 import {
   uploadDocument,
   extractCandidatesFromDocument,
   matchCandidatesForDocument,
+  confirmCandidateMatch,
+  createPersonForCandidate,
+  skipCandidateResolution,
 } from "./actions";
 
 export type PersonMatch = {
@@ -12,6 +16,13 @@ export type PersonMatch = {
   personName: string;
   score: number;
   dateSignal: "overlap" | "conflict" | null;
+  relationSignal?: boolean;
+};
+
+export type CandidateResolution = {
+  action: "confirmed" | "created" | "skipped";
+  personId?: string;
+  factId?: string;
 };
 
 export type CandidatePerson = {
@@ -22,6 +33,7 @@ export type CandidatePerson = {
   note: string | null;
   matchStatus?: "high_confidence" | "multiple_matches" | "no_match";
   matches?: PersonMatch[];
+  resolution?: CandidateResolution;
 };
 
 export type DocumentRow = {
@@ -101,9 +113,7 @@ export function DocumentsView({ documents }: { documents: DocumentRow[] }) {
           Certificates, letters, photos, anything — they&apos;ll be matched to
           people later.
         </p>
-        {isUploading && (
-          <p className="text-sm text-gray-500">Uploading…</p>
-        )}
+        {isUploading && <p className="text-sm text-gray-500">Uploading…</p>}
       </div>
 
       {error && <p className="text-sm text-red-500">{error}</p>}
@@ -124,6 +134,7 @@ function DocumentItem({ doc }: { doc: DocumentRow }) {
   const [isExtracting, setIsExtracting] = useState(false);
   const [isMatching, setIsMatching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState(doc.status);
   const [candidates, setCandidates] = useState<CandidatePerson[] | null>(
     doc.candidate_people,
   );
@@ -152,8 +163,22 @@ function DocumentItem({ doc }: { doc: DocumentRow }) {
     setCandidates(result.candidates);
   }
 
+  function handleCandidateUpdate(
+    updated: CandidatePerson[],
+    newStatus?: string,
+  ) {
+    setCandidates(updated);
+    if (newStatus) setStatus(newStatus);
+  }
+
   const hasFamilyCandidates =
     candidates?.some((c) => c.roleCategory === "family") ?? false;
+  const familyEntries = (candidates ?? [])
+    .map((c, index) => ({ c, index }))
+    .filter(({ c }) => c.roleCategory === "family");
+  const adminEntries = (candidates ?? [])
+    .map((c, index) => ({ c, index }))
+    .filter(({ c }) => c.roleCategory === "administrative");
 
   return (
     <div className="rounded border border-gray-200 px-4 py-3 text-sm dark:border-gray-800">
@@ -167,10 +192,10 @@ function DocumentItem({ doc }: { doc: DocumentRow }) {
           </span>
           <span
             className={`rounded px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
-              statusStyles[doc.status] ?? statusStyles.pending_match
+              statusStyles[status] ?? statusStyles.pending_match
             }`}
           >
-            {doc.status.replace("_", " ")}
+            {status.replace("_", " ")}
           </span>
           <button
             type="button"
@@ -178,11 +203,7 @@ function DocumentItem({ doc }: { doc: DocumentRow }) {
             disabled={isExtracting}
             className="rounded border border-gray-300 px-2 py-1 text-xs hover:border-gray-400 disabled:opacity-50 dark:border-gray-700 dark:hover:border-gray-600"
           >
-            {isExtracting
-              ? "Extracting…"
-              : candidates
-                ? "Re-extract"
-                : "Extract"}
+            {isExtracting ? "Extracting…" : candidates ? "Re-extract" : "Extract"}
           </button>
           {hasFamilyCandidates && (
             <button
@@ -201,68 +222,48 @@ function DocumentItem({ doc }: { doc: DocumentRow }) {
 
       {candidates && candidates.length > 0 && (
         <div className="mt-2 flex flex-col gap-3 border-t border-gray-100 pt-2 dark:border-gray-800">
-          <CandidateGroup
-            title="Family"
-            candidates={candidates.filter((c) => c.roleCategory === "family")}
-          />
-          <CandidateGroup
-            title="Administrative (not matched as family)"
-            candidates={candidates.filter(
-              (c) => c.roleCategory === "administrative",
-            )}
-            muted
-          />
+          {familyEntries.length > 0 && (
+            <div>
+              <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-gray-500">
+                Family
+              </p>
+              <ul className="flex flex-col gap-3">
+                {familyEntries.map(({ c, index }) => (
+                  <FamilyCandidateRow
+                    key={index}
+                    documentId={doc.id}
+                    index={index}
+                    candidate={c}
+                    onUpdate={handleCandidateUpdate}
+                  />
+                ))}
+              </ul>
+            </div>
+          )}
+          {adminEntries.length > 0 && (
+            <div>
+              <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-600">
+                Administrative (not matched as family)
+              </p>
+              <ul className="flex flex-col gap-1">
+                {adminEntries.map(({ c, index }) => (
+                  <li
+                    key={index}
+                    className="text-xs text-gray-400 dark:text-gray-600"
+                  >
+                    <span className="font-medium text-gray-500 dark:text-gray-500">
+                      {c.name}
+                    </span>
+                    {c.relation && ` — ${c.relation}`}
+                    {c.dates && ` (${c.dates})`}
+                    {c.note && ` · ${c.note}`}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
-    </div>
-  );
-}
-
-function CandidateGroup({
-  title,
-  candidates,
-  muted,
-}: {
-  title: string;
-  candidates: CandidatePerson[];
-  muted?: boolean;
-}) {
-  if (candidates.length === 0) return null;
-  return (
-    <div>
-      <p
-        className={`mb-1 text-[10px] font-medium uppercase tracking-wide ${
-          muted ? "text-gray-400 dark:text-gray-600" : "text-gray-500"
-        }`}
-      >
-        {title}
-      </p>
-      <ul className="flex flex-col gap-1">
-        {candidates.map((c, i) => (
-          <li
-            key={i}
-            className={`text-xs ${
-              muted
-                ? "text-gray-400 dark:text-gray-600"
-                : "text-gray-600 dark:text-gray-400"
-            }`}
-          >
-            <span
-              className={`font-medium ${
-                muted
-                  ? "text-gray-500 dark:text-gray-500"
-                  : "text-gray-800 dark:text-gray-200"
-              }`}
-            >
-              {c.name}
-            </span>
-            {c.relation && ` — ${c.relation}`}
-            {c.dates && ` (${c.dates})`}
-            {c.note && ` · ${c.note}`}
-            {!muted && c.matchStatus && <MatchInfo candidate={c} />}
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }
@@ -281,26 +282,179 @@ const matchStatusLabels: Record<string, string> = {
   no_match: "no match found",
 };
 
-function MatchInfo({ candidate }: { candidate: CandidatePerson }) {
-  const status = candidate.matchStatus!;
+function namesConflict(a: string, b: string) {
+  return a.trim().toLowerCase() !== b.trim().toLowerCase();
+}
+
+function FamilyCandidateRow({
+  documentId,
+  index,
+  candidate,
+  onUpdate,
+}: {
+  documentId: string;
+  index: number;
+  candidate: CandidatePerson;
+  onUpdate: (updated: CandidatePerson[], newStatus?: string) => void;
+}) {
+  const [selection, setSelection] = useState<string>(() =>
+    candidate.matchStatus === "high_confidence" && candidate.matches?.[0]
+      ? candidate.matches[0].personId
+      : candidate.matches?.length
+        ? ""
+        : "__new__",
+  );
+  const [newName, setNewName] = useState(candidate.name);
+  const [showAll, setShowAll] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const matches = candidate.matches ?? [];
+  const visibleMatches = showAll ? matches : matches.slice(0, 6);
+
+  async function handleConfirm() {
+    setIsSaving(true);
+    setError(null);
+    const result =
+      selection === "__new__"
+        ? await createPersonForCandidate(documentId, index, newName)
+        : await confirmCandidateMatch(documentId, index, selection);
+    setIsSaving(false);
+    if ("error" in result) {
+      setError(result.error);
+      return;
+    }
+    const allResolved = result.candidates
+      .filter((c) => c.roleCategory === "family")
+      .every((c) => !!c.resolution);
+    onUpdate(result.candidates, allResolved ? "matched" : undefined);
+  }
+
+  async function handleSkip() {
+    setIsSaving(true);
+    setError(null);
+    const result = await skipCandidateResolution(documentId, index);
+    setIsSaving(false);
+    if ("error" in result) {
+      setError(result.error);
+      return;
+    }
+    const allResolved = result.candidates
+      .filter((c) => c.roleCategory === "family")
+      .every((c) => !!c.resolution);
+    onUpdate(result.candidates, allResolved ? "matched" : undefined);
+  }
+
+  const resolvedPerson = candidate.resolution?.personId
+    ? (matches.find((m) => m.personId === candidate.resolution?.personId)
+        ?.personName ?? newName)
+    : null;
+
   return (
-    <div className="mt-1 ml-2">
-      <span
-        className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${matchStatusStyles[status]}`}
-      >
-        {matchStatusLabels[status]}
+    <li className="text-xs text-gray-600 dark:text-gray-400">
+      <span className="font-medium text-gray-800 dark:text-gray-200">
+        {candidate.name}
       </span>
-      {candidate.matches && candidate.matches.length > 0 && (
-        <ul className="mt-1 flex flex-col gap-0.5">
-          {candidate.matches.map((m) => (
-            <li key={m.personId} className="text-[11px] text-gray-500">
-              {m.personName} — {(m.score * 100).toFixed(0)}%
-              {m.dateSignal === "overlap" && " · dates match"}
-              {m.dateSignal === "conflict" && " · dates conflict"}
-            </li>
-          ))}
-        </ul>
+      {candidate.relation && ` — ${candidate.relation}`}
+      {candidate.dates && ` (${candidate.dates})`}
+      {candidate.note && ` · ${candidate.note}`}
+
+      {candidate.matchStatus && (
+        <div className="mt-1 ml-2">
+          <span
+            className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${matchStatusStyles[candidate.matchStatus]}`}
+          >
+            {matchStatusLabels[candidate.matchStatus]}
+          </span>
+
+          {candidate.resolution ? (
+            <p className="mt-1 text-[11px] text-gray-500">
+              {candidate.resolution.action === "confirmed" &&
+                `Confirmed → linked to ${resolvedPerson}`}
+              {candidate.resolution.action === "created" &&
+                `Created new person: ${resolvedPerson}`}
+              {candidate.resolution.action === "skipped" && "Skipped"}
+            </p>
+          ) : (
+            <div className="mt-2 flex flex-col gap-1.5 rounded border border-gray-200 p-2 dark:border-gray-800">
+              {visibleMatches.map((m) => (
+                <label key={m.personId} className="flex items-start gap-1.5">
+                  <input
+                    type="radio"
+                    name={`candidate-${documentId}-${index}`}
+                    checked={selection === m.personId}
+                    onChange={() => setSelection(m.personId)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    {m.personName} — {(m.score * 100).toFixed(0)}%
+                    {m.relationSignal && " · existing relationship"}
+                    {m.dateSignal === "overlap" && " · dates match"}
+                    {m.dateSignal === "conflict" && " · dates conflict"}
+                    {namesConflict(candidate.name, m.personName) && (
+                      <span className="block text-amber-600 dark:text-amber-400">
+                        Extracted as &quot;{candidate.name}&quot; — existing
+                        record is &quot;{m.personName}&quot;. Confirming
+                        won&apos;t change the stored name.
+                      </span>
+                    )}
+                  </span>
+                </label>
+              ))}
+              {matches.length > 6 && !showAll && (
+                <button
+                  type="button"
+                  onClick={() => setShowAll(true)}
+                  className="self-start text-[11px] text-gray-500 underline"
+                >
+                  Show all {matches.length}
+                </button>
+              )}
+
+              <label className="flex items-start gap-1.5">
+                <input
+                  type="radio"
+                  name={`candidate-${documentId}-${index}`}
+                  checked={selection === "__new__"}
+                  onChange={() => setSelection("__new__")}
+                  className="mt-0.5"
+                />
+                <span className="flex flex-col gap-1">
+                  None of these — create a new person
+                  {selection === "__new__" && (
+                    <input
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                      className="rounded border border-gray-300 px-2 py-1 text-xs text-black dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                    />
+                  )}
+                </span>
+              </label>
+
+              {error && <p className="text-[11px] text-red-500">{error}</p>}
+
+              <div className="mt-1 flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleConfirm}
+                  disabled={isSaving || !selection}
+                  className="rounded border border-gray-300 px-2 py-1 text-[11px] hover:border-gray-400 disabled:opacity-50 dark:border-gray-700 dark:hover:border-gray-600"
+                >
+                  {isSaving ? "Saving…" : "Confirm"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSkip}
+                  disabled={isSaving}
+                  className="rounded px-2 py-1 text-[11px] text-gray-500 hover:text-gray-700 disabled:opacity-50 dark:hover:text-gray-300"
+                >
+                  Skip
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       )}
-    </div>
+    </li>
   );
 }

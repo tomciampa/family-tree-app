@@ -29,7 +29,7 @@ export function AddFirstPersonForm() {
         e.preventDefault();
         startTransition(async () => {
           const result = await addFirstPerson(name);
-          if (result?.error) {
+          if ("error" in result) {
             setError(result.error);
             return;
           }
