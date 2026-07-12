@@ -39,3 +39,49 @@ body {
 .f3 .f3-remove-relative-btn {
   display: none;
 }
+
+/* Archival-paper theme for the tree, via family-chart's own documented
+   CSS custom properties (its default theme is dark/near-black, which read
+   as low-contrast gray-on-gray in places — a real accessibility problem
+   for a family history app meant to be used by elderly relatives, not
+   just an aesthetic one). Every person card currently has no gender data,
+   so --genderless-color is what actually paints card backgrounds;
+   --male-color/--female-color still matter because the mini-tree badge
+   (the small "more relatives not shown" pill above a card) always uses
+   them for its two halves regardless of the person's own gender.
+   Selector is .f3.f3-cont (matching the two classes the container itself
+   carries), not just .f3 — family-chart's own family-chart.css defines
+   these same variables on plain .f3, and since it's imported from within
+   a client component, it ends up later in the cascade than this file,
+   winning any same-specificity tie. Two classes beats one regardless of
+   import order. */
+.f3.f3-cont {
+  --background-color: #e8dfc8; /* aged parchment canvas */
+  --text-color: #2b2015; /* dark ink */
+  --genderless-color: #f7f1e3; /* paper-white card fill */
+  --male-color: #5c7360; /* muted ledger-green */
+  --female-color: #a97b52; /* muted sepia */
+}
+
+/* Connector lines between cards are drawn with an inline stroke="#fff"
+   SVG attribute rather than a CSS variable. A plain CSS rule still wins
+   over an inline presentation attribute regardless of specificity, so no
+   !important fighting is needed here. */
+.f3 path.link {
+  stroke: var(--male-color);
+}
+
+/* Same story for the two short lines inside the mini-tree badge icon —
+   inline stroke="#fff", overridden the same way. Dark ink reads clearly
+   against both the ledger-green and sepia halves of the badge. */
+.f3 [data-icon="mini-tree"] line {
+  stroke: var(--text-color);
+}
+
+/* The marriage-note label on a spouse connector (e.g. "m. 1948") sets
+   fill via an inline style="fill:#fff" rather than an attribute — inline
+   styles outrank any stylesheet rule regardless of specificity, so this
+   one genuinely needs !important, unlike the two overrides above. */
+.f3 g.link-text text {
+  fill: var(--text-color) !important;
+}

@@ -380,16 +380,22 @@ export function FamilyTree({
   return (
     <div>
       {connected.length > 0 && (
-        // family-chart hardcodes some SVG stroke/fill colors (e.g.
-        // connector lines) as inline attributes rather than CSS variables,
-        // so they can't be retargeted for a light theme without fighting
-        // the library's own rendering. Easiest to give it its own dark
-        // viewport, as its authors designed and tested it, rather than
-        // override piecemeal.
+        // Theming lives in globals.css as CSS custom properties
+        // (--background-color/--text-color/--male-color/--female-color),
+        // family-chart's own documented mechanism — plus a couple of
+        // targeted overrides for the few elements (connector lines, the
+        // mini-tree badge's icon strokes) that set an inline SVG
+        // stroke="#fff" instead of using those variables. CSS always wins
+        // over inline SVG presentation attributes regardless of
+        // specificity, so a plain selector is enough — no !important
+        // fighting needed. The f3-cont class matters too: without it,
+        // family-chart's own color: var(--text-color) base rule
+        // (`.f3.f3-cont`) never applies, and elements with no color of
+        // their own (e.g. the search dropdown) fall back to inheriting
+        // this page's default text color instead.
         <div
           ref={containerRef}
-          className="f3 h-[75vh] w-full overflow-hidden rounded-lg"
-          style={{ backgroundColor: "rgb(33, 33, 33)" }}
+          className="f3 f3-cont h-[75vh] w-full overflow-hidden rounded-lg"
         />
       )}
 
