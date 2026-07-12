@@ -140,6 +140,7 @@ export type Database = {
       }
       documents: {
         Row: {
+          candidate_people: Json | null
           document_type: string | null
           family_id: string | null
           file_path: string
@@ -151,6 +152,7 @@ export type Database = {
           uploaded_by: string | null
         }
         Insert: {
+          candidate_people?: Json | null
           document_type?: string | null
           family_id?: string | null
           file_path: string
@@ -162,6 +164,7 @@ export type Database = {
           uploaded_by?: string | null
         }
         Update: {
+          candidate_people?: Json | null
           document_type?: string | null
           family_id?: string | null
           file_path?: string

@@ -1,14 +1,22 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { uploadDocument } from "./actions";
+import { uploadDocument, extractCandidatesFromDocument } from "./actions";
 
-type DocumentRow = {
+export type CandidatePerson = {
+  name: string;
+  relation: string | null;
+  dates: string | null;
+  note: string | null;
+};
+
+export type DocumentRow = {
   id: string;
   filename: string | null;
   file_path: string;
   status: string;
   recorded_at: string | null;
+  candidate_people: CandidatePerson[] | null;
 };
 
 const statusStyles: Record<string, string> = {
@@ -91,28 +99,80 @@ export function DocumentsView({ documents }: { documents: DocumentRow[] }) {
           <p className="text-sm text-gray-500">No documents uploaded yet.</p>
         )}
         {documents.map((doc) => (
-          <div
-            key={doc.id}
-            className="flex items-center justify-between gap-4 rounded border border-gray-200 px-4 py-3 text-sm dark:border-gray-800"
-          >
-            <span className="truncate">{doc.filename ?? doc.file_path}</span>
-            <span className="flex items-center gap-3">
-              <span className="text-xs text-gray-500">
-                {doc.recorded_at
-                  ? new Date(doc.recorded_at).toLocaleDateString()
-                  : ""}
-              </span>
-              <span
-                className={`rounded px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
-                  statusStyles[doc.status] ?? statusStyles.pending_match
-                }`}
-              >
-                {doc.status.replace("_", " ")}
-              </span>
-            </span>
-          </div>
+          <DocumentItem key={doc.id} doc={doc} />
         ))}
       </div>
+    </div>
+  );
+}
+
+function DocumentItem({ doc }: { doc: DocumentRow }) {
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [candidates, setCandidates] = useState<CandidatePerson[] | null>(
+    doc.candidate_people,
+  );
+
+  async function handleExtract() {
+    setIsExtracting(true);
+    setError(null);
+    const result = await extractCandidatesFromDocument(doc.id);
+    setIsExtracting(false);
+    if ("error" in result) {
+      setError(result.error);
+      return;
+    }
+    setCandidates(result.candidates);
+  }
+
+  return (
+    <div className="rounded border border-gray-200 px-4 py-3 text-sm dark:border-gray-800">
+      <div className="flex items-center justify-between gap-4">
+        <span className="truncate">{doc.filename ?? doc.file_path}</span>
+        <span className="flex items-center gap-3">
+          <span className="text-xs text-gray-500">
+            {doc.recorded_at
+              ? new Date(doc.recorded_at).toLocaleDateString()
+              : ""}
+          </span>
+          <span
+            className={`rounded px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
+              statusStyles[doc.status] ?? statusStyles.pending_match
+            }`}
+          >
+            {doc.status.replace("_", " ")}
+          </span>
+          <button
+            type="button"
+            onClick={handleExtract}
+            disabled={isExtracting}
+            className="rounded border border-gray-300 px-2 py-1 text-xs hover:border-gray-400 disabled:opacity-50 dark:border-gray-700 dark:hover:border-gray-600"
+          >
+            {isExtracting
+              ? "Extracting…"
+              : candidates
+                ? "Re-extract"
+                : "Extract"}
+          </button>
+        </span>
+      </div>
+
+      {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
+
+      {candidates && candidates.length > 0 && (
+        <ul className="mt-2 flex flex-col gap-1 border-t border-gray-100 pt-2 dark:border-gray-800">
+          {candidates.map((c, i) => (
+            <li key={i} className="text-xs text-gray-600 dark:text-gray-400">
+              <span className="font-medium text-gray-800 dark:text-gray-200">
+                {c.name}
+              </span>
+              {c.relation && ` — ${c.relation}`}
+              {c.dates && ` (${c.dates})`}
+              {c.note && ` · ${c.note}`}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

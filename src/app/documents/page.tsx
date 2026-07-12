@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { DocumentsView } from "./documents-view";
+import { DocumentsView, type DocumentRow } from "./documents-view";
 
 export default async function DocumentsPage() {
   const supabase = await createClient();
@@ -15,7 +15,7 @@ export default async function DocumentsPage() {
 
   const { data: documents, error } = await supabase
     .from("documents")
-    .select("id, filename, file_path, status, recorded_at")
+    .select("id, filename, file_path, status, recorded_at, candidate_people")
     .order("recorded_at", { ascending: false });
 
   return (
@@ -31,7 +31,9 @@ export default async function DocumentsPage() {
         <p className="mx-auto text-sm text-red-500">{error.message}</p>
       )}
 
-      {!error && <DocumentsView documents={documents ?? []} />}
+      {!error && (
+        <DocumentsView documents={(documents ?? []) as unknown as DocumentRow[]} />
+      )}
     </main>
   );
 }
