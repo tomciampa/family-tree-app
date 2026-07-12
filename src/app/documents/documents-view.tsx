@@ -1,7 +1,18 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { uploadDocument, extractCandidatesFromDocument } from "./actions";
+import {
+  uploadDocument,
+  extractCandidatesFromDocument,
+  matchCandidatesForDocument,
+} from "./actions";
+
+export type PersonMatch = {
+  personId: string;
+  personName: string;
+  score: number;
+  dateSignal: "overlap" | "conflict" | null;
+};
 
 export type CandidatePerson = {
   name: string;
@@ -9,6 +20,8 @@ export type CandidatePerson = {
   roleCategory: "family" | "administrative";
   dates: string | null;
   note: string | null;
+  matchStatus?: "high_confidence" | "multiple_matches" | "no_match";
+  matches?: PersonMatch[];
 };
 
 export type DocumentRow = {
@@ -109,6 +122,7 @@ export function DocumentsView({ documents }: { documents: DocumentRow[] }) {
 
 function DocumentItem({ doc }: { doc: DocumentRow }) {
   const [isExtracting, setIsExtracting] = useState(false);
+  const [isMatching, setIsMatching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [candidates, setCandidates] = useState<CandidatePerson[] | null>(
     doc.candidate_people,
@@ -125,6 +139,21 @@ function DocumentItem({ doc }: { doc: DocumentRow }) {
     }
     setCandidates(result.candidates);
   }
+
+  async function handleMatch() {
+    setIsMatching(true);
+    setError(null);
+    const result = await matchCandidatesForDocument(doc.id);
+    setIsMatching(false);
+    if ("error" in result) {
+      setError(result.error);
+      return;
+    }
+    setCandidates(result.candidates);
+  }
+
+  const hasFamilyCandidates =
+    candidates?.some((c) => c.roleCategory === "family") ?? false;
 
   return (
     <div className="rounded border border-gray-200 px-4 py-3 text-sm dark:border-gray-800">
@@ -155,6 +184,16 @@ function DocumentItem({ doc }: { doc: DocumentRow }) {
                 ? "Re-extract"
                 : "Extract"}
           </button>
+          {hasFamilyCandidates && (
+            <button
+              type="button"
+              onClick={handleMatch}
+              disabled={isMatching}
+              className="rounded border border-gray-300 px-2 py-1 text-xs hover:border-gray-400 disabled:opacity-50 dark:border-gray-700 dark:hover:border-gray-600"
+            >
+              {isMatching ? "Matching…" : "Match"}
+            </button>
+          )}
         </span>
       </div>
 
@@ -220,9 +259,48 @@ function CandidateGroup({
             {c.relation && ` — ${c.relation}`}
             {c.dates && ` (${c.dates})`}
             {c.note && ` · ${c.note}`}
+            {!muted && c.matchStatus && <MatchInfo candidate={c} />}
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+const matchStatusStyles: Record<string, string> = {
+  high_confidence:
+    "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
+  multiple_matches:
+    "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
+  no_match: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
+};
+
+const matchStatusLabels: Record<string, string> = {
+  high_confidence: "matched",
+  multiple_matches: "possible matches",
+  no_match: "no match found",
+};
+
+function MatchInfo({ candidate }: { candidate: CandidatePerson }) {
+  const status = candidate.matchStatus!;
+  return (
+    <div className="mt-1 ml-2">
+      <span
+        className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${matchStatusStyles[status]}`}
+      >
+        {matchStatusLabels[status]}
+      </span>
+      {candidate.matches && candidate.matches.length > 0 && (
+        <ul className="mt-1 flex flex-col gap-0.5">
+          {candidate.matches.map((m) => (
+            <li key={m.personId} className="text-[11px] text-gray-500">
+              {m.personName} — {(m.score * 100).toFixed(0)}%
+              {m.dateSignal === "overlap" && " · dates match"}
+              {m.dateSignal === "conflict" && " · dates conflict"}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

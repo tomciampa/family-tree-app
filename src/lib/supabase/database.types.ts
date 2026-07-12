@@ -597,7 +597,22 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      match_people_by_name: {
+        Args: {
+          min_similarity?: number
+          search_name: string
+          target_family_id: string
+        }
+        Returns: {
+          birth_estimate: string
+          death_estimate: string
+          id: string
+          name: string
+          similarity: number
+        }[]
+      }
+      show_limit: { Args: never; Returns: number }
+      show_trgm: { Args: { "": string }; Returns: string[] }
     }
     Enums: {
       [_ in never]: never

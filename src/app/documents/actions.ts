@@ -157,3 +157,126 @@ export async function extractCandidatesFromDocument(
   revalidatePath("/documents");
   return { candidates: result.object.candidates };
 }
+
+type CandidatePerson = z.infer<typeof candidatePersonSchema>;
+
+export type PersonMatch = {
+  personId: string;
+  personName: string;
+  score: number;
+  dateSignal: "overlap" | "conflict" | null;
+};
+
+export type CandidateWithMatch = CandidatePerson & {
+  matchStatus: "high_confidence" | "multiple_matches" | "no_match";
+  matches: PersonMatch[];
+};
+
+function extractYears(text: string | null): number[] {
+  if (!text) return [];
+  const found = text.match(/\b(1[5-9]\d{2}|20\d{2})\b/g);
+  return found ? found.map(Number) : [];
+}
+
+const HIGH_CONFIDENCE_THRESHOLD = 0.5;
+// A single score crossing the threshold isn't enough on its own — with
+// several same-surname people, a runner-up can be close behind, meaning
+// the "clear winner" is really just the least-ambiguous guess among a
+// cluster of similarly-weak candidates. Require it to clearly lead the
+// field, not just clear the bar.
+const HIGH_CONFIDENCE_MARGIN = 0.15;
+const MATCH_FLOOR = 0.2;
+const DATE_OVERLAP_BONUS = 0.15;
+const DATE_CONFLICT_PENALTY = 0.2;
+
+type MatchCandidatesResult =
+  | { error: string }
+  | { candidates: CandidateWithMatch[] };
+
+export async function matchCandidatesForDocument(
+  documentId: string,
+): Promise<MatchCandidatesResult> {
+  const supabase = await requireUser();
+  const familyId = await getFamilyId();
+
+  const { data: document, error: fetchError } = await supabase
+    .from("documents")
+    .select("candidate_people")
+    .eq("id", documentId)
+    .single();
+  if (fetchError || !document) {
+    return { error: fetchError?.message ?? "Document not found." };
+  }
+
+  const candidates = (document.candidate_people ??
+    []) as unknown as CandidatePerson[];
+
+  const results: CandidateWithMatch[] = [];
+  for (const candidate of candidates) {
+    if (candidate.roleCategory !== "family") {
+      // Administrative roles (registrar, witness, clergy, etc.) are never
+      // people to match or create in the tree.
+      results.push({ ...candidate, matchStatus: "no_match", matches: [] });
+      continue;
+    }
+
+    const { data: rows, error: rpcError } = await supabase.rpc(
+      "match_people_by_name",
+      {
+        search_name: candidate.name,
+        target_family_id: familyId,
+        min_similarity: MATCH_FLOOR,
+      },
+    );
+    if (rpcError) return { error: rpcError.message };
+
+    const candidateYears = extractYears(candidate.dates);
+    const matches: PersonMatch[] = (rows ?? []).map((row) => {
+      const personYears = [
+        ...extractYears(row.birth_estimate),
+        ...extractYears(row.death_estimate),
+      ];
+      let score = row.similarity;
+      let dateSignal: PersonMatch["dateSignal"] = null;
+      if (candidateYears.length > 0 && personYears.length > 0) {
+        const overlap = candidateYears.some((y) => personYears.includes(y));
+        if (overlap) {
+          score = Math.min(1, score + DATE_OVERLAP_BONUS);
+          dateSignal = "overlap";
+        } else {
+          score = Math.max(0, score - DATE_CONFLICT_PENALTY);
+          dateSignal = "conflict";
+        }
+      }
+      return {
+        personId: row.id,
+        personName: row.name,
+        score,
+        dateSignal,
+      };
+    });
+    matches.sort((a, b) => b.score - a.score);
+
+    const [top, runnerUp] = matches;
+    const isClearWinner =
+      top.score >= HIGH_CONFIDENCE_THRESHOLD &&
+      (!runnerUp || top.score - runnerUp.score >= HIGH_CONFIDENCE_MARGIN);
+    const matchStatus: CandidateWithMatch["matchStatus"] =
+      matches.length === 0
+        ? "no_match"
+        : isClearWinner
+          ? "high_confidence"
+          : "multiple_matches";
+
+    results.push({ ...candidate, matchStatus, matches });
+  }
+
+  const { error: updateError } = await supabase
+    .from("documents")
+    .update({ candidate_people: results })
+    .eq("id", documentId);
+  if (updateError) return { error: updateError.message };
+
+  revalidatePath("/documents");
+  return { candidates: results };
+}
