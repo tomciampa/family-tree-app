@@ -55,6 +55,11 @@ const candidatePersonSchema = z.object({
     .describe(
       "This person's role in the document relative to its main subject, e.g. 'deceased', 'spouse', 'father', 'informant'",
     ),
+  roleCategory: z
+    .enum(["family", "administrative"])
+    .describe(
+      "'family' for anyone related to or personally connected with the document's subject (spouse, parent, child, sibling, etc.). 'administrative' for anyone present only in an official/procedural capacity — the informant, registrar, witness, clergy, notary, doctor who signed a certificate, etc. — who has no personal relation to the subject.",
+    ),
   dates: z
     .string()
     .nullable()
@@ -118,7 +123,7 @@ export async function extractCandidatesFromDocument(
             ? [
                 {
                   type: "text",
-                  text: "This is a genealogy source document (e.g. a certificate, letter, or record), possibly a scanned image. Transcribe its full text, then list every person it names — not just the main subject. Many documents (e.g. death certificates) also name a spouse, parent, or informant.",
+                  text: "This is a genealogy source document (e.g. a certificate, letter, or record), possibly a scanned image. Transcribe its full text, then list every person it names — not just the main subject. Many documents (e.g. death certificates) also name a spouse or parent (family) as well as an informant, registrar, witness, or clergy member (administrative) — classify each person's roleCategory accordingly so administrative names aren't confused with family.",
                 },
                 {
                   type: "file",
@@ -130,7 +135,7 @@ export async function extractCandidatesFromDocument(
             : [
                 {
                   type: "text",
-                  text: `This is a genealogy source document. Transcribe its full text, then list every person it names — not just the main subject.\n\nDocument content:\n${new TextDecoder().decode(bytes)}`,
+                  text: `This is a genealogy source document. Transcribe its full text, then list every person it names — not just the main subject. Classify each person's roleCategory as 'family' (related to or personally connected with the subject) or 'administrative' (an informant, registrar, witness, clergy member, etc. with no personal relation).\n\nDocument content:\n${new TextDecoder().decode(bytes)}`,
                 },
               ],
         },

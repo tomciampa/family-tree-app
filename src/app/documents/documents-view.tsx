@@ -6,6 +6,7 @@ import { uploadDocument, extractCandidatesFromDocument } from "./actions";
 export type CandidatePerson = {
   name: string;
   relation: string | null;
+  roleCategory: "family" | "administrative";
   dates: string | null;
   note: string | null;
 };
@@ -160,19 +161,68 @@ function DocumentItem({ doc }: { doc: DocumentRow }) {
       {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
 
       {candidates && candidates.length > 0 && (
-        <ul className="mt-2 flex flex-col gap-1 border-t border-gray-100 pt-2 dark:border-gray-800">
-          {candidates.map((c, i) => (
-            <li key={i} className="text-xs text-gray-600 dark:text-gray-400">
-              <span className="font-medium text-gray-800 dark:text-gray-200">
-                {c.name}
-              </span>
-              {c.relation && ` — ${c.relation}`}
-              {c.dates && ` (${c.dates})`}
-              {c.note && ` · ${c.note}`}
-            </li>
-          ))}
-        </ul>
+        <div className="mt-2 flex flex-col gap-3 border-t border-gray-100 pt-2 dark:border-gray-800">
+          <CandidateGroup
+            title="Family"
+            candidates={candidates.filter((c) => c.roleCategory === "family")}
+          />
+          <CandidateGroup
+            title="Administrative (not matched as family)"
+            candidates={candidates.filter(
+              (c) => c.roleCategory === "administrative",
+            )}
+            muted
+          />
+        </div>
       )}
+    </div>
+  );
+}
+
+function CandidateGroup({
+  title,
+  candidates,
+  muted,
+}: {
+  title: string;
+  candidates: CandidatePerson[];
+  muted?: boolean;
+}) {
+  if (candidates.length === 0) return null;
+  return (
+    <div>
+      <p
+        className={`mb-1 text-[10px] font-medium uppercase tracking-wide ${
+          muted ? "text-gray-400 dark:text-gray-600" : "text-gray-500"
+        }`}
+      >
+        {title}
+      </p>
+      <ul className="flex flex-col gap-1">
+        {candidates.map((c, i) => (
+          <li
+            key={i}
+            className={`text-xs ${
+              muted
+                ? "text-gray-400 dark:text-gray-600"
+                : "text-gray-600 dark:text-gray-400"
+            }`}
+          >
+            <span
+              className={`font-medium ${
+                muted
+                  ? "text-gray-500 dark:text-gray-500"
+                  : "text-gray-800 dark:text-gray-200"
+              }`}
+            >
+              {c.name}
+            </span>
+            {c.relation && ` — ${c.relation}`}
+            {c.dates && ` (${c.dates})`}
+            {c.note && ` · ${c.note}`}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
