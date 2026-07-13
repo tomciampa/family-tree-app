@@ -297,6 +297,11 @@ function renderSupplementaryOverlay(
 
   clearSupplementaryOverlay(cardsView);
 
+  // Tracks every person this pass has already drawn a supplementary card
+  // for, so a second anchor (or the same anchor re-processed) doesn't
+  // stack a duplicate on top — see the staleness comment further down.
+  const alreadyDrawn = new Set<string>();
+
   // Each expanded anchor (e.g. both a father's and a mother's card) gets
   // its own independent fan, all rendered together — this is what lets
   // both parents' ancestor chains stay expanded at once without either
@@ -327,10 +332,25 @@ function renderSupplementaryOverlay(
     );
     if (positions.length === 0) continue; // no recorded parents to show
 
+    // An anchor can go stale: it may have been expanded back when its own
+    // parents weren't otherwise on screen, and later — main changing via
+    // search (which bypasses the is_ancestry card-click guard), or the
+    // tree simply growing — those same parents became natively rendered
+    // by family-chart itself. getCardWorldPos's `.card[data-id]` selector
+    // only ever matches real family-chart cards (our own supplementary
+    // cards use a plain div with no "card" class), so it doubles as an
+    // "is this person already on screen for real" check. alreadyDrawn
+    // also catches a person appearing in two different anchors' fans in
+    // the same pass (e.g. a shared ancestor via both parents' lines).
+    const newPositions = positions.filter(
+      (p) => !getCardWorldPos(container, p.id) && !alreadyDrawn.has(p.id),
+    );
+    if (newPositions.length === 0) continue; // everything here is already shown elsewhere
+
     const getPos = (id: string) =>
       id === expandedId
         ? { x: anchorX, y: anchorY }
-        : positions.find((p) => p.id === id);
+        : newPositions.find((p) => p.id === id);
 
     for (const link of links) {
       const from = getPos(link.fromId);
@@ -346,7 +366,7 @@ function renderSupplementaryOverlay(
       cardsView.appendChild(line);
     }
 
-    for (const pos of positions) {
+    for (const pos of newPositions) {
       const person = peopleById.get(pos.id);
       const card = document.createElement("div");
       card.className = "supplementary-node";
@@ -358,6 +378,7 @@ function renderSupplementaryOverlay(
           : person.name
         : "Unknown";
       cardsView.appendChild(card);
+      alreadyDrawn.add(pos.id);
     }
   }
 }
