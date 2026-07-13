@@ -154,17 +154,25 @@ function buildSpousesLookup(unions: UnionRow[]): SpousesLookup {
   return (personId: string) => spousesByPerson.get(personId) ?? [];
 }
 
-// Capped at 1 (direct parents only), not the 6 first tried: a deep
-// multi-generation supplementary chain fans out wide enough to visually
-// collide with other rendered cards. The original motivation for the cap
-// (colliding with family-chart's own full-depth rendering of main's blood
-// ancestry) no longer applies now that ancestryDepth is capped to 1 for
-// everyone — but going deeper still means either collision-avoidance
-// against whatever else is on screen, or making supplementary cards
-// themselves independently expandable so depth grows one click at a time.
-// Real, separate follow-up work; not done here — this still only reveals
-// one generation (e.g. grandparents) per toggle.
-const SUPPLEMENTARY_MAX_DEPTH = 1;
+// A safety cap on recursion depth, not the depth normally used — callers
+// pass however many generations are actually toggled open right now (see
+// countUnlockedDepth), recomputed fresh on every render as ONE unified
+// proportional-width pass down to that depth. That "one unified pass"
+// part is what actually matters: computing each newly-revealed generation
+// as its own independent fan (an earlier version of this) recomputed
+// position and "which way to grow" locally at each level, which caused a
+// real bug — two different people's cards landing on the exact same
+// coordinates (verified: Robert's mother May Louise and Peggy's father
+// Patrick both placed at x=-625, same y). A single pass confines every
+// branch's descendants to the horizontal slot already reserved for it
+// (see layoutAncestors), which is what actually guarantees siblings'
+// sub-trees can never collide, at any depth. Reserving width for a
+// chain's full REAL depth regardless of how much is toggled open was
+// tried too, and separately rejected: mostly-empty branches ballooned
+// the gaps between the handful of cards actually on screen (verified:
+// Robert ended up ~3000px from Jeff after reserving space for ~5 real
+// generations while only 2 were drawn).
+const SUPPLEMENTARY_MAX_DEPTH = 20;
 const SUPPLEMENTARY_SLOT_WIDTH = 250; // matches setCardXSpacing
 const SUPPLEMENTARY_LEVEL_SEP = 150; // matches setCardYSpacing
 const SUPPLEMENTARY_CARD_W = 220; // matches family-chart's default card_dim
@@ -184,27 +192,57 @@ function countAncestorLeaves(
   );
 }
 
+// How many generations up from rootId are actually toggled open right
+// now. Passed as the layout's depth budget instead of always using
+// SUPPLEMENTARY_MAX_DEPTH — reserving full-depth width for a chain that's
+// only 2 generations expanded so far produced huge, mostly-empty gaps
+// between the handful of cards actually on screen (verified: Robert
+// ended up ~3000px from Jeff after reserving width for the chain's full
+// ~5 real generations, even though only Robert and Anthony were drawn).
+// Recomputed fresh on every render, so the layout is always a complete,
+// correctly non-overlapping pass for whatever's currently unlocked —
+// growing a bit wider (and reflowing existing cards) each time one more
+// generation gets toggled open, rather than pre-allocating for
+// generations nobody has asked to see yet.
+function countUnlockedDepth(
+  personId: string,
+  getParents: ParentsLookup,
+  expandedIds: Set<string>,
+): number {
+  if (!expandedIds.has(personId)) return 0;
+  const parents = getParents(personId);
+  if (parents.length === 0) return 1;
+  return 1 + Math.max(0, ...parents.map((pid) => countUnlockedDepth(pid, getParents, expandedIds)));
+}
+
 type AncestorPos = { id: string; x: number; y: number };
 type AncestorLink = { fromId: string; toId: string; kind: "parent" | "spouse" };
 
 // Standard proportional-width pedigree-chart layout: each person's total
 // horizontal slot is split between their parents in proportion to how
-// many ultimate-ancestor "leaves" sit in each parent's own sub-branch —
-// this is what guarantees no overlaps regardless of how deep or lopsided
-// (e.g. one side's data ending sooner than the other) the chain gets.
+// many ultimate-ancestor "leaves" sit in each parent's own sub-branch, and
+// each parent's own recursion is then confined to exactly that slot
+// (startCursor = px - w/2 below) — this is what guarantees two siblings'
+// sub-branches can never overlap each other regardless of how deep or
+// lopsided (e.g. one side's data ending sooner than the other) the chain
+// gets. Computing the WHOLE tree this way in one pass (root to however
+// deep the real data goes) is what makes that guarantee hold; computing
+// it one newly-toggled generation at a time, independently, does not —
+// see the SUPPLEMENTARY_MAX_DEPTH comment above for the bug that caused.
 //
-// bias matters because the anchor (e.g. Peggy) sits right next to their
-// spouse (Robert), who family-chart is independently rendering their own
-// blood ancestry above — a fan centered on the anchor would extend half
-// its width toward the spouse and collide with that. Anchoring the fan's
-// near edge at the anchor's own x, growing away from the spouse instead,
-// keeps the two apart.
+// bias matters only for the root: the anchor (e.g. Peggy) sits right next
+// to their spouse (Robert), who's either main himself or another
+// already-placed card — a tree centered on the anchor would extend half
+// its width toward the spouse and collide with that. Anchoring the whole
+// tree's near edge at the anchor's own x, growing away from the spouse
+// instead, keeps the two apart.
 function layoutAncestors(
   anchorId: string,
   anchorX: number,
   anchorY: number,
   getParents: ParentsLookup,
   bias: "left" | "right" | "center",
+  depth: number,
 ): { positions: AncestorPos[]; links: AncestorLink[] } {
   const positions: AncestorPos[] = [];
   const links: AncestorLink[] = [];
@@ -242,22 +280,14 @@ function layoutAncestors(
   }
 
   const totalWidth =
-    countAncestorLeaves(anchorId, getParents, SUPPLEMENTARY_MAX_DEPTH) *
-    SUPPLEMENTARY_SLOT_WIDTH;
+    countAncestorLeaves(anchorId, getParents, depth) * SUPPLEMENTARY_SLOT_WIDTH;
   const startCursor =
     bias === "left"
       ? anchorX - totalWidth
       : bias === "right"
         ? anchorX
         : anchorX - totalWidth / 2;
-  recurse(
-    anchorId,
-    anchorX,
-    anchorY,
-    totalWidth,
-    SUPPLEMENTARY_MAX_DEPTH,
-    startCursor,
-  );
+  recurse(anchorId, anchorX, anchorY, totalWidth, depth, startCursor);
 
   return { positions, links };
 }
@@ -289,6 +319,7 @@ function renderSupplementaryOverlay(
   peopleById: Map<string, Person>,
   getParents: ParentsLookup,
   getSpouses: SpousesLookup,
+  onToggle: (id: string) => void,
 ) {
   const cardsView = container.querySelector<HTMLElement>(
     "#htmlSvg .cards_view",
@@ -297,62 +328,80 @@ function renderSupplementaryOverlay(
 
   clearSupplementaryOverlay(cardsView);
 
-  // Tracks every person this pass has already drawn a supplementary card
-  // for, so a second anchor (or the same anchor re-processed) doesn't
-  // stack a duplicate on top — see the staleness comment further down.
-  const alreadyDrawn = new Set<string>();
+  // Every person this pass has drawn a supplementary card for, so a
+  // second root (or a shared ancestor reached through two different
+  // roots) doesn't stack a duplicate on top — combined with
+  // getCardWorldPos (only ever matches real family-chart cards, never our
+  // own plain-div supplementary ones) this doubles as the full "already
+  // shown somewhere, don't duplicate" check from before.
+  const drawnPositions = new Map<string, AncestorPos>();
+  function resolvePos(id: string): { x: number; y: number } | null {
+    return getCardWorldPos(container, id) ?? drawnPositions.get(id) ?? null;
+  }
 
-  // Each expanded anchor (e.g. both a father's and a mother's card) gets
-  // its own independent fan, all rendered together — this is what lets
-  // both parents' ancestor chains stay expanded at once without either
-  // one clobbering the other.
-  for (const expandedId of expandedIds) {
-    const anchorPos = getCardWorldPos(container, expandedId);
-    if (!anchorPos) continue; // anchor isn't currently rendered — nothing to attach to
+  // Only a native card (is_ancestry, or main's own spouse — see
+  // setOnCardUpdate) is ever a "root": every other id in expandedIds is
+  // itself somewhere inside a root's own tree, reached transitively via
+  // the unlock check below, and doesn't need its own separate pass.
+  for (const rootId of expandedIds) {
+    const anchorPos = getCardWorldPos(container, rootId);
+    if (!anchorPos) continue;
     const { x: anchorX, y: anchorY } = anchorPos;
 
-    // Grow the fan away from wherever the anchor's spouse is currently
-    // rendered, so a father's-side fan and a mother's-side fan (or either
-    // one and the anchor's own spouse card) diverge instead of colliding.
+    // Grow away from wherever the root's spouse is currently rendered, so
+    // a father's-side tree and a mother's-side tree (or either one and
+    // the root's own spouse card) diverge instead of colliding.
     let bias: "left" | "right" | "center" = "center";
-    for (const spouseId of getSpouses(expandedId)) {
-      const spousePos = getCardWorldPos(container, spouseId);
+    for (const spouseId of getSpouses(rootId)) {
+      const spousePos = resolvePos(spouseId);
       if (spousePos) {
         bias = spousePos.x > anchorX ? "left" : "right";
         break;
       }
     }
 
+    // Only as deep as what's actually toggled open right now (see
+    // countUnlockedDepth) — but still computed as ONE unified
+    // proportional-width pass down to that depth (see layoutAncestors),
+    // not one newly-toggled generation at a time, which is what
+    // guarantees no overlap between branches.
+    const depth = Math.min(
+      countUnlockedDepth(rootId, getParents, expandedIds),
+      SUPPLEMENTARY_MAX_DEPTH,
+    );
     const { positions, links } = layoutAncestors(
-      expandedId,
+      rootId,
       anchorX,
       anchorY,
       getParents,
       bias,
+      depth,
     );
-    if (positions.length === 0) continue; // no recorded parents to show
+    const posById = new Map(positions.map((p) => [p.id, p]));
 
-    // An anchor can go stale: it may have been expanded back when its own
-    // parents weren't otherwise on screen, and later — main changing via
-    // search (which bypasses the is_ancestry card-click guard), or the
-    // tree simply growing — those same parents became natively rendered
-    // by family-chart itself. getCardWorldPos's `.card[data-id]` selector
-    // only ever matches real family-chart cards (our own supplementary
-    // cards use a plain div with no "card" class), so it doubles as an
-    // "is this person already on screen for real" check. alreadyDrawn
-    // also catches a person appearing in two different anchors' fans in
-    // the same pass (e.g. a shared ancestor via both parents' lines).
-    const newPositions = positions.filter(
-      (p) => !getCardWorldPos(container, p.id) && !alreadyDrawn.has(p.id),
-    );
-    if (newPositions.length === 0) continue; // everything here is already shown elsewhere
+    // A position is only actually drawn once every ancestor between it
+    // and the root has itself been toggled open — i.e. the user clicked
+    // through to reveal it. childOfMap answers "whose parent is this
+    // position" (from the "parent" links); walking that back to the root
+    // is exactly the expandedIds chain the ▲/▼ toggles build up one click
+    // at a time.
+    const childOfMap = new Map<string, string>();
+    for (const link of links) {
+      if (link.kind === "parent") childOfMap.set(link.toId, link.fromId);
+    }
+    function isUnlocked(id: string): boolean {
+      if (id === rootId) return true;
+      const childId = childOfMap.get(id);
+      if (!childId) return false;
+      return expandedIds.has(childId) && isUnlocked(childId);
+    }
+    const isVisible = (id: string) => id === rootId || isUnlocked(id);
 
     const getPos = (id: string) =>
-      id === expandedId
-        ? { x: anchorX, y: anchorY }
-        : newPositions.find((p) => p.id === id);
+      id === rootId ? { x: anchorX, y: anchorY } : posById.get(id);
 
     for (const link of links) {
+      if (!isVisible(link.fromId) || !isVisible(link.toId)) continue;
       const from = getPos(link.fromId);
       const to = getPos(link.toId);
       if (!from || !to) continue;
@@ -366,19 +415,55 @@ function renderSupplementaryOverlay(
       cardsView.appendChild(line);
     }
 
-    for (const pos of newPositions) {
+    const visiblePositions = positions.filter(
+      (p) => isUnlocked(p.id) && !resolvePos(p.id),
+    );
+    for (const pos of visiblePositions) {
       const person = peopleById.get(pos.id);
-      const card = document.createElement("div");
-      card.className = "supplementary-node";
-      card.dataset.id = pos.id;
-      card.style.cssText = `position: absolute; top: 0; left: 0; width: ${SUPPLEMENTARY_CARD_W}px; height: ${SUPPLEMENTARY_CARD_H}px; transform: translate(${pos.x - SUPPLEMENTARY_CARD_W / 2}px, ${pos.y - SUPPLEMENTARY_CARD_H / 2}px); background: var(--genderless-color, #f7f1e3); color: var(--text-color, #2b2015); border-radius: 6px; border: 1px solid rgba(43,32,21,0.35); box-shadow: 0 1px 3px rgba(0,0,0,0.15); display: flex; align-items: center; padding: 0 12px; font-size: 13px; line-height: 1.2; pointer-events: none;`;
-      card.textContent = person
+      const name = person
         ? person.is_placeholder
           ? `${person.name} (?)`
           : person.name
         : "Unknown";
+
+      const card = document.createElement("div");
+      card.className = "supplementary-node";
+      card.dataset.id = pos.id;
+      card.style.cssText = `position: absolute; top: 0; left: 0; width: ${SUPPLEMENTARY_CARD_W}px; height: ${SUPPLEMENTARY_CARD_H}px; transform: translate(${pos.x - SUPPLEMENTARY_CARD_W / 2}px, ${pos.y - SUPPLEMENTARY_CARD_H / 2}px); background: var(--genderless-color, #f7f1e3); color: var(--text-color, #2b2015); border-radius: 6px; border: 1px solid rgba(43,32,21,0.35); box-shadow: 0 1px 3px rgba(0,0,0,0.15); display: flex; align-items: center; padding: 0 12px; font-size: 13px; line-height: 1.2; pointer-events: none;`;
+
+      const label = document.createElement("span");
+      label.textContent = name;
+      card.appendChild(label);
+
+      // Same "keep going deeper" toggle as native ancestor cards — see
+      // the setOnCardUpdate wiring for those. A supplementary card needs
+      // its own button built by hand (it's a plain div, not family-chart's
+      // card template), re-enabling pointer-events just for the button
+      // since the card itself stays click-through.
+      if (getParents(pos.id).length > 0) {
+        const isExpanded = expandedIds.has(pos.id);
+        const toggleButton = document.createElement("button");
+        toggleButton.type = "button";
+        toggleButton.textContent = isExpanded ? "▼" : "▲";
+        toggleButton.setAttribute(
+          "aria-label",
+          isExpanded ? `Hide ${name}'s ancestors` : `Show ${name}'s ancestors`,
+        );
+        toggleButton.style.cssText =
+          "position: absolute; top: -6px; left: 50%; transform: translateX(-50%); " +
+          "width: 22px; height: 18px; border-radius: 9px; border: none; " +
+          `background: ${isExpanded ? "var(--female-color, #a97b52)" : "var(--male-color, #5c7360)"}; color: white; font-size: 9px; ` +
+          "line-height: 1; cursor: pointer; display: flex; align-items: center; " +
+          "justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,0.4); pointer-events: auto;";
+        toggleButton.addEventListener("click", (e) => {
+          e.stopPropagation();
+          onToggle(pos.id);
+        });
+        card.appendChild(toggleButton);
+      }
+
       cardsView.appendChild(card);
-      alreadyDrawn.add(pos.id);
+      drawnPositions.set(pos.id, pos);
     }
   }
 }
@@ -488,6 +573,21 @@ export function FamilyTree({
   const getSpousesRef = useRef<SpousesLookup>(() => []);
   getSpousesRef.current = buildSpousesLookup(unions);
 
+  // Shared by both the native-card toggle (setOnCardUpdate, below) and the
+  // supplementary-card toggle (built by hand inside
+  // renderSupplementaryOverlay) — one toggle implementation regardless of
+  // which kind of card it's attached to, so "expand this person's
+  // ancestors" behaves identically at any depth in the chain.
+  const toggleExpandedRef = useRef<(id: string) => void>(() => {});
+  toggleExpandedRef.current = (id: string) => {
+    setExpandedAncestorIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   // Both the chart-creation effect (registering setAfterUpdate once) and
   // the expandedAncestorIds-change effect below need to trigger the exact
   // same re-render; kept in a ref so the afterUpdate hook (registered once
@@ -502,6 +602,7 @@ export function FamilyTree({
       peopleByIdRef.current,
       getParentsRef.current,
       getSpousesRef.current,
+      (id) => toggleExpandedRef.current(id),
     );
   };
 
@@ -707,16 +808,21 @@ export function FamilyTree({
       cardEl.appendChild(editButton);
 
       // Independent of family-chart's own "main" hierarchy — see the
-      // "Supplementary ancestor-branch overlay" section above. Restricted
-      // to is_ancestry cards specifically (with ancestryDepth capped to 1,
-      // that's exactly main's two immediate parents) rather than "anyone
-      // with recorded parents": offering this on main's own card or a
-      // sibling's card would try to render main's own parents a second
-      // time, directly on top of where they're already natively shown.
-      // Toggles independently per parent (Set membership, not a single
-      // replaced value) so a father's-side and mother's-side chain can
-      // both stay expanded together.
-      if (d.is_ancestry && getParentsRef.current(d.data.id).length > 0) {
+      // "Supplementary ancestor-branch overlay" section above. Offered on
+      // is_ancestry cards (with ancestryDepth capped to 1, that's exactly
+      // main's two immediate parents) AND on main's own spouse (depth 0,
+      // main false — family-chart never traces a spouse's own ancestry
+      // natively, at any depth, so without this a card like Maxine when
+      // Tom is main would have no way to reveal the Dubois side at all).
+      // Deliberately NOT offered on main itself, siblings, or descendants
+      // and their spouses — their own recorded parents are either already
+      // shown (main, siblings) or would be redundant once shown (a
+      // descendant's parents are main/main's spouse themselves).
+      const isMainSpouse = d.depth === 0 && !d.data.main;
+      if (
+        (d.is_ancestry || isMainSpouse) &&
+        getParentsRef.current(d.data.id).length > 0
+      ) {
         const isExpanded = expandedAncestorIdsRef.current.has(d.data.id);
         const expandButton = document.createElement("button");
         expandButton.type = "button";
@@ -738,12 +844,7 @@ export function FamilyTree({
           "justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,0.4);";
         expandButton.addEventListener("click", (e) => {
           e.stopPropagation();
-          setExpandedAncestorIds((current) => {
-            const next = new Set(current);
-            if (next.has(d.data.id)) next.delete(d.data.id);
-            else next.add(d.data.id);
-            return next;
-          });
+          toggleExpandedRef.current(d.data.id);
         });
         cardEl.appendChild(expandButton);
       }
