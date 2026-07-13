@@ -156,14 +156,14 @@ function buildSpousesLookup(unions: UnionRow[]): SpousesLookup {
 
 // Capped at 1 (direct parents only), not the 6 first tried: a deep
 // multi-generation supplementary chain fans out wide enough to visually
-// collide with family-chart's own rendering of the main person's blood
-// ancestry, which occupies the same coordinate space with no awareness of
-// this overlay at all (confirmed by testing — 1 generation doesn't
-// collide, deeper ones did). Going deeper safely would mean either
-// collision-avoidance against family-chart's own card positions, or
-// making supplementary cards themselves independently expandable so
-// depth grows one click at a time instead of all at once — real,
-// separate follow-up work, not done here.
+// collide with other rendered cards. The original motivation for the cap
+// (colliding with family-chart's own full-depth rendering of main's blood
+// ancestry) no longer applies now that ancestryDepth is capped to 1 for
+// everyone — but going deeper still means either collision-avoidance
+// against whatever else is on screen, or making supplementary cards
+// themselves independently expandable so depth grows one click at a time.
+// Real, separate follow-up work; not done here — this still only reveals
+// one generation (e.g. grandparents) per toggle.
 const SUPPLEMENTARY_MAX_DEPTH = 1;
 const SUPPLEMENTARY_SLOT_WIDTH = 250; // matches setCardXSpacing
 const SUPPLEMENTARY_LEVEL_SEP = 150; // matches setCardYSpacing
@@ -285,7 +285,7 @@ function getCardWorldPos(
 
 function renderSupplementaryOverlay(
   container: HTMLElement,
-  expandedId: string | null,
+  expandedIds: Set<string>,
   peopleById: Map<string, Person>,
   getParents: ParentsLookup,
   getSpouses: SpousesLookup,
@@ -296,64 +296,69 @@ function renderSupplementaryOverlay(
   if (!cardsView) return;
 
   clearSupplementaryOverlay(cardsView);
-  if (!expandedId) return;
 
-  const anchorPos = getCardWorldPos(container, expandedId);
-  if (!anchorPos) return; // anchor isn't currently rendered — nothing to attach to
-  const { x: anchorX, y: anchorY } = anchorPos;
+  // Each expanded anchor (e.g. both a father's and a mother's card) gets
+  // its own independent fan, all rendered together — this is what lets
+  // both parents' ancestor chains stay expanded at once without either
+  // one clobbering the other.
+  for (const expandedId of expandedIds) {
+    const anchorPos = getCardWorldPos(container, expandedId);
+    if (!anchorPos) continue; // anchor isn't currently rendered — nothing to attach to
+    const { x: anchorX, y: anchorY } = anchorPos;
 
-  // Grow the fan away from wherever the anchor's spouse is currently
-  // rendered, so it doesn't fan into the space family-chart is using for
-  // the main person's own blood ancestry.
-  let bias: "left" | "right" | "center" = "center";
-  for (const spouseId of getSpouses(expandedId)) {
-    const spousePos = getCardWorldPos(container, spouseId);
-    if (spousePos) {
-      bias = spousePos.x > anchorX ? "left" : "right";
-      break;
+    // Grow the fan away from wherever the anchor's spouse is currently
+    // rendered, so a father's-side fan and a mother's-side fan (or either
+    // one and the anchor's own spouse card) diverge instead of colliding.
+    let bias: "left" | "right" | "center" = "center";
+    for (const spouseId of getSpouses(expandedId)) {
+      const spousePos = getCardWorldPos(container, spouseId);
+      if (spousePos) {
+        bias = spousePos.x > anchorX ? "left" : "right";
+        break;
+      }
     }
-  }
 
-  const { positions, links } = layoutAncestors(
-    expandedId,
-    anchorX,
-    anchorY,
-    getParents,
-    bias,
-  );
-  if (positions.length === 0) return; // no recorded parents to show
+    const { positions, links } = layoutAncestors(
+      expandedId,
+      anchorX,
+      anchorY,
+      getParents,
+      bias,
+    );
+    if (positions.length === 0) continue; // no recorded parents to show
 
-  const getPos = (id: string) =>
-    id === expandedId
-      ? { x: anchorX, y: anchorY }
-      : positions.find((p) => p.id === id);
+    const getPos = (id: string) =>
+      id === expandedId
+        ? { x: anchorX, y: anchorY }
+        : positions.find((p) => p.id === id);
 
-  for (const link of links) {
-    const from = getPos(link.fromId);
-    const to = getPos(link.toId);
-    if (!from || !to) continue;
-    const dx = to.x - from.x;
-    const dy = to.y - from.y;
-    const length = Math.sqrt(dx * dx + dy * dy);
-    const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
-    const line = document.createElement("div");
-    line.className = "supplementary-node";
-    line.style.cssText = `position: absolute; top: 0; left: 0; width: ${length}px; height: 2px; background: var(--male-color, #5c7360); transform: translate(${from.x}px, ${from.y}px) rotate(${angle}deg); transform-origin: 0 50%; pointer-events: none;`;
-    cardsView.appendChild(line);
-  }
+    for (const link of links) {
+      const from = getPos(link.fromId);
+      const to = getPos(link.toId);
+      if (!from || !to) continue;
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      const length = Math.sqrt(dx * dx + dy * dy);
+      const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+      const line = document.createElement("div");
+      line.className = "supplementary-node";
+      line.style.cssText = `position: absolute; top: 0; left: 0; width: ${length}px; height: 2px; background: var(--male-color, #5c7360); transform: translate(${from.x}px, ${from.y}px) rotate(${angle}deg); transform-origin: 0 50%; pointer-events: none;`;
+      cardsView.appendChild(line);
+    }
 
-  for (const pos of positions) {
-    const person = peopleById.get(pos.id);
-    const card = document.createElement("div");
-    card.className = "supplementary-node";
-    card.dataset.id = pos.id;
-    card.style.cssText = `position: absolute; top: 0; left: 0; width: ${SUPPLEMENTARY_CARD_W}px; height: ${SUPPLEMENTARY_CARD_H}px; transform: translate(${pos.x - SUPPLEMENTARY_CARD_W / 2}px, ${pos.y - SUPPLEMENTARY_CARD_H / 2}px); background: var(--genderless-color, #f7f1e3); color: var(--text-color, #2b2015); border-radius: 6px; border: 1px solid rgba(43,32,21,0.35); box-shadow: 0 1px 3px rgba(0,0,0,0.15); display: flex; align-items: center; padding: 0 12px; font-size: 13px; line-height: 1.2; pointer-events: none;`;
-    card.textContent = person
-      ? person.is_placeholder
-        ? `${person.name} (?)`
-        : person.name
-      : "Unknown";
-    cardsView.appendChild(card);
+    for (const pos of positions) {
+      const person = peopleById.get(pos.id);
+      const card = document.createElement("div");
+      card.className = "supplementary-node";
+      card.dataset.id = pos.id;
+      card.style.cssText = `position: absolute; top: 0; left: 0; width: ${SUPPLEMENTARY_CARD_W}px; height: ${SUPPLEMENTARY_CARD_H}px; transform: translate(${pos.x - SUPPLEMENTARY_CARD_W / 2}px, ${pos.y - SUPPLEMENTARY_CARD_H / 2}px); background: var(--genderless-color, #f7f1e3); color: var(--text-color, #2b2015); border-radius: 6px; border: 1px solid rgba(43,32,21,0.35); box-shadow: 0 1px 3px rgba(0,0,0,0.15); display: flex; align-items: center; padding: 0 12px; font-size: 13px; line-height: 1.2; pointer-events: none;`;
+      card.textContent = person
+        ? person.is_placeholder
+          ? `${person.name} (?)`
+          : person.name
+        : "Unknown";
+      cardsView.appendChild(card);
+    }
   }
 }
 
@@ -445,24 +450,25 @@ export function FamilyTree({
   const unionsRef = useRef(unions);
   unionsRef.current = unions;
 
-  // The one supplementary ancestor branch currently shown, independent of
+  // The supplementary ancestor branches currently shown, independent of
   // family-chart's own "main" — see the "Supplementary ancestor-branch
   // overlay" section above for why this can't be done through
-  // family-chart's own API. Scoped to one at a time, matching the actual
-  // feature asked for; the data structure doesn't rule out a Set later,
-  // but nothing here has been built or tested for more than one.
-  const [expandedAncestorId, setExpandedAncestorId] = useState<string | null>(
-    null,
+  // family-chart's own API. A Set (not a single id) so a father's-side
+  // chain and a mother's-side chain can both stay expanded at once,
+  // independently — the actual ask, now that main's own ancestryDepth is
+  // capped to 1 (see chart setup below) so neither side is natively drawn.
+  const [expandedAncestorIds, setExpandedAncestorIds] = useState<Set<string>>(
+    () => new Set(),
   );
-  const expandedAncestorIdRef = useRef(expandedAncestorId);
-  expandedAncestorIdRef.current = expandedAncestorId;
+  const expandedAncestorIdsRef = useRef(expandedAncestorIds);
+  expandedAncestorIdsRef.current = expandedAncestorIds;
   const getParentsRef = useRef<ParentsLookup>(() => []);
   getParentsRef.current = buildParentsLookup(unions, unionChildren);
   const getSpousesRef = useRef<SpousesLookup>(() => []);
   getSpousesRef.current = buildSpousesLookup(unions);
 
   // Both the chart-creation effect (registering setAfterUpdate once) and
-  // the expandedAncestorId-change effect below need to trigger the exact
+  // the expandedAncestorIds-change effect below need to trigger the exact
   // same re-render; kept in a ref so the afterUpdate hook (registered once
   // at chart creation) always calls the latest version.
   const syncOverlayRef = useRef<() => void>(() => {});
@@ -471,7 +477,7 @@ export function FamilyTree({
     if (!container) return;
     renderSupplementaryOverlay(
       container,
-      expandedAncestorIdRef.current,
+      expandedAncestorIdsRef.current,
       peopleByIdRef.current,
       getParentsRef.current,
       getSpousesRef.current,
@@ -503,8 +509,25 @@ export function FamilyTree({
       .setCardYSpacing(150)
       .setOrientationVertical()
       .setSingleParentEmptyCard(false)
-      .setAncestryDepth(25)
+      // Capped to 1 (immediate parents only), not the previous 25: with
+      // showSiblingsOfMain below, main is meant to be a person like Scott
+      // (not one of his parents), so their own full blood ancestry going
+      // up would otherwise auto-render both parents' entire chains,
+      // uncollapsible and with no way to show one side without the other.
+      // Both sides are handled instead by the supplementary overlay,
+      // toggled independently per parent — see the "Supplementary
+      // ancestor-branch overlay" section above.
+      .setAncestryDepth(1)
       .setProgenyDepth(25)
+      // family-chart's own documented option (calculateTree's
+      // show_siblings_of_main) for exactly the "stable row" this app
+      // needs: main's siblings, laid out alongside them, natively — no
+      // custom sibling-rendering required. Confirmed via source
+      // (setupSiblings) this only adds bare sibling cards (no spouse/
+      // children of their own), which is fine; recentering onto any one
+      // of them keeps the same sibling group in view, since they share
+      // the same parents.
+      .setShowSiblingsOfMain(true)
       .setLinkSpouseText((sp1: TreeDatum, sp2: TreeDatum) => {
         const union = unionBetween(sp1.data.id, sp2.data.id);
         return union?.note ?? "";
@@ -537,7 +560,16 @@ export function FamilyTree({
     // "add to this person's record" panel is a separate, explicit action
     // (the "+" button below), not something that should happen just from
     // navigating the tree.
+    //
+    // Exception: is_ancestry cards (with ancestryDepth capped to 1, this is
+    // only ever exactly the main person's two immediate parents — everyone
+    // else, including main and their siblings, has is_ancestry unset).
+    // Recentering onto a parent replaces the whole view with THAT parent's
+    // own sibling/spouse context, discarding the stable sibling row that
+    // was the point of being here — the parent's card is only meant to be
+    // explored via its own ▲ toggle (further down), never by becoming main.
     f3Card.setOnCardClick((e: MouseEvent, d: TreeDatum) => {
+      if (d.is_ancestry) return;
       f3Card.onCardClickDefault(e, d);
     });
 
@@ -654,29 +686,43 @@ export function FamilyTree({
       cardEl.appendChild(editButton);
 
       // Independent of family-chart's own "main" hierarchy — see the
-      // "Supplementary ancestor-branch overlay" section above. Only shown
-      // for people who actually have recorded parents; toggles our own
-      // hand-laid-out branch on/off, replacing whichever one (if any) was
-      // previously expanded, since only one is shown at a time.
-      if (getParentsRef.current(d.data.id).length > 0) {
+      // "Supplementary ancestor-branch overlay" section above. Restricted
+      // to is_ancestry cards specifically (with ancestryDepth capped to 1,
+      // that's exactly main's two immediate parents) rather than "anyone
+      // with recorded parents": offering this on main's own card or a
+      // sibling's card would try to render main's own parents a second
+      // time, directly on top of where they're already natively shown.
+      // Toggles independently per parent (Set membership, not a single
+      // replaced value) so a father's-side and mother's-side chain can
+      // both stay expanded together.
+      if (d.is_ancestry && getParentsRef.current(d.data.id).length > 0) {
+        const isExpanded = expandedAncestorIdsRef.current.has(d.data.id);
         const expandButton = document.createElement("button");
         expandButton.type = "button";
-        expandButton.textContent = "▲";
+        // ▼ (open) vs ▲ (closed) so the icon itself shows current state
+        // and what clicking it will do — the previous version always
+        // showed ▲ regardless of state, which is why it read as inert.
+        expandButton.textContent = isExpanded ? "▼" : "▲";
         expandButton.setAttribute(
           "aria-label",
-          `Show ${d.data.data["first name"]}'s parents`,
+          isExpanded
+            ? `Hide ${d.data.data["first name"]}'s ancestors`
+            : `Show ${d.data.data["first name"]}'s ancestors`,
         );
         expandButton.style.cssText =
           "position: absolute; top: -6px; left: 50%; transform: translateX(-50%); " +
           "width: 22px; height: 18px; border-radius: 9px; border: none; " +
-          "background: var(--male-color, #5c7360); color: white; font-size: 9px; " +
+          `background: ${isExpanded ? "var(--female-color, #a97b52)" : "var(--male-color, #5c7360)"}; color: white; font-size: 9px; ` +
           "line-height: 1; cursor: pointer; display: flex; align-items: center; " +
           "justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,0.4);";
         expandButton.addEventListener("click", (e) => {
           e.stopPropagation();
-          setExpandedAncestorId((current) =>
-            current === d.data.id ? null : d.data.id,
-          );
+          setExpandedAncestorIds((current) => {
+            const next = new Set(current);
+            if (next.has(d.data.id)) next.delete(d.data.id);
+            else next.add(d.data.id);
+            return next;
+          });
         });
         cardEl.appendChild(expandButton);
       }
@@ -724,12 +770,25 @@ export function FamilyTree({
   }, [hasConnected]);
 
   // Re-render the supplementary overlay whenever the user toggles which
-  // branch is expanded. (The family-chart-triggered case — main changing,
-  // data changing — is covered by the setAfterUpdate hook above instead,
-  // since those don't change this state at all.)
+  // branch(es) are expanded. (The family-chart-triggered case — main
+  // changing, data changing — is covered by the setAfterUpdate hook above
+  // instead, since those don't change this state at all.) A fresh Set is
+  // constructed on every toggle, so reference equality alone is enough to
+  // fire this on every add/remove.
+  //
+  // Also re-run family-chart's own updateTree: the ▲/▼ toggle button lives
+  // inside setOnCardUpdate, which only re-executes when family-chart
+  // itself re-renders a card — toggling our own React state alone doesn't
+  // do that, so without this the icon would silently go stale after the
+  // very first click (stuck on ▲ forever, regardless of actual state).
+  // Nothing on screen actually moves (main and all positions are
+  // unchanged), so the transition this schedules is visually a no-op; the
+  // immediate syncOverlayRef call above still gives instant overlay
+  // feedback rather than waiting on that transition.
   useEffect(() => {
     syncOverlayRef.current();
-  }, [expandedAncestorId]);
+    chartRef.current?.updateTree({ initial: false, tree_position: "inherit" });
+  }, [expandedAncestorIds]);
 
   // Keep the chart's data in sync with new saves via family-chart's own
   // updateData(), instead of tearing down and recreating the chart (the
