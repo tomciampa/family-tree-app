@@ -313,6 +313,72 @@ function getCardWorldPos(
   return { x: parseFloat(match[1]), y: parseFloat(match[2]) };
 }
 
+type Rect = { minX: number; maxX: number; minY: number; maxY: number };
+
+function rectsOverlap(a: Rect, b: Rect): boolean {
+  return a.minX < b.maxX && a.maxX > b.minX && a.minY < b.maxY && a.maxY > b.minY;
+}
+
+type ClaimedRect = { id: string; rect: Rect };
+
+// Every native family-chart card's real on-screen footprint, in the same
+// world-coordinate space layoutAncestors works in. .card_cont is
+// position:absolute + translate(x,y), i.e. x,y IS its rendered top-left
+// corner (not a center) — unlike our own supplementary cards, which we
+// explicitly center on their computed pos (see the -CARD_W/2 in the
+// transform below). Tagged with the person's id so a root's own fan
+// doesn't get flagged as "colliding" with its own anchor card, which it
+// trivially always would (the anchor point is deliberately included in
+// the fan's own bounding box — see boundingRect).
+function getNativeCardRects(container: HTMLElement): ClaimedRect[] {
+  const rects: ClaimedRect[] = [];
+  container.querySelectorAll<HTMLElement>(".card_cont").forEach((cont) => {
+    const id = cont.querySelector<HTMLElement>(".card[data-id]")?.dataset.id;
+    const match = cont.style.transform.match(
+      /translate\(([-\d.]+)px,\s*([-\d.]+)px\)/,
+    );
+    if (!id || !match) return;
+    const x = parseFloat(match[1]);
+    const y = parseFloat(match[2]);
+    rects.push({
+      id,
+      rect: {
+        minX: x,
+        maxX: x + SUPPLEMENTARY_CARD_W,
+        minY: y,
+        maxY: y + SUPPLEMENTARY_CARD_H,
+      },
+    });
+  });
+  return rects;
+}
+
+// Includes the anchor point itself, not just the fan's own cards: the
+// cards alone don't overlap when two fans collide (they're small, 220x70,
+// against a 150px level separation) — it's the diagonal connector from
+// anchor down to each card that crosses another branch's territory, which
+// only shows up if the claimed region covers that full triangular span,
+// not just the leaf cards sitting at its bottom edge. Verified this was
+// the actual gap: a first version using only the cards' own rect never
+// detected the Maxine/Jeff collision at all, since Robert/Peggy (Y ~
+// -300) and Joe/Adriana (Y ~ -150) don't share a Y band even though their
+// connecting lines visibly crossed.
+function boundingRect(
+  anchorX: number,
+  anchorY: number,
+  positions: AncestorPos[],
+): Rect | null {
+  if (positions.length === 0) return null;
+  const xs = [anchorX, ...positions.map((p) => p.x)];
+  const ys = [anchorY, ...positions.map((p) => p.y)];
+  return {
+    minX: Math.min(...xs) - SUPPLEMENTARY_CARD_W / 2,
+    maxX: Math.max(...xs) + SUPPLEMENTARY_CARD_W / 2,
+    minY: Math.min(...ys) - SUPPLEMENTARY_CARD_H / 2,
+    maxY: Math.max(...ys) + SUPPLEMENTARY_CARD_H / 2,
+  };
+}
+
 function renderSupplementaryOverlay(
   container: HTMLElement,
   expandedIds: Set<string>,
@@ -339,6 +405,21 @@ function renderSupplementaryOverlay(
     return getCardWorldPos(container, id) ?? drawnPositions.get(id) ?? null;
   }
 
+  // Territory already spoken for, seeded with every native card's real
+  // footprint. Two roots can legitimately land at the same generational
+  // Y-level with overlapping X — e.g. a spouse's parents (one level above
+  // the spouse, who's at main's own level) sit at exactly the same level
+  // as main's own parents (one level above main) — and each root's fan is
+  // computed independently, with no idea the other root (or a native
+  // card) is even there. Verified this actually happens, not just in
+  // theory: Maxine's parents landed in the same row, overlapping X, as
+  // Tom's own parents Jeff and Laurie, producing crossing connector
+  // lines. Each root's fan gets nudged sideways (see the shift loop
+  // below) until it clears every rect already claimed, then claims its
+  // own — so a third or fourth simultaneously-expanded root keeps
+  // clearing everything placed before it, not just native cards.
+  const claimedRects: ClaimedRect[] = getNativeCardRects(container);
+
   // Only a native card (is_ancestry, or main's own spouse — see
   // setOnCardUpdate) is ever a "root": every other id in expandedIds is
   // itself somewhere inside a root's own tree, reached transitively via
@@ -348,14 +429,18 @@ function renderSupplementaryOverlay(
     if (!anchorPos) continue;
     const { x: anchorX, y: anchorY } = anchorPos;
 
-    // Grow away from wherever the root's spouse is currently rendered, so
-    // a father's-side tree and a mother's-side tree (or either one and
-    // the root's own spouse card) diverge instead of colliding.
-    let bias: "left" | "right" | "center" = "center";
+    // Which side to grow away from — checked below for spouse info, used
+    // only as a starting preference now (see the "try both shapes"
+    // comment): a father's-side tree and a mother's-side tree (or either
+    // one and the root's own spouse card) still generally want to
+    // diverge, but which literal direction that means isn't trustworthy
+    // enough on its own to commit to before checking what's actually
+    // already on screen.
+    let preferredBias: "left" | "right" | "center" = "center";
     for (const spouseId of getSpouses(rootId)) {
       const spousePos = resolvePos(spouseId);
       if (spousePos) {
-        bias = spousePos.x > anchorX ? "left" : "right";
+        preferredBias = spousePos.x > anchorX ? "left" : "right";
         break;
       }
     }
@@ -369,14 +454,87 @@ function renderSupplementaryOverlay(
       countUnlockedDepth(rootId, getParents, expandedIds),
       SUPPLEMENTARY_MAX_DEPTH,
     );
-    const { positions, links } = layoutAncestors(
-      rootId,
-      anchorX,
-      anchorY,
-      getParents,
-      bias,
-      depth,
-    );
+
+    // Nudge a fan sideways, as one rigid unit, until its bounding box
+    // clears every rect already claimed (native cards, and any earlier
+    // root's fan this same pass) — see the claimedRects comment above for
+    // why this is needed at all. Shifting rather than re-running
+    // layoutAncestors with a wider berth keeps every position's carefully
+    // non-overlapping relative structure intact; only the connector from
+    // the root itself to its immediate parents ends up slightly diagonal
+    // instead of perfectly vertical, which is a fair trade for not
+    // crossing another branch entirely. Computed exactly (how far to
+    // clear whatever's actually blocking), not stepped in fixed jumps —
+    // an earlier version of this did that and overcorrected badly.
+    const margin = 20;
+    function shiftToClear(
+      positions: AncestorPos[],
+      direction: -1 | 1,
+    ): number {
+      let shift = 0;
+      const rect = boundingRect(anchorX, anchorY, positions);
+      if (!rect) return 0;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const shifted: Rect = {
+          minX: rect.minX + shift,
+          maxX: rect.maxX + shift,
+          minY: rect.minY,
+          maxY: rect.maxY,
+        };
+        const blocker = claimedRects.find(
+          (c) => c.id !== rootId && rectsOverlap(shifted, c.rect),
+        );
+        if (!blocker) return shift;
+        shift =
+          direction < 0
+            ? blocker.rect.minX - rect.maxX - margin
+            : blocker.rect.maxX - rect.minX + margin;
+      }
+      return shift;
+    }
+
+    // Try the fan's shape BOTH ways (parents ordered toward-left vs
+    // toward-right within it — layoutAncestors' bias parameter), each
+    // shifted to clear in its own natural direction, and keep whichever
+    // combination ends up closest to the root's own anchor. Fixing bias
+    // from the spouse comparison alone and only shifting afterward (an
+    // earlier version of this) can only ever push further away from an
+    // already-bad starting shape — concretely, main's spouse's "away from
+    // main" direction and "away from main's own already-expanded parents"
+    // aren't always the same direction, and always trusting the former
+    // pushed a fan much further from its own anchor than necessary,
+    // reading as "floating off to the side" instead of "stacked above"
+    // even once the collision was technically cleared.
+    const candidates: Array<"left" | "right"> =
+      preferredBias === "center" ? ["left", "right"] : [preferredBias, preferredBias === "left" ? "right" : "left"];
+    let best: { positions: AncestorPos[]; links: AncestorLink[]; shift: number } | null = null;
+    for (const candidateBias of candidates) {
+      const { positions: candidatePositions, links: candidateLinks } =
+        layoutAncestors(rootId, anchorX, anchorY, getParents, candidateBias, depth);
+      const direction = candidateBias === "left" ? -1 : 1;
+      const shift = shiftToClear(candidatePositions, direction);
+      if (!best || Math.abs(shift) < Math.abs(best.shift)) {
+        best = { positions: candidatePositions, links: candidateLinks, shift };
+      }
+    }
+    const { positions: computedPositions, links, shift: shiftAmount } = best!;
+
+    const initialRect = boundingRect(anchorX, anchorY, computedPositions);
+    if (initialRect) {
+      claimedRects.push({
+        id: rootId,
+        rect: {
+          minX: initialRect.minX + shiftAmount,
+          maxX: initialRect.maxX + shiftAmount,
+          minY: initialRect.minY,
+          maxY: initialRect.maxY,
+        },
+      });
+    }
+    const positions =
+      shiftAmount === 0
+        ? computedPositions
+        : computedPositions.map((p) => ({ ...p, x: p.x + shiftAmount }));
     const posById = new Map(positions.map((p) => [p.id, p]));
 
     // A position is only actually drawn once every ancestor between it
