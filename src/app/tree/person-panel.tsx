@@ -12,25 +12,19 @@ import {
   extractFactFromDocument,
 } from "./actions";
 import { FACT_SOURCE_TYPES } from "./constants";
+import { FactList } from "./fact-list";
+import { AnecdoteList } from "./anecdote-list";
+import { DocumentList, type PersonDocument } from "./document-list";
 
 type Person = Tables<"people">;
 type Fact = Tables<"facts">;
 type Anecdote = Tables<"anecdotes">;
 type Marriage = { unionId: string; spouseName: string | null };
-type PersonDocument = {
-  personId: string;
-  id: string;
-  filename: string | null;
-  documentType: string | null;
-  viewUrl: string | null;
-};
 
 const inputClassName =
   "rounded border border-gray-300 px-3 py-2 text-sm text-black dark:border-gray-700 dark:bg-gray-800 dark:text-white";
 const actionButtonClassName =
   "rounded border border-gray-300 px-3 py-1.5 text-sm hover:border-gray-400 dark:border-gray-700 dark:hover:border-gray-600";
-const sourceBadgeClassName =
-  "rounded bg-gray-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-400";
 
 type ActiveForm =
   | null
@@ -139,69 +133,11 @@ export function PersonPanel({
           </button>
         </div>
 
-        {facts.length > 0 && (
-          <div className="mb-4 flex flex-col gap-2 border-b border-gray-200 pb-4 dark:border-gray-800">
-            {facts.map((fact) => (
-              <div key={fact.id} className="flex items-start justify-between gap-2 text-sm">
-                <div>
-                  <span className="text-xs uppercase tracking-wide text-gray-500">
-                    {fact.field}
-                  </span>
-                  <p>{fact.value}</p>
-                </div>
-                <span className={sourceBadgeClassName}>{fact.source_type}</span>
-              </div>
-            ))}
-          </div>
-        )}
+        <FactList facts={facts} />
 
-        {anecdotes.length > 0 && (
-          <div className="mb-4 flex flex-col gap-3 border-b border-gray-200 pb-4 dark:border-gray-800">
-            {anecdotes.map((anecdote) => (
-              <div
-                key={anecdote.id}
-                className="border-l-2 border-gray-300 pl-3 text-sm italic text-gray-700 dark:border-gray-600 dark:text-gray-300"
-              >
-                &ldquo;{anecdote.story_text}&rdquo;
-                {anecdote.who_told_it && (
-                  <span className="mt-1 block text-xs not-italic text-gray-500">
-                    — recorded from {anecdote.who_told_it}
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
+        <AnecdoteList anecdotes={anecdotes} />
 
-        {documents.length > 0 && (
-          <div className="mb-4 flex flex-col gap-2 border-b border-gray-200 pb-4 dark:border-gray-800">
-            <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-              Documents
-            </p>
-            {documents.map((doc) => (
-              <div
-                key={doc.id}
-                className="flex items-center justify-between gap-2 text-sm"
-              >
-                {doc.viewUrl ? (
-                  <a
-                    href={doc.viewUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline hover:text-gray-500"
-                  >
-                    {doc.filename ?? "View document"}
-                  </a>
-                ) : (
-                  <span>{doc.filename ?? "Document"}</span>
-                )}
-                {doc.documentType && (
-                  <span className={sourceBadgeClassName}>{doc.documentType}</span>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
+        <DocumentList documents={documents} />
 
         {activeForm === null && (
           <div className="flex flex-col gap-2">

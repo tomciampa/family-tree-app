@@ -85,3 +85,21 @@ body {
 .f3 g.link-text text {
   fill: var(--text-color) !important;
 }
+
+/* Brief highlight for "view in tree" (from the document candidate-match
+   review queue) — a saturated red pulse, deliberately NOT the gold/sepia
+   family already used elsewhere in this theme (--female-color, mini-tree
+   badge) — those blend into the parchment/cream card fill at a glance,
+   which defeats the point of a "look here" cue. Applied to a specific
+   card via its data-person-id attribute (see family-tree.tsx), not by
+   name text, since this app can have several different people sharing a
+   name. */
+@keyframes f3-highlight-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+  25%, 75% { box-shadow: 0 0 0 8px rgba(220, 38, 38, 0.85); }
+}
+
+.f3-highlight-pulse {
+  animation: f3-highlight-pulse 0.8s ease-in-out 3;
+  border-radius: 6px;
+}

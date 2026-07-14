@@ -219,11 +219,15 @@ export function FamilyTree({
   unions,
   unionChildren,
   onPersonClick,
+  onOpenDossier,
+  highlightPersonId,
 }: {
   people: Person[];
   unions: UnionRow[];
   unionChildren: UnionChild[];
   onPersonClick?: (person: Person) => void;
+  onOpenDossier?: (person: Person) => void;
+  highlightPersonId?: string | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<ReturnType<typeof f3.createChart> | null>(null);
@@ -239,6 +243,8 @@ export function FamilyTree({
   // tear down the chart — see the two effects below.
   const onPersonClickRef = useRef(onPersonClick);
   onPersonClickRef.current = onPersonClick;
+  const onOpenDossierRef = useRef(onOpenDossier);
+  onOpenDossierRef.current = onOpenDossier;
   const peopleByIdRef = useRef(new Map<string, Person>());
   peopleByIdRef.current = new Map(people.map((p) => [p.id, p]));
   const unionsRef = useRef(unions);
@@ -261,6 +267,15 @@ export function FamilyTree({
   // view) apart from "already in couple view, data changed for some other
   // reason" (leave main and pan/zoom alone).
   const prevCoupleViewRef = useRef<typeof coupleView>(null);
+  // "View in tree" from the document-matching review queue (see
+  // documents-view.tsx): a person id to recenter on and briefly pulse.
+  // Applied via setAfterUpdate below rather than immediately after calling
+  // updateTree() — family-chart's card repositioning runs via a d3
+  // .transition(), which hasn't applied its first interpolated frame yet
+  // in the same synchronous tick that updateTree() returns in. Adding the
+  // pulse class right away would apply it to the card's pre-recenter
+  // position, not where it's actually about to land.
+  const pendingHighlightRef = useRef<string | null>(null);
 
   // Create the chart once (and only re-create if the container itself goes
   // away and comes back, e.g. the tree has no connected people yet). This
@@ -440,6 +455,14 @@ export function FamilyTree({
       const cardEl = this.querySelector<HTMLElement>(".card");
       if (!cardEl) return;
 
+      // family-chart doesn't stamp the underlying person id onto the DOM
+      // anywhere itself (card_cont is keyed internally by a "tid", not
+      // exposed as an attribute) — added here so "view in tree" can find
+      // the right card by id rather than by name text, which breaks the
+      // moment two people share a name (e.g. this app's three different
+      // "Anthony Ciampa" records).
+      cardEl.setAttribute("data-person-id", d.data.id);
+
       const addButton = document.createElement("button");
       addButton.type = "button";
       addButton.textContent = "+";
@@ -476,6 +499,33 @@ export function FamilyTree({
         f3EditTree.openFormWithId(d.data.id);
       });
       cardEl.appendChild(editButton);
+
+      // Case-file dossier — a full read view of this person (summary +
+      // Facts/Stories tabs), separate from both the card's own click
+      // (recenter) and the "+" button (the add-to-record forms above).
+      // Bottom-center is the one edge of the card not already claimed by
+      // add (top-right), edit (top-left), or view-both-families
+      // (top-center) — see those buttons' positioning below.
+      const dossierButton = document.createElement("button");
+      dossierButton.type = "button";
+      dossierButton.textContent = "🗂";
+      dossierButton.setAttribute(
+        "aria-label",
+        `Open case file for ${d.data.data["first name"]}`,
+      );
+      dossierButton.style.cssText =
+        "position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%); " +
+        "width: 22px; height: 18px; border-radius: 9px; border: none; " +
+        "background: #efe6d2; color: #2b2015; font-size: 11px; " +
+        "line-height: 1; cursor: pointer; display: flex; align-items: center; " +
+        "justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,0.4); " +
+        "border: 1px solid #c9b896;";
+      dossierButton.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const person = peopleByIdRef.current.get(d.data.id);
+        if (person) onOpenDossierRef.current?.(person);
+      });
+      cardEl.appendChild(dossierButton);
 
       // "View both families" — see the section comment above. Offered on
       // any card with at least one recorded spouse; picks the first if
@@ -523,6 +573,23 @@ export function FamilyTree({
       }
     });
 
+    // See pendingHighlightRef's own comment above for why this waits for
+    // the real transition instead of applying the pulse immediately.
+    f3Chart.setAfterUpdate((props?: { transition_time?: number }) => {
+      const id = pendingHighlightRef.current;
+      if (!id) return;
+      pendingHighlightRef.current = null;
+      const transitionTime = props?.transition_time ?? 0;
+      window.setTimeout(() => {
+        const el = container.querySelector<HTMLElement>(
+          `[data-person-id="${id}"]`,
+        );
+        if (!el) return;
+        el.classList.add("f3-highlight-pulse");
+        window.setTimeout(() => el.classList.remove("f3-highlight-pulse"), 2400);
+      }, transitionTime + 50);
+    });
+
     f3Chart.updateTree({ initial: true });
     chartRef.current = f3Chart;
 
@@ -531,6 +598,20 @@ export function FamilyTree({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasConnected]);
+
+  // "View in tree" support: recenter on the requested person and queue a
+  // brief highlight pulse for their card (applied once the real transition
+  // settles — see setAfterUpdate above). Declared after the chart-creation
+  // effect so chartRef.current is already populated by the time this runs
+  // on initial mount.
+  useEffect(() => {
+    if (!highlightPersonId || !chartRef.current) return;
+    if (!touched.has(highlightPersonId)) return; // not part of any recorded relationship, nothing to center on
+    pendingHighlightRef.current = highlightPersonId;
+    chartRef.current.updateMainId(highlightPersonId);
+    chartRef.current.updateTree({ initial: false, tree_position: "fit" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightPersonId]);
 
   // Keep the chart's data in sync with new saves via family-chart's own
   // updateData(), instead of tearing down and recreating the chart (the

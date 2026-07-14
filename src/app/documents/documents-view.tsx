@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRef } from "react";
+import Link from "next/link";
 import {
   uploadDocument,
   extractCandidatesFromDocument,
@@ -10,6 +11,7 @@ import {
   createPersonForCandidate,
   skipCandidateResolution,
 } from "./actions";
+import type { PersonSummary } from "@/lib/family";
 
 export type PersonMatch = {
   personId: string;
@@ -53,7 +55,13 @@ const statusStyles: Record<string, string> = {
   no_match: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
 };
 
-export function DocumentsView({ documents }: { documents: DocumentRow[] }) {
+export function DocumentsView({
+  documents,
+  personSummaries,
+}: {
+  documents: DocumentRow[];
+  personSummaries: Record<string, PersonSummary>;
+}) {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -124,14 +132,20 @@ export function DocumentsView({ documents }: { documents: DocumentRow[] }) {
           <p className="text-sm text-gray-500">No documents uploaded yet.</p>
         )}
         {documents.map((doc) => (
-          <DocumentItem key={doc.id} doc={doc} />
+          <DocumentItem key={doc.id} doc={doc} personSummaries={personSummaries} />
         ))}
       </div>
     </div>
   );
 }
 
-function DocumentItem({ doc }: { doc: DocumentRow }) {
+function DocumentItem({
+  doc,
+  personSummaries,
+}: {
+  doc: DocumentRow;
+  personSummaries: Record<string, PersonSummary>;
+}) {
   const [isExtracting, setIsExtracting] = useState(false);
   const [isMatching, setIsMatching] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -246,6 +260,7 @@ function DocumentItem({ doc }: { doc: DocumentRow }) {
                     documentId={doc.id}
                     index={index}
                     candidate={c}
+                    personSummaries={personSummaries}
                     onUpdate={handleCandidateUpdate}
                   />
                 ))}
@@ -302,11 +317,13 @@ function FamilyCandidateRow({
   documentId,
   index,
   candidate,
+  personSummaries,
   onUpdate,
 }: {
   documentId: string;
   index: number;
   candidate: CandidatePerson;
+  personSummaries: Record<string, PersonSummary>;
   onUpdate: (updated: CandidatePerson[], newStatus?: string) => void;
 }) {
   const [selection, setSelection] = useState<string>(() =>
@@ -389,30 +406,52 @@ function FamilyCandidateRow({
             </p>
           ) : (
             <div className="mt-2 flex flex-col gap-1.5 rounded border border-gray-200 p-2 dark:border-gray-800">
-              {visibleMatches.map((m) => (
-                <label key={m.personId} className="flex items-start gap-1.5">
-                  <input
-                    type="radio"
-                    name={`candidate-${documentId}-${index}`}
-                    checked={selection === m.personId}
-                    onChange={() => setSelection(m.personId)}
-                    className="mt-0.5"
-                  />
-                  <span>
-                    {m.personName} — {(m.score * 100).toFixed(0)}%
-                    {m.relationSignal && " · existing relationship"}
-                    {m.dateSignal === "overlap" && " · dates match"}
-                    {m.dateSignal === "conflict" && " · dates conflict"}
-                    {namesConflict(candidate.name, m.personName) && (
-                      <span className="block text-amber-600 dark:text-amber-400">
-                        Extracted as &quot;{candidate.name}&quot; — existing
-                        record is &quot;{m.personName}&quot;. Confirming
-                        won&apos;t change the stored name.
+              {visibleMatches.map((m) => {
+                const summary = personSummaries[m.personId];
+                const dates = [summary?.birthEstimate, summary?.deathEstimate]
+                  .filter(Boolean)
+                  .join(" – ");
+                return (
+                  <label key={m.personId} className="flex items-start gap-1.5">
+                    <input
+                      type="radio"
+                      name={`candidate-${documentId}-${index}`}
+                      checked={selection === m.personId}
+                      onChange={() => setSelection(m.personId)}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      {m.personName} — {(m.score * 100).toFixed(0)}%
+                      {m.relationSignal && " · existing relationship"}
+                      {m.dateSignal === "overlap" && " · dates match"}
+                      {m.dateSignal === "conflict" && " · dates conflict"}
+                      {/* This is exactly what tells apart e.g. three
+                          different "Anthony Ciampa" records — bare name +
+                          score alone can't. */}
+                      <span className="block text-gray-500 dark:text-gray-500">
+                        {dates && `${dates} · `}
+                        {summary?.relationshipSummary ?? "not yet in the tree"}
+                        {" · "}
+                        <Link
+                          href={`/tree?highlight=${m.personId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline hover:text-gray-700 dark:hover:text-gray-300"
+                        >
+                          view in tree ↗
+                        </Link>
                       </span>
-                    )}
-                  </span>
-                </label>
-              ))}
+                      {namesConflict(candidate.name, m.personName) && (
+                        <span className="block text-amber-600 dark:text-amber-400">
+                          Extracted as &quot;{candidate.name}&quot; — existing
+                          record is &quot;{m.personName}&quot;. Confirming
+                          won&apos;t change the stored name.
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                );
+              })}
               {matches.length > 6 && !showAll && (
                 <button
                   type="button"

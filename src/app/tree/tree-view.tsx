@@ -1,8 +1,11 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { FamilyTree } from "@/components/family-tree";
 import { PersonPanel } from "./person-panel";
+import { PersonDossier } from "./person-dossier";
+import type { PersonDocument } from "./document-list";
 import type { Tables } from "@/lib/supabase/database.types";
 
 type Person = Tables<"people">;
@@ -10,13 +13,6 @@ type UnionRow = Tables<"unions">;
 type UnionChild = Tables<"union_children">;
 type Fact = Tables<"facts">;
 type Anecdote = Tables<"anecdotes">;
-type PersonDocument = {
-  personId: string;
-  id: string;
-  filename: string | null;
-  documentType: string | null;
-  viewUrl: string | null;
-};
 
 export function TreeView({
   people,
@@ -34,12 +30,23 @@ export function TreeView({
   personDocuments: PersonDocument[];
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [dossierId, setDossierId] = useState<string | null>(null);
+  // "?highlight=<personId>" from the document candidate-match review
+  // queue's "view in tree" link (see documents-view.tsx) — read once on
+  // mount, since each click there opens a fresh tab/page load rather than
+  // navigating within an already-open one.
+  const searchParams = useSearchParams();
+  const [highlightPersonId] = useState(() => searchParams.get("highlight"));
   // Stable identity across re-renders — an inline arrow function here would
   // change reference every time selectedId changes, and FamilyTree's effect
   // (keyed in part on this callback) would tear down and rebuild the whole
   // chart on every click, undoing the library's own re-center-on-click.
   const handlePersonClick = useCallback(
     (person: Person) => setSelectedId(person.id),
+    [],
+  );
+  const handleOpenDossier = useCallback(
+    (person: Person) => setDossierId(person.id),
     [],
   );
 
@@ -78,6 +85,17 @@ export function TreeView({
     ? personDocuments.filter((d) => d.personId === selectedPerson.id)
     : [];
 
+  const dossierPerson = people.find((p) => p.id === dossierId) ?? null;
+  const dossierFacts = dossierPerson
+    ? facts.filter((f) => f.person_id === dossierPerson.id)
+    : [];
+  const dossierAnecdotes = dossierPerson
+    ? anecdotes.filter((a) => a.person_id === dossierPerson.id)
+    : [];
+  const dossierDocuments = dossierPerson
+    ? personDocuments.filter((d) => d.personId === dossierPerson.id)
+    : [];
+
   return (
     <>
       <FamilyTree
@@ -85,6 +103,8 @@ export function TreeView({
         unions={unions}
         unionChildren={unionChildren}
         onPersonClick={handlePersonClick}
+        onOpenDossier={handleOpenDossier}
+        highlightPersonId={highlightPersonId}
       />
       {selectedPerson && (
         <PersonPanel
@@ -95,6 +115,15 @@ export function TreeView({
           anecdotes={personAnecdotes}
           documents={selectedPersonDocuments}
           onClose={() => setSelectedId(null)}
+        />
+      )}
+      {dossierPerson && (
+        <PersonDossier
+          person={dossierPerson}
+          facts={dossierFacts}
+          anecdotes={dossierAnecdotes}
+          documents={dossierDocuments}
+          onClose={() => setDossierId(null)}
         />
       )}
     </>
