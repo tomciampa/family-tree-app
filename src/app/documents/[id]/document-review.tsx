@@ -337,22 +337,23 @@ function FamilyCandidateRow({
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  // Explicit, independent of `selection`'s value — a manually-searched
+  // person can legitimately coincide with one of the matcher's own (often
+  // low-ranked, not-visible-by-default) suggestions, e.g. "Bob Ciampa"
+  // vs. "Robert Ciampa" scored low enough to be buried past the visible-6
+  // cutoff but still present in the full matches array. Deriving "is this
+  // a manual search pick" from "selection isn't in matches" broke exactly
+  // then: picking such a person from search made that check false, which
+  // hid the search panel and its "Selected: X" confirmation — selection
+  // was still correct and Confirm still worked, but nothing on screen
+  // showed it, reading as if the click had done nothing.
+  const [isSearchMode, setIsSearchMode] = useState(false);
 
   const matches = candidate.matches ?? [];
   const visibleMatches = showAll ? matches : matches.slice(0, 6);
 
-  // A manual search-pick is any selection that isn't one of the matcher's
-  // own suggestions and isn't "create a new person" — covers both the
-  // "__search__" placeholder (search open, nothing chosen yet) and an
-  // actual personId once they click a result, so the radio + search panel
-  // stay visually selected/open across that transition without a second
-  // piece of state to keep in sync.
-  const isManualSearch =
-    selection !== "__new__" &&
-    selection !== "" &&
-    !matches.some((m) => m.personId === selection);
   const searchResults =
-    isManualSearch && searchQuery.trim().length > 0
+    isSearchMode && searchQuery.trim().length > 0
       ? people
           .filter((p) =>
             p.name.toLowerCase().includes(searchQuery.trim().toLowerCase()),
@@ -440,8 +441,11 @@ function FamilyCandidateRow({
                     <input
                       type="radio"
                       name={`candidate-${documentId}-${index}`}
-                      checked={selection === m.personId}
-                      onChange={() => setSelection(m.personId)}
+                      checked={!isSearchMode && selection === m.personId}
+                      onChange={() => {
+                        setIsSearchMode(false);
+                        setSelection(m.personId);
+                      }}
                       onFocus={() => onFocusMatch(m.personId, candidate.name)}
                       className="mt-0.5"
                     />
@@ -484,8 +488,11 @@ function FamilyCandidateRow({
                 <input
                   type="radio"
                   name={`candidate-${documentId}-${index}`}
-                  checked={selection === "__new__"}
-                  onChange={() => setSelection("__new__")}
+                  checked={!isSearchMode && selection === "__new__"}
+                  onChange={() => {
+                    setIsSearchMode(false);
+                    setSelection("__new__");
+                  }}
                   className="mt-0.5"
                 />
                 <span className="flex flex-col gap-1">
@@ -519,13 +526,16 @@ function FamilyCandidateRow({
                 <input
                   type="radio"
                   name={`candidate-${documentId}-${index}`}
-                  checked={isManualSearch}
-                  onChange={() => setSelection("__search__")}
+                  checked={isSearchMode}
+                  onChange={() => {
+                    setIsSearchMode(true);
+                    setSelection("__search__");
+                  }}
                   className="mt-0.5"
                 />
                 <span>None of these — search for the correct person</span>
               </label>
-              {isManualSearch && (
+              {isSearchMode && (
                 <div className="ml-5 flex flex-col gap-1">
                   <input
                     type="text"
