@@ -8,18 +8,30 @@ type UnionChild = Tables<"union_children">;
 const now = "2026-07-08T00:00:00Z";
 const familyId = "dev-preview-family";
 
+// Standardized identity columns aren't exercised by this dev preview —
+// every person gets the same unset defaults so the fixture data below
+// stays focused on tree shape, not identity-field content.
+const identityDefaults = {
+  first_name: null,
+  preferred_name: null,
+  last_name: null,
+  married_name: null,
+  gender: null,
+  aliases: null,
+} as const;
+
 const people: Person[] = [
-  { id: "1", name: "Grandpa Al", birth_estimate: "1900", death_estimate: "1970", notes: null, is_placeholder: false, is_root: true, created_at: now, family_id: familyId },
-  { id: "2", name: "Grandma Bea", birth_estimate: "1902", death_estimate: "1975", notes: null, is_placeholder: false, is_root: true, created_at: now, family_id: familyId },
-  { id: "3", name: "Carl", birth_estimate: "1925", death_estimate: null, notes: null, is_placeholder: false, is_root: false, created_at: now, family_id: familyId },
-  { id: "4", name: "Grandpa Dan", birth_estimate: "1898", death_estimate: "1960", notes: null, is_placeholder: false, is_root: true, created_at: now, family_id: familyId },
-  { id: "5", name: "Grandma Edna", birth_estimate: "1901", death_estimate: "1980", notes: null, is_placeholder: false, is_root: true, created_at: now, family_id: familyId },
-  { id: "6", name: "Frances", birth_estimate: "1927", death_estimate: null, notes: null, is_placeholder: false, is_root: false, created_at: now, family_id: familyId },
-  { id: "7", name: "Gina", birth_estimate: "1950", death_estimate: null, notes: null, is_placeholder: false, is_root: false, created_at: now, family_id: familyId },
-  { id: "8", name: "Hank", birth_estimate: "1952", death_estimate: null, notes: null, is_placeholder: false, is_root: false, created_at: now, family_id: familyId },
-  { id: "9", name: "Irene", birth_estimate: "1930", death_estimate: null, notes: null, is_placeholder: false, is_root: true, created_at: now, family_id: familyId },
-  { id: "10", name: "Jack", birth_estimate: "1955", death_estimate: null, notes: null, is_placeholder: false, is_root: false, created_at: now, family_id: familyId },
-  { id: "11", name: "Karen (unplaced)", birth_estimate: "1980", death_estimate: null, notes: null, is_placeholder: false, is_root: false, created_at: now, family_id: familyId },
+  { id: "1", name: "Grandpa Al", birth_estimate: "1900", death_estimate: "1970", notes: null, is_placeholder: false, is_root: true, created_at: now, family_id: familyId, ...identityDefaults },
+  { id: "2", name: "Grandma Bea", birth_estimate: "1902", death_estimate: "1975", notes: null, is_placeholder: false, is_root: true, created_at: now, family_id: familyId, ...identityDefaults },
+  { id: "3", name: "Carl", birth_estimate: "1925", death_estimate: null, notes: null, is_placeholder: false, is_root: false, created_at: now, family_id: familyId, ...identityDefaults },
+  { id: "4", name: "Grandpa Dan", birth_estimate: "1898", death_estimate: "1960", notes: null, is_placeholder: false, is_root: true, created_at: now, family_id: familyId, ...identityDefaults },
+  { id: "5", name: "Grandma Edna", birth_estimate: "1901", death_estimate: "1980", notes: null, is_placeholder: false, is_root: true, created_at: now, family_id: familyId, ...identityDefaults },
+  { id: "6", name: "Frances", birth_estimate: "1927", death_estimate: null, notes: null, is_placeholder: false, is_root: false, created_at: now, family_id: familyId, ...identityDefaults },
+  { id: "7", name: "Gina", birth_estimate: "1950", death_estimate: null, notes: null, is_placeholder: false, is_root: false, created_at: now, family_id: familyId, ...identityDefaults },
+  { id: "8", name: "Hank", birth_estimate: "1952", death_estimate: null, notes: null, is_placeholder: false, is_root: false, created_at: now, family_id: familyId, ...identityDefaults },
+  { id: "9", name: "Irene", birth_estimate: "1930", death_estimate: null, notes: null, is_placeholder: false, is_root: true, created_at: now, family_id: familyId, ...identityDefaults },
+  { id: "10", name: "Jack", birth_estimate: "1955", death_estimate: null, notes: null, is_placeholder: false, is_root: false, created_at: now, family_id: familyId, ...identityDefaults },
+  { id: "11", name: "Karen (unplaced)", birth_estimate: "1980", death_estimate: null, notes: null, is_placeholder: false, is_root: false, created_at: now, family_id: familyId, ...identityDefaults },
 ];
 
 const unions: UnionRow[] = [

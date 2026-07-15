@@ -386,37 +386,55 @@ export type Database = {
       }
       people: {
         Row: {
+          aliases: string | null
           birth_estimate: string | null
           created_at: string | null
           death_estimate: string | null
           family_id: string | null
+          first_name: string | null
+          gender: string | null
           id: string
           is_placeholder: boolean | null
           is_root: boolean | null
+          last_name: string | null
+          married_name: string | null
           name: string
           notes: string | null
+          preferred_name: string | null
         }
         Insert: {
+          aliases?: string | null
           birth_estimate?: string | null
           created_at?: string | null
           death_estimate?: string | null
           family_id?: string | null
+          first_name?: string | null
+          gender?: string | null
           id?: string
           is_placeholder?: boolean | null
           is_root?: boolean | null
+          last_name?: string | null
+          married_name?: string | null
           name: string
           notes?: string | null
+          preferred_name?: string | null
         }
         Update: {
+          aliases?: string | null
           birth_estimate?: string | null
           created_at?: string | null
           death_estimate?: string | null
           family_id?: string | null
+          first_name?: string | null
+          gender?: string | null
           id?: string
           is_placeholder?: boolean | null
           is_root?: boolean | null
+          last_name?: string | null
+          married_name?: string | null
           name?: string
           notes?: string | null
+          preferred_name?: string | null
         }
         Relationships: [
           {

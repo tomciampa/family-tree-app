@@ -143,8 +143,15 @@ export function PersonPanel({
   const [spouse, setSpouse] = useState<PersonFieldState>(emptyNewField);
   const [spouseChild, setSpouseChild] = useState<PersonFieldState>(emptyNewField);
   const [anotherChild, setAnotherChild] = useState<PersonFieldState>(emptyNewField);
-  const [factField, setFactField] = useState("");
-  const [factValue, setFactValue] = useState("");
+  // A document can document more than one standard field at once (e.g. a
+  // death certificate documenting death date, death place, AND cause of
+  // death) — an array of rows so extraction can populate several at once
+  // for review, instead of forcing everything through one field/value
+  // pair. Manual entry (no document) still works the same way, just with
+  // one row by default.
+  const [factRows, setFactRows] = useState<{ field: string; value: string }[]>(
+    [{ field: "", value: "" }],
+  );
   const [factSourceType, setFactSourceType] = useState<string>(
     FACT_SOURCE_TYPES[0],
   );
@@ -166,8 +173,7 @@ export function PersonPanel({
     setSpouse(emptyNewField);
     setSpouseChild(emptyNewField);
     setAnotherChild(emptyNewField);
-    setFactField("");
-    setFactValue("");
+    setFactRows([{ field: "", value: "" }]);
     setFactSourceType(FACT_SOURCE_TYPES[0]);
     setFactSourceRef("");
     setFactDocumentId(null);
@@ -187,8 +193,9 @@ export function PersonPanel({
       setError(result.error);
       return;
     }
-    setFactField(result.field);
-    setFactValue(result.value);
+    setFactRows(
+      result.facts.length > 0 ? result.facts : [{ field: "", value: "" }],
+    );
     setFactSourceType(result.sourceType);
     setFactSourceRef(result.sourceRef);
     setFactDocumentId(result.documentId);
@@ -538,18 +545,27 @@ export function PersonPanel({
           <form
             onSubmit={(e) => {
               e.preventDefault();
+              const rows = factRows
+                .map((r) => ({ field: r.field.trim(), value: r.value.trim() }))
+                .filter((r) => r.field && r.value);
+              if (rows.length === 0) {
+                setError("At least one field and value is required.");
+                return;
+              }
               startTransition(async () => {
-                const result = await addFact(
-                  person.id,
-                  factField,
-                  factValue,
-                  factSourceType,
-                  factSourceRef,
-                  factDocumentId,
-                );
-                if (result?.error) {
-                  setError(result.error);
-                  return;
+                for (const row of rows) {
+                  const result = await addFact(
+                    person.id,
+                    row.field,
+                    row.value,
+                    factSourceType,
+                    factSourceRef,
+                    factDocumentId,
+                  );
+                  if (result?.error) {
+                    setError(result.error);
+                    return;
+                  }
                 }
                 handleClose();
               });
@@ -577,25 +593,67 @@ export function PersonPanel({
                 Extracted from document — review the fields below before saving.
               </p>
             )}
-            <label className="flex flex-col gap-1 text-sm text-gray-500">
-              Field (e.g. Birth, Occupation, Immigration)
-              <input
-                value={factField}
-                onChange={(e) => setFactField(e.target.value)}
-                autoFocus
-                required
-                className={inputClassName}
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm text-gray-500">
-              Value
-              <input
-                value={factValue}
-                onChange={(e) => setFactValue(e.target.value)}
-                required
-                className={inputClassName}
-              />
-            </label>
+            <div className="flex flex-col gap-3">
+              {factRows.map((row, i) => (
+                <div
+                  key={i}
+                  className="flex flex-col gap-2 rounded border border-gray-200 p-2 dark:border-gray-800"
+                >
+                  <div className="flex items-start gap-2">
+                    <label className="flex flex-1 flex-col gap-1 text-sm text-gray-500">
+                      Field (e.g. Birth Date, Occupation, Immigration)
+                      <input
+                        value={row.field}
+                        onChange={(e) =>
+                          setFactRows((rows) =>
+                            rows.map((r, idx) =>
+                              idx === i ? { ...r, field: e.target.value } : r,
+                            ),
+                          )
+                        }
+                        autoFocus={i === 0}
+                        className={inputClassName}
+                      />
+                    </label>
+                    {factRows.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFactRows((rows) => rows.filter((_, idx) => idx !== i))
+                        }
+                        className="mt-5 text-sm text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                        aria-label="Remove this field"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                  <label className="flex flex-col gap-1 text-sm text-gray-500">
+                    Value
+                    <input
+                      value={row.value}
+                      onChange={(e) =>
+                        setFactRows((rows) =>
+                          rows.map((r, idx) =>
+                            idx === i ? { ...r, value: e.target.value } : r,
+                          ),
+                        )
+                      }
+                      className={inputClassName}
+                    />
+                  </label>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() =>
+                  setFactRows((rows) => [...rows, { field: "", value: "" }])
+                }
+                className="self-start text-sm text-gray-500 underline hover:text-gray-700 dark:hover:text-gray-300"
+              >
+                + Add another field
+              </button>
+            </div>
             <label className="flex flex-col gap-1 text-sm text-gray-500">
               Source type
               <select

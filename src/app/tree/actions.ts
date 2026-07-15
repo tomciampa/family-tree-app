@@ -373,6 +373,42 @@ export async function updatePersonName(personId: string, newName: string) {
   return {};
 }
 
+// Standardized identity fields, separate from the free-text `name` column
+// that tree cards/search have always used and keep using — these are
+// purely additive metadata surfaced in the dossier's Facts tab. All six are
+// nullable, so an empty string in the form is stored as null rather than "".
+export type PersonIdentityFields = {
+  firstName: string;
+  preferredName: string;
+  lastName: string;
+  marriedName: string;
+  gender: string;
+  aliases: string;
+};
+
+export async function updatePersonIdentity(
+  personId: string,
+  fields: PersonIdentityFields,
+) {
+  const supabase = await requireUser();
+
+  const { error } = await supabase
+    .from("people")
+    .update({
+      first_name: fields.firstName.trim() || null,
+      preferred_name: fields.preferredName.trim() || null,
+      last_name: fields.lastName.trim() || null,
+      married_name: fields.marriedName.trim() || null,
+      gender: fields.gender.trim() || null,
+      aliases: fields.aliases.trim() || null,
+    })
+    .eq("id", personId);
+  if (error) return { error: error.message };
+
+  revalidatePath("/tree");
+  return {};
+}
+
 export async function deletePerson(personId: string) {
   const supabase = await requireUser();
 
@@ -477,15 +513,30 @@ export async function addFact(
   return {};
 }
 
+type ExtractedFact = { field: string; value: string };
+
 type ExtractFactResult =
   | { error: string }
   | {
       documentId: string;
-      field: string;
-      value: string;
+      facts: ExtractedFact[];
       sourceType: string;
       sourceRef: string;
     };
+
+// Standard slots the dossier's Facts tab standardized section (see
+// person-identity.tsx) looks for by exact field name — keeping this list
+// in the same order they're displayed there so a newly-extracted set of
+// facts lines up with what the reviewer sees on save.
+const STANDARD_FIELD_KEYS = [
+  ["birthDate", "Birth Date"],
+  ["birthPlace", "Birth Place"],
+  ["deathDate", "Death Date"],
+  ["deathPlace", "Death Place"],
+  ["causeOfDeath", "Cause of Death"],
+  ["occupation", "Occupation"],
+  ["placesLived", "Places Lived"],
+] as const;
 
 export async function extractFactFromDocument(
   personId: string,
@@ -513,15 +564,55 @@ export async function extractFactFromDocument(
     const result = await generateObject({
       model: "anthropic/claude-sonnet-5",
       schema: z.object({
-        field: z
+        // Separated standard fields rather than one merged field/value —
+        // each populates its own slot in the dossier's standardized
+        // section instead of landing as one blob a person then has to
+        // read prose out of. Every one is independently nullable: a
+        // document rarely documents all seven, and guessing at one that
+        // isn't actually there is worse than leaving it blank.
+        birthDate: z
           .string()
+          .nullable()
+          .describe("The person's birth date exactly as recorded, or null if not stated"),
+        birthPlace: z
+          .string()
+          .nullable()
+          .describe("The person's birth place, or null if not stated"),
+        deathDate: z
+          .string()
+          .nullable()
+          .describe("The person's death date exactly as recorded, or null if not stated"),
+        deathPlace: z
+          .string()
+          .nullable()
+          .describe("The person's death place, or null if not stated"),
+        causeOfDeath: z
+          .string()
+          .nullable()
+          .describe("Cause of death, or null if not stated"),
+        occupation: z
+          .string()
+          .nullable()
+          .describe("The person's occupation, or null if not stated"),
+        placesLived: z
+          .string()
+          .nullable()
           .describe(
-            "Short label for what this fact records, e.g. 'Death', 'Birth', 'Occupation', 'Immigration'",
+            "Place(s) the person is recorded as having lived, or null if not stated",
           ),
-        value: z
-          .string()
+        otherFacts: z
+          .array(
+            z.object({
+              field: z
+                .string()
+                .describe(
+                  "Short label for a notable fact that doesn't fit the standard categories above, e.g. 'Immigration', 'Military Service'",
+                ),
+              value: z.string().describe("The fact value in plain text"),
+            }),
+          )
           .describe(
-            "The specific fact value in plain text, e.g. a date, place, or description",
+            "Any other notable facts this document documents that aren't one of the standard categories above",
           ),
         sourceType: z
           .enum(FACT_SOURCE_TYPES)
@@ -541,7 +632,7 @@ export async function extractFactFromDocument(
           content: [
             {
               type: "text",
-              text: "This is a genealogy source document (e.g. a certificate, letter, or record). Extract the single most important fact it documents, along with the full transcribed text.",
+              text: "This is a genealogy source document (e.g. a certificate, letter, or record). Extract the standard fields it documents (birth/death date & place, cause of death, occupation, places lived) as separate values rather than merging them into one blob — leave any not stated as null. Put anything notable that doesn't fit those categories in otherFacts. Also transcribe the full text.",
             },
             { type: "file", data: bytes, mediaType: "application/pdf", filename: file.name },
           ],
@@ -576,10 +667,20 @@ export async function extractFactFromDocument(
     .insert({ document_id: document.id, person_id: personId });
   if (linkError) return { error: linkError.message };
 
+  const facts: ExtractedFact[] = [];
+  for (const [key, label] of STANDARD_FIELD_KEYS) {
+    const value = extracted[key];
+    if (value && value.trim()) facts.push({ field: label, value: value.trim() });
+  }
+  for (const other of extracted.otherFacts) {
+    if (other.field.trim() && other.value.trim()) {
+      facts.push({ field: other.field.trim(), value: other.value.trim() });
+    }
+  }
+
   return {
     documentId: document.id,
-    field: extracted.field,
-    value: extracted.value,
+    facts,
     sourceType: extracted.sourceType,
     sourceRef: extracted.sourceRef,
   };

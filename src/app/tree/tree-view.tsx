@@ -101,14 +101,32 @@ export function TreeView({
 
   return (
     <>
-      <FamilyTree
-        people={people}
-        unions={unions}
-        unionChildren={unionChildren}
-        onPersonClick={handlePersonClick}
-        onOpenDossier={handleOpenDossier}
-        highlightPersonId={highlightPersonId}
-      />
+      <div className="flex items-start gap-4">
+        <div className="min-w-0 flex-1">
+          {/* Keyed on open/closed (not on which person) so family-chart
+              only remounts — and re-fits its internal svg_dim to the new
+              container width — when the available space actually changes,
+              not on every dossier-to-dossier switch while already docked. */}
+          <FamilyTree
+            key={dossierPerson ? "docked" : "full"}
+            people={people}
+            unions={unions}
+            unionChildren={unionChildren}
+            onPersonClick={handlePersonClick}
+            onOpenDossier={handleOpenDossier}
+            highlightPersonId={highlightPersonId}
+          />
+        </div>
+        {dossierPerson && (
+          <PersonDossier
+            person={dossierPerson}
+            facts={dossierFacts}
+            anecdotes={dossierAnecdotes}
+            documents={dossierDocuments}
+            onClose={() => setDossierId(null)}
+          />
+        )}
+      </div>
       {selectedPerson && (
         <PersonPanel
           person={selectedPerson}
@@ -120,15 +138,6 @@ export function TreeView({
           people={people}
           personSummaries={personSummaries}
           onClose={() => setSelectedId(null)}
-        />
-      )}
-      {dossierPerson && (
-        <PersonDossier
-          person={dossierPerson}
-          facts={dossierFacts}
-          anecdotes={dossierAnecdotes}
-          documents={dossierDocuments}
-          onClose={() => setDossierId(null)}
         />
       )}
     </>

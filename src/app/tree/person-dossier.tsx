@@ -5,6 +5,7 @@ import type { Tables } from "@/lib/supabase/database.types";
 import { FactList } from "./fact-list";
 import { AnecdoteList } from "./anecdote-list";
 import { DocumentList, type PersonDocument } from "./document-list";
+import { PersonIdentitySection } from "./person-identity";
 
 type Person = Tables<"people">;
 type Fact = Tables<"facts">;
@@ -64,77 +65,75 @@ export function PersonDossier({
   ];
 
   return (
-    <div
-      className="fixed inset-0 z-20 flex items-start justify-center overflow-y-auto bg-black/50 p-6 sm:p-10"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="w-full max-w-2xl rounded-sm border border-[#c9b896] bg-[#f7f1e3] font-serif text-[#2b2015] shadow-xl">
-        <div className="flex items-start justify-between gap-4 border-b border-[#c9b896] px-6 py-5">
-          <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-[#6b5c45]">
-              Case File
-            </p>
-            <h2 className="mt-1 text-2xl font-semibold">
-              {person.is_placeholder ? `${person.name} (?)` : person.name}
-            </h2>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="shrink-0 rounded border border-[#c9b896] px-2 py-1 text-sm text-[#6b5c45] hover:bg-[#efe6d2]"
-          >
-            Close ✕
-          </button>
+    <aside className="flex h-[75vh] w-full max-w-md shrink-0 flex-col overflow-hidden rounded-sm border border-[#c9b896] bg-[#f7f1e3] font-serif text-[#2b2015] shadow-xl">
+      <div className="flex items-start justify-between gap-4 border-b border-[#c9b896] px-6 py-5">
+        <div>
+          <p className="text-xs uppercase tracking-[0.2em] text-[#6b5c45]">
+            Case File
+          </p>
+          <h2 className="mt-1 text-2xl font-semibold">
+            {person.is_placeholder ? `${person.name} (?)` : person.name}
+          </h2>
         </div>
-
-        <div className="border-b border-[#c9b896] px-6 py-4">
-          {summaryItems.length > 0 ? (
-            <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3">
-              {summaryItems.map((item) => (
-                <div key={item.label}>
-                  <dt className="text-xs uppercase tracking-wide text-[#6b5c45]">
-                    {item.label}
-                  </dt>
-                  <dd className="text-sm">{item.value}</dd>
-                </div>
-              ))}
-            </dl>
-          ) : (
-            <p className="text-sm italic text-[#6b5c45]">
-              No summary facts recorded yet.
-            </p>
-          )}
-        </div>
-
-        <div className="flex border-b border-[#c9b896] px-6">
-          {tabs.map(({ key, label }) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setTab(key)}
-              className={`-mb-px border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
-                tab === key
-                  ? "border-[#5c7360] text-[#2b2015]"
-                  : "border-transparent text-[#6b5c45] hover:text-[#2b2015]"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        <div className="max-h-[60vh] overflow-y-auto px-6 py-5">
-          {tab === "facts" && <FactList facts={facts} theme="archival" />}
-          {tab === "stories" && (
-            <AnecdoteList anecdotes={anecdotes} theme="archival" />
-          )}
-          {tab === "documents" && (
-            <DocumentList documents={documents} theme="archival" showHeading={false} />
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="shrink-0 rounded border border-[#c9b896] px-2 py-1 text-sm text-[#6b5c45] hover:bg-[#efe6d2]"
+        >
+          Close ✕
+        </button>
       </div>
-    </div>
+
+      <div className="border-b border-[#c9b896] px-6 py-4">
+        {summaryItems.length > 0 ? (
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3">
+            {summaryItems.map((item) => (
+              <div key={item.label}>
+                <dt className="text-xs uppercase tracking-wide text-[#6b5c45]">
+                  {item.label}
+                </dt>
+                <dd className="text-sm">{item.value}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : (
+          <p className="text-sm italic text-[#6b5c45]">
+            No summary facts recorded yet.
+          </p>
+        )}
+      </div>
+
+      <div className="flex border-b border-[#c9b896] px-6">
+        {tabs.map(({ key, label }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setTab(key)}
+            className={`-mb-px border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
+              tab === key
+                ? "border-[#5c7360] text-[#2b2015]"
+                : "border-transparent text-[#6b5c45] hover:text-[#2b2015]"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-6 py-5">
+        {tab === "facts" && (
+          <div className="flex flex-col gap-6">
+            <PersonIdentitySection person={person} facts={facts} />
+            <FactList facts={facts} theme="archival" />
+          </div>
+        )}
+        {tab === "stories" && (
+          <AnecdoteList anecdotes={anecdotes} theme="archival" />
+        )}
+        {tab === "documents" && (
+          <DocumentList documents={documents} theme="archival" showHeading={false} />
+        )}
+      </div>
+    </aside>
   );
 }
