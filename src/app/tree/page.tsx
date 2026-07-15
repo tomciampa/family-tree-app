@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getSignedDocumentUrls } from "@/lib/documents";
+import { buildPersonSummaries } from "@/lib/family";
 import { TreeView } from "./tree-view";
 import { AddFirstPersonForm } from "./add-first-person-form";
 
@@ -57,6 +58,16 @@ export default async function TreePage() {
       viewUrl: urlByPath.get(l.documents!.file_path) ?? null,
     }));
 
+  // For the "search for an existing person instead of creating a new
+  // one" option in the add-relative forms — same disambiguating context
+  // (dates, current relationships) the document-matching review already
+  // uses, and the same safety-check data (does this person already have
+  // recorded parents?) those forms need before linking someone in as a
+  // child a second time.
+  const personSummaries = Object.fromEntries(
+    buildPersonSummaries(people ?? [], unions ?? [], unionChildren ?? []),
+  );
+
   return (
     <main className="flex min-h-screen flex-col gap-6 p-8">
       <div className="mx-auto flex w-full max-w-5xl items-center justify-between">
@@ -80,6 +91,7 @@ export default async function TreePage() {
           facts={facts ?? []}
           anecdotes={anecdotes ?? []}
           personDocuments={personDocuments}
+          personSummaries={personSummaries}
         />
       )}
     </main>

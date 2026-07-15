@@ -9,6 +9,11 @@ export type PersonSummary = {
   birthEstimate: string | null;
   deathEstimate: string | null;
   relationshipSummary: string;
+  // Explicit boolean rather than parsing relationshipSummary's text back
+  // apart — used to warn before linking an already-connected person into
+  // a second, conflicting set of parents (see linkExistingChildToUnion in
+  // app/tree/actions.ts).
+  hasRecordedParents: boolean;
 };
 
 // Turns each person's recorded parents/spouses (the same unions +
@@ -78,6 +83,7 @@ export function buildPersonSummaries(
       birthEstimate: person.birth_estimate,
       deathEstimate: person.death_estimate,
       relationshipSummary,
+      hasRecordedParents: parentNames.length > 0,
     });
   }
   return summaries;

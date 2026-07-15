@@ -17,6 +17,49 @@ async function requireUser() {
   return supabase;
 }
 
+type SupabaseClient = Awaited<ReturnType<typeof requireUser>>;
+
+// Every "add relative" form offers this choice for each person slot:
+// create a brand-new person (the original behavior), or search for and
+// link an already-existing one instead — most often someone added via
+// document matching who has no union/union_children row yet, so they only
+// show up in the tree's "not yet connected" list with no way to actually
+// place them.
+export type PersonRef =
+  | { mode: "new"; name: string }
+  | { mode: "existing"; personId: string };
+
+// The one safety check this needs: linking an existing person in as
+// somebody's CHILD (sibling, another child, or the child slot of add
+// spouse & child) when they already have a recorded set of parents
+// elsewhere would silently give them a second, conflicting set. Returns a
+// warning to surface via confirm() instead of writing anything; the
+// caller re-invokes with confirmed=true once the user's OK'd it.
+async function checkExistingChildSafety(
+  supabase: SupabaseClient,
+  existingPersonId: string,
+  confirmed: boolean,
+): Promise<{ warning: string } | null> {
+  if (confirmed) return null;
+  const { data } = await supabase
+    .from("union_children")
+    .select("union_id")
+    .eq("child_id", existingPersonId)
+    .limit(1)
+    .maybeSingle();
+  if (!data) return null;
+  return {
+    warning:
+      "This person already has recorded parents elsewhere in the tree. Adding them here will give them a second, conflicting set of parents — continue anyway?",
+  };
+}
+
+// Explicit return type on the four "add relative" actions below —
+// without it, TypeScript's inferred return type across several `return
+// {error:...}` / `return {warning:...}` / `return {}` statements doesn't
+// narrow cleanly with `"error" in result` on the caller side.
+type LinkResult = { error: string } | { warning: string } | Record<string, never>;
+
 export async function addFirstPerson(
   name: string,
 ): Promise<{ error: string } | { personId: string }> {
@@ -40,41 +83,63 @@ export async function addFirstPerson(
 
 export async function addParents(
   childId: string,
-  parent1Name: string,
-  parent2Name: string,
-) {
-  const p1Name = parent1Name.trim();
-  const p2Name = parent2Name.trim();
-  if (!p1Name) return { error: "First parent's name is required." };
+  parent1: PersonRef,
+  parent2: PersonRef | null,
+): Promise<LinkResult> {
+  if (parent1.mode === "new" && !parent1.name.trim()) {
+    return { error: "First parent's name is required." };
+  }
+  if (parent1.mode === "existing" && !parent1.personId) {
+    return { error: "Select an existing person for the first parent." };
+  }
+  if (parent2?.mode === "existing" && !parent2.personId) {
+    return { error: "Select an existing person for the second parent." };
+  }
 
   const supabase = await requireUser();
   const familyId = await getFamilyId();
 
-  const { data: parent1, error: parent1Error } = await supabase
-    .from("people")
-    .insert({ name: p1Name, family_id: familyId })
-    .select("id")
-    .single();
-  if (parent1Error || !parent1) {
-    return { error: parent1Error?.message ?? "Could not create first parent." };
+  let parent1Id: string;
+  if (parent1.mode === "existing") {
+    parent1Id = parent1.personId;
+  } else {
+    const { data, error } = await supabase
+      .from("people")
+      .insert({ name: parent1.name.trim(), family_id: familyId })
+      .select("id")
+      .single();
+    if (error || !data) {
+      return { error: error?.message ?? "Could not create first parent." };
+    }
+    parent1Id = data.id;
   }
 
-  const { data: parent2, error: parent2Error } = await supabase
-    .from("people")
-    .insert(
-      p2Name
-        ? { name: p2Name, family_id: familyId }
-        : { name: "Unknown", family_id: familyId, is_placeholder: true },
-    )
-    .select("id")
-    .single();
-  if (parent2Error || !parent2) {
-    return { error: parent2Error?.message ?? "Could not create second parent." };
+  // Second parent left blank (no PersonRef at all, or "new" with an empty
+  // name) falls back to the same placeholder the original single-parent
+  // flow always has.
+  let parent2Id: string;
+  if (parent2?.mode === "existing") {
+    parent2Id = parent2.personId;
+  } else {
+    const name = parent2?.mode === "new" ? parent2.name.trim() : "";
+    const { data, error } = await supabase
+      .from("people")
+      .insert(
+        name
+          ? { name, family_id: familyId }
+          : { name: "Unknown", family_id: familyId, is_placeholder: true },
+      )
+      .select("id")
+      .single();
+    if (error || !data) {
+      return { error: error?.message ?? "Could not create second parent." };
+    }
+    parent2Id = data.id;
   }
 
   const { data: union, error: unionError } = await supabase
     .from("unions")
-    .insert({ parent1_id: parent1.id, parent2_id: parent2.id, family_id: familyId })
+    .insert({ parent1_id: parent1Id, parent2_id: parent2Id, family_id: familyId })
     .select("id")
     .single();
   if (unionError || !union) {
@@ -90,12 +155,19 @@ export async function addParents(
   return {};
 }
 
-export async function addSibling(personId: string, siblingName: string) {
-  const trimmed = siblingName.trim();
-  if (!trimmed) return { error: "Sibling's name is required." };
+export async function addSibling(
+  personId: string,
+  sibling: PersonRef,
+  confirmed = false,
+): Promise<LinkResult> {
+  if (sibling.mode === "new" && !sibling.name.trim()) {
+    return { error: "Sibling's name is required." };
+  }
+  if (sibling.mode === "existing" && !sibling.personId) {
+    return { error: "Select an existing person." };
+  }
 
   const supabase = await requireUser();
-  const familyId = await getFamilyId();
 
   const { data: existingLink, error: linkError } = await supabase
     .from("union_children")
@@ -108,19 +180,35 @@ export async function addSibling(personId: string, siblingName: string) {
     return { error: "This person doesn't have parents recorded yet." };
   }
 
-  const { data: sibling, error: siblingError } = await supabase
-    .from("people")
-    .insert({ name: trimmed, family_id: familyId })
-    .select("id")
-    .single();
-  if (siblingError || !sibling) {
-    return { error: siblingError?.message ?? "Could not create sibling." };
+  let siblingId: string;
+  if (sibling.mode === "existing") {
+    const warning = await checkExistingChildSafety(
+      supabase,
+      sibling.personId,
+      confirmed,
+    );
+    if (warning) return warning;
+    siblingId = sibling.personId;
+  } else {
+    const familyId = await getFamilyId();
+    const { data, error } = await supabase
+      .from("people")
+      .insert({ name: sibling.name.trim(), family_id: familyId })
+      .select("id")
+      .single();
+    if (error || !data) return { error: error?.message ?? "Could not create sibling." };
+    siblingId = data.id;
   }
 
   const { error: unionChildError } = await supabase
     .from("union_children")
-    .insert({ union_id: existingLink.union_id, child_id: sibling.id });
-  if (unionChildError) return { error: unionChildError.message };
+    .insert({ union_id: existingLink.union_id, child_id: siblingId });
+  if (unionChildError) {
+    if (unionChildError.code === "23505") {
+      return { error: "That person is already recorded as a child of these parents." };
+    }
+    return { error: unionChildError.message };
+  }
 
   revalidatePath("/tree");
   return {};
@@ -128,47 +216,92 @@ export async function addSibling(personId: string, siblingName: string) {
 
 export async function addSpouseAndChild(
   personId: string,
-  spouseName: string,
-  childName: string,
-) {
-  const spouseTrimmed = spouseName.trim();
-  if (!spouseTrimmed) return { error: "Spouse's name is required." };
-  const childTrimmed = childName.trim();
+  spouse: PersonRef,
+  child: PersonRef | null,
+  confirmed = false,
+): Promise<LinkResult> {
+  if (spouse.mode === "new" && !spouse.name.trim()) {
+    return { error: "Spouse's name is required." };
+  }
+  if (spouse.mode === "existing" && !spouse.personId) {
+    return { error: "Select an existing person for the spouse." };
+  }
+  if (child?.mode === "existing" && !child.personId) {
+    return { error: "Select an existing person for the child." };
+  }
 
   const supabase = await requireUser();
   const familyId = await getFamilyId();
 
-  const { data: spouse, error: spouseError } = await supabase
-    .from("people")
-    .insert({ name: spouseTrimmed, family_id: familyId })
-    .select("id")
-    .single();
-  if (spouseError || !spouse) {
-    return { error: spouseError?.message ?? "Could not create spouse." };
-  }
-
-  const { data: union, error: unionError } = await supabase
-    .from("unions")
-    .insert({ parent1_id: personId, parent2_id: spouse.id, family_id: familyId })
-    .select("id")
-    .single();
-  if (unionError || !union) {
-    return { error: unionError?.message ?? "Could not create union." };
-  }
-
-  if (childTrimmed) {
-    const { data: child, error: childError } = await supabase
+  let spouseId: string;
+  if (spouse.mode === "existing") {
+    spouseId = spouse.personId;
+  } else {
+    const { data, error } = await supabase
       .from("people")
-      .insert({ name: childTrimmed, family_id: familyId })
+      .insert({ name: spouse.name.trim(), family_id: familyId })
       .select("id")
       .single();
-    if (childError || !child) {
+    if (error || !data) return { error: error?.message ?? "Could not create spouse." };
+    spouseId = data.id;
+  }
+
+  // An existing spouse might already be married to this person elsewhere
+  // in the data (e.g. picked from search after being added by some other
+  // flow) — reuse that union instead of creating a duplicate marriage.
+  const { data: existingUnion } = await supabase
+    .from("unions")
+    .select("id")
+    .or(
+      `and(parent1_id.eq.${personId},parent2_id.eq.${spouseId}),and(parent1_id.eq.${spouseId},parent2_id.eq.${personId})`,
+    )
+    .maybeSingle();
+
+  let unionId: string;
+  if (existingUnion) {
+    unionId = existingUnion.id;
+  } else {
+    const { data: union, error: unionError } = await supabase
+      .from("unions")
+      .insert({ parent1_id: personId, parent2_id: spouseId, family_id: familyId })
+      .select("id")
+      .single();
+    if (unionError || !union) {
+      return { error: unionError?.message ?? "Could not create union." };
+    }
+    unionId = union.id;
+  }
+
+  if (child?.mode === "existing") {
+    const warning = await checkExistingChildSafety(
+      supabase,
+      child.personId,
+      confirmed,
+    );
+    if (warning) return warning;
+
+    const { error: unionChildError } = await supabase
+      .from("union_children")
+      .insert({ union_id: unionId, child_id: child.personId });
+    if (unionChildError) {
+      if (unionChildError.code === "23505") {
+        return { error: "That person is already recorded as a child of these parents." };
+      }
+      return { error: unionChildError.message };
+    }
+  } else if (child?.mode === "new" && child.name.trim()) {
+    const { data: childData, error: childError } = await supabase
+      .from("people")
+      .insert({ name: child.name.trim(), family_id: familyId })
+      .select("id")
+      .single();
+    if (childError || !childData) {
       return { error: childError?.message ?? "Could not create child." };
     }
 
     const { error: unionChildError } = await supabase
       .from("union_children")
-      .insert({ union_id: union.id, child_id: child.id });
+      .insert({ union_id: unionId, child_id: childData.id });
     if (unionChildError) return { error: unionChildError.message };
   }
 
@@ -176,26 +309,49 @@ export async function addSpouseAndChild(
   return {};
 }
 
-export async function addAnotherChild(unionId: string, childName: string) {
-  const trimmed = childName.trim();
-  if (!trimmed) return { error: "Child's name is required." };
+export async function addAnotherChild(
+  unionId: string,
+  child: PersonRef,
+  confirmed = false,
+): Promise<LinkResult> {
+  if (child.mode === "new" && !child.name.trim()) {
+    return { error: "Child's name is required." };
+  }
+  if (child.mode === "existing" && !child.personId) {
+    return { error: "Select an existing person." };
+  }
 
   const supabase = await requireUser();
-  const familyId = await getFamilyId();
 
-  const { data: child, error: childError } = await supabase
-    .from("people")
-    .insert({ name: trimmed, family_id: familyId })
-    .select("id")
-    .single();
-  if (childError || !child) {
-    return { error: childError?.message ?? "Could not create child." };
+  let childId: string;
+  if (child.mode === "existing") {
+    const warning = await checkExistingChildSafety(
+      supabase,
+      child.personId,
+      confirmed,
+    );
+    if (warning) return warning;
+    childId = child.personId;
+  } else {
+    const familyId = await getFamilyId();
+    const { data, error } = await supabase
+      .from("people")
+      .insert({ name: child.name.trim(), family_id: familyId })
+      .select("id")
+      .single();
+    if (error || !data) return { error: error?.message ?? "Could not create child." };
+    childId = data.id;
   }
 
   const { error: unionChildError } = await supabase
     .from("union_children")
-    .insert({ union_id: unionId, child_id: child.id });
-  if (unionChildError) return { error: unionChildError.message };
+    .insert({ union_id: unionId, child_id: childId });
+  if (unionChildError) {
+    if (unionChildError.code === "23505") {
+      return { error: "That person is already recorded as a child of these parents." };
+    }
+    return { error: unionChildError.message };
+  }
 
   revalidatePath("/tree");
   return {};

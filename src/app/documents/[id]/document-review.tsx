@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Tables } from "@/lib/supabase/database.types";
 import type { PersonSummary } from "@/lib/family";
 import { FamilyTree } from "@/components/family-tree";
+import { PersonSearch } from "@/components/person-search";
 import {
   extractCandidatesFromDocument,
   matchCandidatesForDocument,
@@ -336,7 +337,6 @@ function FamilyCandidateRow({
   const [showAll, setShowAll] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
   // Explicit, independent of `selection`'s value — a manually-searched
   // person can legitimately coincide with one of the matcher's own (often
   // low-ranked, not-visible-by-default) suggestions, e.g. "Bob Ciampa"
@@ -351,15 +351,6 @@ function FamilyCandidateRow({
 
   const matches = candidate.matches ?? [];
   const visibleMatches = showAll ? matches : matches.slice(0, 6);
-
-  const searchResults =
-    isSearchMode && searchQuery.trim().length > 0
-      ? people
-          .filter((p) =>
-            p.name.toLowerCase().includes(searchQuery.trim().toLowerCase()),
-          )
-          .slice(0, 20)
-      : [];
 
   async function handleConfirm() {
     setIsSaving(true);
@@ -536,65 +527,14 @@ function FamilyCandidateRow({
                 <span>None of these — search for the correct person</span>
               </label>
               {isSearchMode && (
-                <div className="ml-5 flex flex-col gap-1">
-                  <input
-                    type="text"
-                    autoFocus
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search by name…"
-                    className="rounded border border-gray-300 px-2 py-1 text-xs text-black dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                <div className="ml-5">
+                  <PersonSearch
+                    people={people}
+                    personSummaries={personSummaries}
+                    selectedId={selection === "__search__" ? null : selection}
+                    onSelect={(id) => setSelection(id)}
+                    onHoverPerson={(id) => onFocusMatch(id, candidate.name)}
                   />
-                  {selection !== "__search__" && (
-                    <p className="text-[11px] font-medium text-blue-700 dark:text-blue-400">
-                      Selected: {people.find((p) => p.id === selection)?.name}
-                    </p>
-                  )}
-                  {searchQuery.trim().length > 0 && (
-                    <div className="flex max-h-40 flex-col gap-0.5 overflow-y-auto rounded border border-gray-200 dark:border-gray-800">
-                      {searchResults.length === 0 && (
-                        <p className="px-2 py-1 text-[11px] text-gray-500">
-                          No one matches &quot;{searchQuery}&quot;.
-                        </p>
-                      )}
-                      {searchResults.map((p) => {
-                        const summary = personSummaries[p.id];
-                        const dates = [
-                          summary?.birthEstimate,
-                          summary?.deathEstimate,
-                        ]
-                          .filter(Boolean)
-                          .join(" – ");
-                        const isSelected = selection === p.id;
-                        return (
-                          <button
-                            key={p.id}
-                            type="button"
-                            onClick={() => setSelection(p.id)}
-                            onMouseEnter={() =>
-                              onFocusMatch(p.id, candidate.name)
-                            }
-                            aria-pressed={isSelected}
-                            className={`flex flex-col items-start px-2 py-1 text-left text-[11px] hover:bg-gray-50 dark:hover:bg-gray-800/60 ${
-                              isSelected
-                                ? "bg-blue-100 dark:bg-blue-950/60"
-                                : ""
-                            }`}
-                          >
-                            <span className="font-medium text-gray-800 dark:text-gray-200">
-                              {isSelected ? "✓ " : ""}
-                              {p.name}
-                            </span>
-                            <span className="text-gray-500 dark:text-gray-500">
-                              {dates && `${dates} · `}
-                              {summary?.relationshipSummary ??
-                                "not yet in the tree"}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
                 </div>
               )}
 

@@ -10,11 +10,14 @@ import {
   addFact,
   addStory,
   extractFactFromDocument,
+  type PersonRef,
 } from "./actions";
 import { FACT_SOURCE_TYPES } from "./constants";
 import { FactList } from "./fact-list";
 import { AnecdoteList } from "./anecdote-list";
 import { DocumentList, type PersonDocument } from "./document-list";
+import { PersonSearch } from "@/components/person-search";
+import type { PersonSummary } from "@/lib/family";
 
 type Person = Tables<"people">;
 type Fact = Tables<"facts">;
@@ -35,6 +38,81 @@ type ActiveForm =
   | "add-story"
   | { kind: "add-child"; unionId: string; spouseName: string | null };
 
+// Every "add relative" form offers a choice per person slot: type a new
+// name (creates a brand-new person, the original behavior) or search for
+// and pick an already-existing one instead — most often someone added via
+// document matching who has no union/union_children row yet, so today
+// they only show up in the tree's "not yet connected" list with no way to
+// actually place them.
+type PersonFieldState =
+  | { mode: "new"; name: string }
+  | { mode: "existing"; personId: string | null };
+
+const emptyNewField: PersonFieldState = { mode: "new", name: "" };
+
+function toPersonRef(state: PersonFieldState): PersonRef | null {
+  if (state.mode === "new") return { mode: "new", name: state.name };
+  return state.personId ? { mode: "existing", personId: state.personId } : null;
+}
+
+function PersonFieldPicker({
+  label,
+  state,
+  onChange,
+  people,
+  personSummaries,
+  required,
+  autoFocus,
+}: {
+  label: string;
+  state: PersonFieldState;
+  onChange: (state: PersonFieldState) => void;
+  people: Person[];
+  personSummaries: Record<string, PersonSummary>;
+  required?: boolean;
+  autoFocus?: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5 text-sm text-gray-500">
+      {label}
+      <div className="flex gap-4 text-xs">
+        <label className="flex items-center gap-1.5">
+          <input
+            type="radio"
+            checked={state.mode === "new"}
+            onChange={() => onChange({ ...emptyNewField })}
+          />
+          Create new
+        </label>
+        <label className="flex items-center gap-1.5">
+          <input
+            type="radio"
+            checked={state.mode === "existing"}
+            onChange={() => onChange({ mode: "existing", personId: null })}
+          />
+          Search for existing person
+        </label>
+      </div>
+      {state.mode === "new" ? (
+        <input
+          value={state.name}
+          onChange={(e) => onChange({ mode: "new", name: e.target.value })}
+          autoFocus={autoFocus}
+          required={required}
+          className={inputClassName}
+        />
+      ) : (
+        <PersonSearch
+          people={people}
+          personSummaries={personSummaries}
+          selectedId={state.personId}
+          onSelect={(personId) => onChange({ mode: "existing", personId })}
+        />
+      )}
+    </div>
+  );
+}
+
 export function PersonPanel({
   person,
   hasParents,
@@ -42,6 +120,8 @@ export function PersonPanel({
   facts,
   anecdotes,
   documents,
+  people,
+  personSummaries,
   onClose,
 }: {
   person: Person;
@@ -50,17 +130,19 @@ export function PersonPanel({
   facts: Fact[];
   anecdotes: Anecdote[];
   documents: PersonDocument[];
+  people: Person[];
+  personSummaries: Record<string, PersonSummary>;
   onClose: () => void;
 }) {
   const [activeForm, setActiveForm] = useState<ActiveForm>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  const [parent1, setParent1] = useState("");
-  const [parent2, setParent2] = useState("");
-  const [siblingName, setSiblingName] = useState("");
-  const [spouseName, setSpouseName] = useState("");
-  const [spouseChildName, setSpouseChildName] = useState("");
-  const [anotherChildName, setAnotherChildName] = useState("");
+  const [parent1, setParent1] = useState<PersonFieldState>(emptyNewField);
+  const [parent2, setParent2] = useState<PersonFieldState>(emptyNewField);
+  const [sibling, setSibling] = useState<PersonFieldState>(emptyNewField);
+  const [spouse, setSpouse] = useState<PersonFieldState>(emptyNewField);
+  const [spouseChild, setSpouseChild] = useState<PersonFieldState>(emptyNewField);
+  const [anotherChild, setAnotherChild] = useState<PersonFieldState>(emptyNewField);
   const [factField, setFactField] = useState("");
   const [factValue, setFactValue] = useState("");
   const [factSourceType, setFactSourceType] = useState<string>(
@@ -72,15 +154,18 @@ export function PersonPanel({
   const [storyText, setStoryText] = useState("");
   const [whoToldIt, setWhoToldIt] = useState("");
 
+  // Can't be your own parent/sibling/spouse/child.
+  const otherPeople = people.filter((p) => p.id !== person.id);
+
   function closeForm() {
     setActiveForm(null);
     setError(null);
-    setParent1("");
-    setParent2("");
-    setSiblingName("");
-    setSpouseName("");
-    setSpouseChildName("");
-    setAnotherChildName("");
+    setParent1(emptyNewField);
+    setParent2(emptyNewField);
+    setSibling(emptyNewField);
+    setSpouse(emptyNewField);
+    setSpouseChild(emptyNewField);
+    setAnotherChild(emptyNewField);
     setFactField("");
     setFactValue("");
     setFactSourceType(FACT_SOURCE_TYPES[0]);
@@ -209,9 +294,15 @@ export function PersonPanel({
           <form
             onSubmit={(e) => {
               e.preventDefault();
+              const parent1Ref = toPersonRef(parent1);
+              const parent2Ref = toPersonRef(parent2);
+              if (!parent1Ref) {
+                setError("Select an existing person, or enter a name, for the first parent.");
+                return;
+              }
               startTransition(async () => {
-                const result = await addParents(person.id, parent1, parent2);
-                if (result?.error) {
+                const result = await addParents(person.id, parent1Ref, parent2Ref);
+                if ("error" in result) {
                   setError(result.error);
                   return;
                 }
@@ -220,24 +311,22 @@ export function PersonPanel({
             }}
             className="flex flex-col gap-3"
           >
-            <label className="flex flex-col gap-1 text-sm text-gray-500">
-              First parent&apos;s name
-              <input
-                value={parent1}
-                onChange={(e) => setParent1(e.target.value)}
-                autoFocus
-                required
-                className={inputClassName}
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm text-gray-500">
-              Second parent&apos;s name (leave blank if unknown)
-              <input
-                value={parent2}
-                onChange={(e) => setParent2(e.target.value)}
-                className={inputClassName}
-              />
-            </label>
+            <PersonFieldPicker
+              label="First parent"
+              state={parent1}
+              onChange={setParent1}
+              people={otherPeople}
+              personSummaries={personSummaries}
+              required
+              autoFocus
+            />
+            <PersonFieldPicker
+              label="Second parent (leave blank if unknown)"
+              state={parent2}
+              onChange={setParent2}
+              people={otherPeople}
+              personSummaries={personSummaries}
+            />
 
             {error && <p className="text-sm text-red-500">{error}</p>}
 
@@ -264,9 +353,21 @@ export function PersonPanel({
           <form
             onSubmit={(e) => {
               e.preventDefault();
+              const siblingRef = toPersonRef(sibling);
+              if (!siblingRef) {
+                setError("Select an existing person, or enter a name.");
+                return;
+              }
               startTransition(async () => {
-                const result = await addSibling(person.id, siblingName);
-                if (result?.error) {
+                const first = await addSibling(person.id, siblingRef);
+                const result =
+                  "warning" in first
+                    ? window.confirm(first.warning)
+                      ? await addSibling(person.id, siblingRef, true)
+                      : null
+                    : first;
+                if (!result) return;
+                if ("error" in result) {
                   setError(result.error);
                   return;
                 }
@@ -275,16 +376,15 @@ export function PersonPanel({
             }}
             className="flex flex-col gap-3"
           >
-            <label className="flex flex-col gap-1 text-sm text-gray-500">
-              Sibling&apos;s name
-              <input
-                value={siblingName}
-                onChange={(e) => setSiblingName(e.target.value)}
-                autoFocus
-                required
-                className={inputClassName}
-              />
-            </label>
+            <PersonFieldPicker
+              label="Sibling"
+              state={sibling}
+              onChange={setSibling}
+              people={otherPeople}
+              personSummaries={personSummaries}
+              required
+              autoFocus
+            />
 
             {error && <p className="text-sm text-red-500">{error}</p>}
 
@@ -311,13 +411,22 @@ export function PersonPanel({
           <form
             onSubmit={(e) => {
               e.preventDefault();
+              const spouseRef = toPersonRef(spouse);
+              if (!spouseRef) {
+                setError("Select an existing person, or enter a name, for the spouse.");
+                return;
+              }
+              const childRef = toPersonRef(spouseChild);
               startTransition(async () => {
-                const result = await addSpouseAndChild(
-                  person.id,
-                  spouseName,
-                  spouseChildName,
-                );
-                if (result?.error) {
+                const first = await addSpouseAndChild(person.id, spouseRef, childRef);
+                const result =
+                  "warning" in first
+                    ? window.confirm(first.warning)
+                      ? await addSpouseAndChild(person.id, spouseRef, childRef, true)
+                      : null
+                    : first;
+                if (!result) return;
+                if ("error" in result) {
                   setError(result.error);
                   return;
                 }
@@ -326,24 +435,22 @@ export function PersonPanel({
             }}
             className="flex flex-col gap-3"
           >
-            <label className="flex flex-col gap-1 text-sm text-gray-500">
-              Spouse&apos;s name
-              <input
-                value={spouseName}
-                onChange={(e) => setSpouseName(e.target.value)}
-                autoFocus
-                required
-                className={inputClassName}
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm text-gray-500">
-              First child&apos;s name (leave blank to add later)
-              <input
-                value={spouseChildName}
-                onChange={(e) => setSpouseChildName(e.target.value)}
-                className={inputClassName}
-              />
-            </label>
+            <PersonFieldPicker
+              label="Spouse"
+              state={spouse}
+              onChange={setSpouse}
+              people={otherPeople}
+              personSummaries={personSummaries}
+              required
+              autoFocus
+            />
+            <PersonFieldPicker
+              label="First child (leave blank to add later)"
+              state={spouseChild}
+              onChange={setSpouseChild}
+              people={otherPeople}
+              personSummaries={personSummaries}
+            />
 
             {error && <p className="text-sm text-red-500">{error}</p>}
 
@@ -373,12 +480,21 @@ export function PersonPanel({
               onSubmit={(e) => {
                 e.preventDefault();
                 const unionId = activeForm.unionId;
+                const childRef = toPersonRef(anotherChild);
+                if (!childRef) {
+                  setError("Select an existing person, or enter a name.");
+                  return;
+                }
                 startTransition(async () => {
-                  const result = await addAnotherChild(
-                    unionId,
-                    anotherChildName,
-                  );
-                  if (result?.error) {
+                  const first = await addAnotherChild(unionId, childRef);
+                  const result =
+                    "warning" in first
+                      ? window.confirm(first.warning)
+                        ? await addAnotherChild(unionId, childRef, true)
+                        : null
+                      : first;
+                  if (!result) return;
+                  if ("error" in result) {
                     setError(result.error);
                     return;
                   }
@@ -387,19 +503,15 @@ export function PersonPanel({
               }}
               className="flex flex-col gap-3"
             >
-              <label className="flex flex-col gap-1 text-sm text-gray-500">
-                Child&apos;s name
-                {activeForm.spouseName
-                  ? ` (with ${activeForm.spouseName})`
-                  : ""}
-                <input
-                  value={anotherChildName}
-                  onChange={(e) => setAnotherChildName(e.target.value)}
-                  autoFocus
-                  required
-                  className={inputClassName}
-                />
-              </label>
+              <PersonFieldPicker
+                label={`Child${activeForm.spouseName ? ` (with ${activeForm.spouseName})` : ""}`}
+                state={anotherChild}
+                onChange={setAnotherChild}
+                people={otherPeople}
+                personSummaries={personSummaries}
+                required
+                autoFocus
+              />
 
               {error && <p className="text-sm text-red-500">{error}</p>}
 

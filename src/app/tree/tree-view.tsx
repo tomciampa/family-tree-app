@@ -7,6 +7,7 @@ import { PersonPanel } from "./person-panel";
 import { PersonDossier } from "./person-dossier";
 import type { PersonDocument } from "./document-list";
 import type { Tables } from "@/lib/supabase/database.types";
+import type { PersonSummary } from "@/lib/family";
 
 type Person = Tables<"people">;
 type UnionRow = Tables<"unions">;
@@ -21,6 +22,7 @@ export function TreeView({
   facts,
   anecdotes,
   personDocuments,
+  personSummaries,
 }: {
   people: Person[];
   unions: UnionRow[];
@@ -28,6 +30,7 @@ export function TreeView({
   facts: Fact[];
   anecdotes: Anecdote[];
   personDocuments: PersonDocument[];
+  personSummaries: Record<string, PersonSummary>;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dossierId, setDossierId] = useState<string | null>(null);
@@ -114,6 +117,8 @@ export function TreeView({
           facts={personFacts}
           anecdotes={personAnecdotes}
           documents={selectedPersonDocuments}
+          people={people}
+          personSummaries={personSummaries}
           onClose={() => setSelectedId(null)}
         />
       )}
