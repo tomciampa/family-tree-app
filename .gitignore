@@ -39,6 +39,10 @@ yarn-error.log*
 # supabase
 supabase/.temp
 
+# saved browser auth session for verification (see CLAUDE.md) — contains a
+# live session, never commit
+.auth/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

@@ -61,6 +61,16 @@ API (CSS custom properties), not ad hoc per-element overrides.
 - **Always verify with a real browser test before committing**, not just typecheck/build —
   use a disposable test account/session, never real user data, for destructive or
   auth-dependent testing.
+- **Reuse a saved auth session before requesting a new magic link.** Login is Supabase
+  magic-link OTP with no service-role key available locally, so verifying anything
+  auth-dependent means asking the user to click an emailed link — and Supabase rate-limits
+  repeat magic-link requests to the same address, so requesting a fresh one every time a
+  verification is needed burns through that limit fast. Before asking for a new login, check
+  for `.auth/session.json` (gitignored, never commit — it's a live session) and try it first
+  via Playwright's `storageState`. Only request a fresh magic link if no saved session exists
+  or the saved one is actually rejected/expired. After a successful login, save it with
+  `context.storageState({ path: ".auth/session.json" })` before closing the browser, so the
+  next verification task can reuse it.
 - When a bug report's stated cause might be wrong, investigate and report the *actual* root
   cause before fixing — don't build a fix for the wrong problem. (Real example: a reported
   "expand/collapse inconsistency" turned out not to be a data-fetching depth bug at all, but
