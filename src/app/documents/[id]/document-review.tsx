@@ -505,7 +505,16 @@ function FamilyCandidateRow({
                   relationship signal pointing at his real record. Confirm
                   goes through the exact same confirmCandidateMatch call as
                   a suggested match, just with a manually-chosen personId
-                  instead of one the matcher proposed. */}
+                  instead of one the matcher proposed.
+
+                  The search input/results live OUTSIDE this label
+                  (siblings, not children) deliberately: a <label> forwards
+                  clicks to its associated control, and a nested <button>
+                  inside one is exactly the kind of setup where that
+                  forwarding can end up firing the radio's own onChange
+                  right after a result's onClick already set a real
+                  selection — silently resetting it back to the
+                  "__search__" placeholder with no visible sign why. */}
               <label className="flex items-start gap-1.5">
                 <input
                   type="radio"
@@ -514,64 +523,70 @@ function FamilyCandidateRow({
                   onChange={() => setSelection("__search__")}
                   className="mt-0.5"
                 />
-                <span className="flex flex-1 flex-col gap-1">
-                  None of these — search for the correct person
-                  {isManualSearch && (
-                    <span className="flex flex-col gap-1">
-                      <input
-                        type="text"
-                        autoFocus
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Search by name…"
-                        className="rounded border border-gray-300 px-2 py-1 text-xs text-black dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                      />
-                      {searchQuery.trim().length > 0 && (
-                        <div className="flex max-h-40 flex-col gap-0.5 overflow-y-auto rounded border border-gray-200 dark:border-gray-800">
-                          {searchResults.length === 0 && (
-                            <p className="px-2 py-1 text-[11px] text-gray-500">
-                              No one matches &quot;{searchQuery}&quot;.
-                            </p>
-                          )}
-                          {searchResults.map((p) => {
-                            const summary = personSummaries[p.id];
-                            const dates = [
-                              summary?.birthEstimate,
-                              summary?.deathEstimate,
-                            ]
-                              .filter(Boolean)
-                              .join(" – ");
-                            return (
-                              <button
-                                key={p.id}
-                                type="button"
-                                onClick={() => setSelection(p.id)}
-                                onMouseEnter={() =>
-                                  onFocusMatch(p.id, candidate.name)
-                                }
-                                className={`flex flex-col items-start px-2 py-1 text-left text-[11px] hover:bg-gray-50 dark:hover:bg-gray-800/60 ${
-                                  selection === p.id
-                                    ? "bg-blue-50 dark:bg-blue-950/40"
-                                    : ""
-                                }`}
-                              >
-                                <span className="font-medium text-gray-800 dark:text-gray-200">
-                                  {p.name}
-                                </span>
-                                <span className="text-gray-500 dark:text-gray-500">
-                                  {dates && `${dates} · `}
-                                  {summary?.relationshipSummary ??
-                                    "not yet in the tree"}
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </span>
-                  )}
-                </span>
+                <span>None of these — search for the correct person</span>
               </label>
+              {isManualSearch && (
+                <div className="ml-5 flex flex-col gap-1">
+                  <input
+                    type="text"
+                    autoFocus
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search by name…"
+                    className="rounded border border-gray-300 px-2 py-1 text-xs text-black dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  />
+                  {selection !== "__search__" && (
+                    <p className="text-[11px] font-medium text-blue-700 dark:text-blue-400">
+                      Selected: {people.find((p) => p.id === selection)?.name}
+                    </p>
+                  )}
+                  {searchQuery.trim().length > 0 && (
+                    <div className="flex max-h-40 flex-col gap-0.5 overflow-y-auto rounded border border-gray-200 dark:border-gray-800">
+                      {searchResults.length === 0 && (
+                        <p className="px-2 py-1 text-[11px] text-gray-500">
+                          No one matches &quot;{searchQuery}&quot;.
+                        </p>
+                      )}
+                      {searchResults.map((p) => {
+                        const summary = personSummaries[p.id];
+                        const dates = [
+                          summary?.birthEstimate,
+                          summary?.deathEstimate,
+                        ]
+                          .filter(Boolean)
+                          .join(" – ");
+                        const isSelected = selection === p.id;
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => setSelection(p.id)}
+                            onMouseEnter={() =>
+                              onFocusMatch(p.id, candidate.name)
+                            }
+                            aria-pressed={isSelected}
+                            className={`flex flex-col items-start px-2 py-1 text-left text-[11px] hover:bg-gray-50 dark:hover:bg-gray-800/60 ${
+                              isSelected
+                                ? "bg-blue-100 dark:bg-blue-950/60"
+                                : ""
+                            }`}
+                          >
+                            <span className="font-medium text-gray-800 dark:text-gray-200">
+                              {isSelected ? "✓ " : ""}
+                              {p.name}
+                            </span>
+                            <span className="text-gray-500 dark:text-gray-500">
+                              {dates && `${dates} · `}
+                              {summary?.relationshipSummary ??
+                                "not yet in the tree"}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {error && <p className="text-[11px] text-red-500">{error}</p>}
 
