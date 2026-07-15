@@ -469,75 +469,68 @@ export function FamilyTree({
       // "Anthony Ciampa" records).
       cardEl.setAttribute("data-person-id", d.data.id);
 
-      const addButton = document.createElement("button");
-      addButton.type = "button";
-      addButton.textContent = "+";
-      addButton.setAttribute(
+      // All four per-card actions (edit/add/both-families/dossier) used to
+      // be permanent icons pinned to the card's four corners — with
+      // several cards on screen at once that read as cluttered. They now
+      // live behind a single "..." toggle in one consistent corner
+      // (top-right), revealed as a flyout on hover or tap; see the
+      // .card-actions-menu rules in globals.css for the reveal mechanics
+      // (:hover for desktop, :focus-within so tapping the real <button>
+      // on touch/keyboard works too, since hover never fires there).
+      // Every action button below still calls stopPropagation() first so
+      // it doesn't also trigger the card's own re-center click.
+      const menuWrapper = document.createElement("div");
+      menuWrapper.className = "card-actions-menu";
+
+      const toggleButton = document.createElement("button");
+      toggleButton.type = "button";
+      toggleButton.className = "card-actions-toggle";
+      toggleButton.textContent = "⋯";
+      toggleButton.setAttribute(
         "aria-label",
-        `Add to ${d.data.data["first name"]}'s record`,
+        `Actions for ${d.data.data["first name"]}`,
       );
-      addButton.style.cssText =
-        "position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; " +
-        "border-radius: 50%; border: none; background: #2563eb; color: white; " +
-        "font-size: 14px; line-height: 1; cursor: pointer; display: flex; " +
-        "align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,0.4);";
-      addButton.addEventListener("click", (e) => {
+      toggleButton.addEventListener("click", (e) => {
         e.stopPropagation();
-        const person = peopleByIdRef.current.get(d.data.id);
-        if (person) onPersonClickRef.current?.(person);
       });
-      cardEl.appendChild(addButton);
+      menuWrapper.appendChild(toggleButton);
+
+      const flyout = document.createElement("div");
+      flyout.className = "card-actions-flyout";
 
       const editButton = document.createElement("button");
       editButton.type = "button";
+      editButton.className = "card-action-btn card-action-edit";
       editButton.textContent = "✎";
       editButton.setAttribute(
         "aria-label",
         `Edit or delete ${d.data.data["first name"]}`,
       );
-      editButton.style.cssText =
-        "position: absolute; top: -6px; left: -6px; width: 22px; height: 22px; " +
-        "border-radius: 50%; border: none; background: #52525b; color: white; " +
-        "font-size: 12px; line-height: 1; cursor: pointer; display: flex; " +
-        "align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,0.4);";
       editButton.addEventListener("click", (e) => {
         e.stopPropagation();
         f3EditTree.openFormWithId(d.data.id);
       });
-      cardEl.appendChild(editButton);
+      flyout.appendChild(editButton);
 
-      // Case-file dossier — a full read view of this person (summary +
-      // Facts/Stories tabs), separate from both the card's own click
-      // (recenter) and the "+" button (the add-to-record forms above).
-      // Bottom-center is the one edge of the card not already claimed by
-      // add (top-right), edit (top-left), or view-both-families
-      // (top-center) — see those buttons' positioning below.
-      const dossierButton = document.createElement("button");
-      dossierButton.type = "button";
-      dossierButton.textContent = "🗂";
-      dossierButton.setAttribute(
+      const addButton = document.createElement("button");
+      addButton.type = "button";
+      addButton.className = "card-action-btn card-action-add";
+      addButton.textContent = "+";
+      addButton.setAttribute(
         "aria-label",
-        `Open case file for ${d.data.data["first name"]}`,
+        `Add to ${d.data.data["first name"]}'s record`,
       );
-      dossierButton.style.cssText =
-        "position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%); " +
-        "width: 22px; height: 18px; border-radius: 9px; border: none; " +
-        "background: #efe6d2; color: #2b2015; font-size: 11px; " +
-        "line-height: 1; cursor: pointer; display: flex; align-items: center; " +
-        "justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,0.4); " +
-        "border: 1px solid #c9b896;";
-      dossierButton.addEventListener("click", (e) => {
+      addButton.addEventListener("click", (e) => {
         e.stopPropagation();
         const person = peopleByIdRef.current.get(d.data.id);
-        if (person) onOpenDossierRef.current?.(person);
+        if (person) onPersonClickRef.current?.(person);
       });
-      cardEl.appendChild(dossierButton);
+      flyout.appendChild(addButton);
 
-      // "View both families" — see the section comment above. Offered on
-      // any card with at least one recorded spouse; picks the first if
-      // there happen to be more than one (multiple marriages), consistent
-      // with how the rest of this component doesn't yet offer a way to
-      // choose between them.
+      // "View both families" — offered on any card with at least one
+      // recorded spouse; picks the first if there happen to be more than
+      // one (multiple marriages), consistent with how the rest of this
+      // component doesn't yet offer a way to choose between them.
       //
       // Doubles as the exit: a couple with no OTHER real children (like
       // Tom & Maxine) has nothing in the sibling row, so every visible
@@ -557,6 +550,7 @@ export function FamilyTree({
               coupleViewRef.current.parent1Id === spouseId));
         const familiesButton = document.createElement("button");
         familiesButton.type = "button";
+        familiesButton.className = "card-action-btn card-action-families";
         familiesButton.textContent = isViewingThisCouple ? "✕" : "⚭";
         familiesButton.setAttribute(
           "aria-label",
@@ -564,19 +558,37 @@ export function FamilyTree({
             ? "Exit both-families view"
             : `View both families for ${d.data.data["first name"]}`,
         );
-        familiesButton.style.cssText =
-          "position: absolute; top: -6px; left: 50%; transform: translateX(-50%); " +
-          "width: 22px; height: 18px; border-radius: 9px; border: none; " +
-          `background: ${isViewingThisCouple ? "var(--female-color, #a97b52)" : "var(--male-color, #5c7360)"}; color: white; font-size: 11px; ` +
-          "line-height: 1; cursor: pointer; display: flex; align-items: center; " +
-          "justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,0.4);";
+        familiesButton.style.background = isViewingThisCouple
+          ? "var(--female-color, #a97b52)"
+          : "var(--male-color, #5c7360)";
         familiesButton.addEventListener("click", (e) => {
           e.stopPropagation();
           if (isViewingThisCouple) setCoupleView(null);
           else setCoupleView({ parent1Id: d.data.id, parent2Id: spouseId });
         });
-        cardEl.appendChild(familiesButton);
+        flyout.appendChild(familiesButton);
       }
+
+      // Case-file dossier — a full read view of this person (summary +
+      // Facts/Stories tabs), separate from both the card's own click
+      // (recenter) and the "+" button (the add-to-record forms above).
+      const dossierButton = document.createElement("button");
+      dossierButton.type = "button";
+      dossierButton.className = "card-action-btn card-action-dossier";
+      dossierButton.textContent = "🗂";
+      dossierButton.setAttribute(
+        "aria-label",
+        `Open case file for ${d.data.data["first name"]}`,
+      );
+      dossierButton.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const person = peopleByIdRef.current.get(d.data.id);
+        if (person) onOpenDossierRef.current?.(person);
+      });
+      flyout.appendChild(dossierButton);
+
+      menuWrapper.appendChild(flyout);
+      cardEl.appendChild(menuWrapper);
     });
 
     // See pendingHighlightRef's own comment above for why this waits for

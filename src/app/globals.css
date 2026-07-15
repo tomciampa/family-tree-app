@@ -103,3 +103,88 @@ body {
   animation: f3-highlight-pulse 0.8s ease-in-out 3;
   border-radius: 6px;
 }
+
+/* Per-card action menu — consolidates the edit/add/both-families/dossier
+   buttons behind one "..." entry point (see family-tree.tsx's
+   setOnCardUpdate) so a view with several cards doesn't read as busy.
+   :focus-within (not just :hover) is what makes the flyout reachable by
+   tap on touch devices and by keyboard, since tapping a real <button>
+   focuses it even where hover never fires. */
+.f3 .card-actions-menu {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  z-index: 5;
+}
+
+.f3 .card-actions-toggle {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid #c9b896;
+  background: #efe6d2;
+  color: #2b2015;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.f3 .card-actions-flyout {
+  display: none;
+  position: absolute;
+  top: 26px;
+  right: 0;
+  flex-direction: row;
+  gap: 4px;
+  padding: 4px;
+  background: #f7f1e3;
+  border: 1px solid #c9b896;
+  border-radius: 12px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.f3 .card-actions-menu:hover .card-actions-flyout,
+.f3 .card-actions-menu:focus-within .card-actions-flyout {
+  display: flex;
+}
+
+.f3 .card-action-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+  color: white;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  flex-shrink: 0;
+}
+
+.f3 .card-action-edit {
+  background: #52525b;
+}
+
+.f3 .card-action-add {
+  background: #2563eb;
+  font-size: 14px;
+}
+
+.f3 .card-action-dossier {
+  background: #efe6d2;
+  color: #2b2015;
+  border: 1px solid #c9b896;
+  font-size: 11px;
+}
+
+.f3 .card-action-families {
+  color: white;
+  font-size: 11px;
+}
