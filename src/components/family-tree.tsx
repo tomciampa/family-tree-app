@@ -221,6 +221,7 @@ export function FamilyTree({
   onPersonClick,
   onOpenDossier,
   highlightPersonId,
+  heightClassName = "h-[75vh]",
 }: {
   people: Person[];
   unions: UnionRow[];
@@ -228,6 +229,11 @@ export function FamilyTree({
   onPersonClick?: (person: Person) => void;
   onOpenDossier?: (person: Person) => void;
   highlightPersonId?: string | null;
+  // Lets embedded uses (e.g. the document-review three-pane workspace,
+  // which needs the tree to fit a pane rather than dominate the page the
+  // way the standalone /tree page does) size the canvas without touching
+  // the default.
+  heightClassName?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<ReturnType<typeof f3.createChart> | null>(null);
@@ -667,7 +673,7 @@ export function FamilyTree({
         // this page's default text color instead.
         <div
           ref={containerRef}
-          className="f3 f3-cont h-[75vh] w-full overflow-hidden rounded-lg"
+          className={`f3 f3-cont ${heightClassName} w-full overflow-hidden rounded-lg`}
         />
       )}
 

@@ -156,6 +156,7 @@ export async function extractCandidatesFromDocument(
   if (updateError) return { error: updateError.message };
 
   revalidatePath("/documents");
+  revalidatePath(`/documents/${documentId}`);
   return { candidates: result.object.candidates };
 }
 
@@ -433,6 +434,7 @@ export async function matchCandidatesForDocument(
   if (updateError) return { error: updateError.message };
 
   revalidatePath("/documents");
+  revalidatePath(`/documents/${documentId}`);
   return { candidates: results };
 }
 
@@ -557,6 +559,7 @@ export async function confirmCandidateMatch(
   await maybeMarkDocumentMatched(supabase, documentId, candidates);
 
   revalidatePath("/documents");
+  revalidatePath(`/documents/${documentId}`);
   revalidatePath("/tree");
   return { candidates };
 }
@@ -623,6 +626,7 @@ export async function createPersonForCandidate(
   await maybeMarkDocumentMatched(supabase, documentId, candidates);
 
   revalidatePath("/documents");
+  revalidatePath(`/documents/${documentId}`);
   revalidatePath("/tree");
   return { candidates };
 }
@@ -653,5 +657,6 @@ export async function skipCandidateResolution(
   await maybeMarkDocumentMatched(supabase, documentId, candidates);
 
   revalidatePath("/documents");
+  revalidatePath(`/documents/${documentId}`);
   return { candidates };
 }

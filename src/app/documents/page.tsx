@@ -2,7 +2,6 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getSignedDocumentUrls } from "@/lib/documents";
-import { buildPersonSummaries } from "@/lib/family";
 import { DocumentsView, type DocumentRow } from "./documents-view";
 
 export default async function DocumentsPage() {
@@ -15,20 +14,10 @@ export default async function DocumentsPage() {
     redirect("/login");
   }
 
-  const [
-    { data: documents, error },
-    { data: people },
-    { data: unions },
-    { data: unionChildren },
-  ] = await Promise.all([
-    supabase
-      .from("documents")
-      .select("id, filename, file_path, status, recorded_at, candidate_people")
-      .order("recorded_at", { ascending: false }),
-    supabase.from("people").select("*"),
-    supabase.from("unions").select("*"),
-    supabase.from("union_children").select("*"),
-  ]);
+  const { data: documents, error } = await supabase
+    .from("documents")
+    .select("id, filename, file_path, status, recorded_at, candidate_people")
+    .order("recorded_at", { ascending: false });
 
   const urlByPath = await getSignedDocumentUrls(
     supabase,
@@ -38,14 +27,6 @@ export default async function DocumentsPage() {
     ...d,
     viewUrl: urlByPath.get(d.file_path) ?? null,
   }));
-
-  // Candidate matches only carry a personId/personName — this gives the
-  // review UI enough context (dates, recorded parents/spouse) to actually
-  // tell same-named people apart, reusing data already fetched here rather
-  // than adding new columns to candidate_people itself.
-  const personSummaries = Object.fromEntries(
-    buildPersonSummaries(people ?? [], unions ?? [], unionChildren ?? []),
-  );
 
   return (
     <main className="flex min-h-screen flex-col gap-6 p-8">
@@ -61,10 +42,7 @@ export default async function DocumentsPage() {
       )}
 
       {!error && (
-        <DocumentsView
-          documents={documentsWithUrls as unknown as DocumentRow[]}
-          personSummaries={personSummaries}
-        />
+        <DocumentsView documents={documentsWithUrls as unknown as DocumentRow[]} />
       )}
     </main>
   );
