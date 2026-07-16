@@ -29,17 +29,6 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* family-chart's EditTree ships its own "add relative" / "remove relative"
-   sub-flows inside the edit-person form, but those only mutate its
-   in-memory copy of the tree, not our Supabase tables — we already have a
-   working, persisted equivalent via the "+" button (PersonPanel). Hide
-   them so the form only exposes what we've actually wired up: editing a
-   person's name and deleting them. */
-.f3 .f3-add-relative-btn,
-.f3 .f3-remove-relative-btn {
-  display: none;
-}
-
 /* Archival-paper theme for the tree, via family-chart's own documented
    CSS custom properties (its default theme is dark/near-black, which read
    as low-contrast gray-on-gray in places — a real accessibility problem

@@ -2,10 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import * as f3 from "family-chart";
-import type { Data as F3Data, Datum, TreeDatum } from "family-chart";
+import type { Data as F3Data, TreeDatum } from "family-chart";
 import "family-chart/styles/family-chart.css";
 import type { Tables } from "@/lib/supabase/database.types";
-import { updatePersonName, deletePerson } from "@/app/tree/actions";
 
 type Person = Tables<"people">;
 type UnionRow = Tables<"unions">;
@@ -459,72 +458,6 @@ export function FamilyTree({
       f3Card.onCardClickDefault(e, d);
     });
 
-    // EditTree gives us a ready-made name-edit + delete form (slide-out
-    // panel, docked via the library's own .f3-form-cont) instead of us
-    // building a custom one. We only use it for editing a person's name and
-    // deleting them — its own "add relative" / "remove relative"
-    // sub-flows only mutate family-chart's in-memory copy, not our Supabase
-    // tables, so they're disabled (setCanAdd + CSS, see globals.css) in
-    // favor of the "+" button below, which is already wired to our real
-    // add-relative forms.
-    const f3EditTree = f3Chart
-      .editTree()
-      .setFields([{ type: "text", label: "Name", id: "first name" }])
-      .setEditFirst(true)
-      .setCanAdd(() => ({ parent: false, spouse: false, child: false }))
-      .setOnSubmit(
-        async (
-          e: Event,
-          datum: Datum,
-          _applyChanges: () => void,
-          postSubmit: () => void,
-        ) => {
-          e.preventDefault();
-          const formData = new FormData(e.target as HTMLFormElement);
-          const newName = String(formData.get("first name") ?? "").trim();
-          if (!newName) {
-            window.alert("Name is required.");
-            return;
-          }
-          const result = await updatePersonName(datum.id, newName);
-          if (result?.error) {
-            window.alert(result.error);
-            return;
-          }
-          // Don't call applyChanges() — the corrected name will arrive
-          // through the normal Supabase refetch + updateData() sync below,
-          // so the chart and the database never briefly disagree.
-          postSubmit();
-        },
-      )
-      .setOnDelete(
-        async (
-          datum: Datum,
-          _deletePersonLocally: () => void,
-          postSubmit: (props: unknown) => void,
-        ) => {
-          const label = datum.data["first name"] ?? "this person";
-          if (
-            !window.confirm(
-              `Delete ${label}? This removes them and their relationships from the tree permanently.`,
-            )
-          ) {
-            return;
-          }
-          const result = await deletePerson(datum.id);
-          if (result?.error) {
-            window.alert(result.error);
-            return;
-          }
-          // The library's postSubmit for a delete already carries { delete:
-          // true } internally (baked in by EditTree before calling us) —
-          // see its onDelete wiring. Close the form ourselves too since
-          // is_fixed (the default) otherwise leaves it open after a delete.
-          postSubmit(undefined);
-          f3EditTree.closeForm();
-        },
-      );
-
     // setOnCardUpdate is called every time a card's DOM is (re)rendered,
     // right after its base markup is set — the supported hook for
     // attaching extra elements without reimplementing the card template
@@ -552,16 +485,19 @@ export function FamilyTree({
       // "Anthony Ciampa" records).
       cardEl.setAttribute("data-person-id", d.data.id);
 
-      // All four per-card actions (edit/add/both-families/dossier) used to
-      // be permanent icons pinned to the card's four corners — with
-      // several cards on screen at once that read as cluttered. They now
-      // live behind a single "..." toggle in one consistent corner
-      // (top-right), revealed as a flyout on hover or tap; see the
-      // .card-actions-menu rules in globals.css for the reveal mechanics
-      // (:hover for desktop, :focus-within so tapping the real <button>
-      // on touch/keyboard works too, since hover never fires there).
-      // Every action button below still calls stopPropagation() first so
-      // it doesn't also trigger the card's own re-center click.
+      // Per-card actions (add/both-families/dossier — editing a person's
+      // core details moved into the dossier's own identity form, and
+      // deleting into the dossier's "Delete this person", so family-chart's
+      // native edit form and this menu's old ✎ button are both gone) used
+      // to be permanent icons pinned to the card's corners — with several
+      // cards on screen at once that read as cluttered. They now live
+      // behind a single "..." toggle in one consistent corner (top-right),
+      // revealed as a flyout on hover or tap; see the .card-actions-menu
+      // rules in globals.css for the reveal mechanics (:hover for desktop,
+      // :focus-within so tapping the real <button> on touch/keyboard works
+      // too, since hover never fires there). Every action button below
+      // still calls stopPropagation() first so it doesn't also trigger the
+      // card's own re-center click.
       const menuWrapper = document.createElement("div");
       menuWrapper.className = "card-actions-menu";
 
@@ -580,20 +516,6 @@ export function FamilyTree({
 
       const flyout = document.createElement("div");
       flyout.className = "card-actions-flyout";
-
-      const editButton = document.createElement("button");
-      editButton.type = "button";
-      editButton.className = "card-action-btn card-action-edit";
-      editButton.textContent = "✎";
-      editButton.setAttribute(
-        "aria-label",
-        `Edit or delete ${d.data.data["first name"]}`,
-      );
-      editButton.addEventListener("click", (e) => {
-        e.stopPropagation();
-        f3EditTree.openFormWithId(d.data.id);
-      });
-      flyout.appendChild(editButton);
 
       const addButton = document.createElement("button");
       addButton.type = "button";

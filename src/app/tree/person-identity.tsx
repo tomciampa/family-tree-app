@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import type { Tables } from "@/lib/supabase/database.types";
 import {
+  updatePersonName,
   updatePersonIdentity,
   parseFactsIntoStandardFields,
   addFact,
@@ -97,6 +98,11 @@ export function PersonIdentitySection({
   const [isEditing, setIsEditing] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  // The one field used everywhere else in the app (tree cards, search,
+  // this dossier's own header) — editing it here, alongside the
+  // standardized identity fields, is what replaced family-chart's native
+  // edit form as the only way to fix a typo in it.
+  const [name, setName] = useState(person.name);
   const [firstName, setFirstName] = useState(person.first_name ?? "");
   const [preferredName, setPreferredName] = useState(
     person.preferred_name ?? "",
@@ -126,6 +132,7 @@ export function PersonIdentitySection({
   function cancelEdit() {
     setIsEditing(false);
     setError(null);
+    setName(person.name);
     setFirstName(person.first_name ?? "");
     setPreferredName(person.preferred_name ?? "");
     setLastName(person.last_name ?? "");
@@ -136,6 +143,10 @@ export function PersonIdentitySection({
 
   function handleSave(e: { preventDefault: () => void }) {
     e.preventDefault();
+    if (!name.trim()) {
+      setError("Name is required.");
+      return;
+    }
     const fields: PersonIdentityFields = {
       firstName,
       preferredName,
@@ -145,6 +156,13 @@ export function PersonIdentitySection({
       aliases,
     };
     startTransition(async () => {
+      if (name.trim() !== person.name) {
+        const nameResult = await updatePersonName(person.id, name);
+        if (nameResult?.error) {
+          setError(nameResult.error);
+          return;
+        }
+      }
       const result = await updatePersonIdentity(person.id, fields);
       if (result?.error) {
         setError(result.error);
@@ -369,6 +387,15 @@ export function PersonIdentitySection({
 
       {isEditing ? (
         <form onSubmit={handleSave} className="flex flex-col gap-3">
+          <label className={labelClassName}>
+            Name (used everywhere — tree cards, search)
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              className={`${inputClassName} font-medium`}
+            />
+          </label>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <label className={labelClassName}>
               First name
