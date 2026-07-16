@@ -220,6 +220,8 @@ export function FamilyTree({
   unionChildren,
   onPersonClick,
   onOpenDossier,
+  onAttachToTree,
+  onDeletePerson,
   highlightPersonId,
   heightClassName = "h-[75vh]",
 }: {
@@ -228,6 +230,13 @@ export function FamilyTree({
   unionChildren: UnionChild[];
   onPersonClick?: (person: Person) => void;
   onOpenDossier?: (person: Person) => void;
+  // Only meaningful for the "not yet connected" loose-people list below
+  // the chart — there's no family-chart card for them to attach these
+  // actions to, so they get their own small buttons instead. Optional
+  // because embedded uses (e.g. the document-review three-pane workspace)
+  // don't offer either.
+  onAttachToTree?: (person: Person) => void;
+  onDeletePerson?: (person: Person) => void;
   highlightPersonId?: string | null;
   // Lets embedded uses (e.g. the document-review three-pane workspace,
   // which needs the tree to fit a pane rather than dominate the page the
@@ -696,11 +705,14 @@ export function FamilyTree({
           </h2>
           <ul className="flex flex-wrap gap-2">
             {unplacedPeople.map((p) => (
-              <li key={p.id}>
+              <li
+                key={p.id}
+                className="flex min-w-[8rem] flex-col overflow-hidden rounded border border-gray-300 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900"
+              >
                 <button
                   type="button"
                   onClick={() => onPersonClick?.(p)}
-                  className="flex min-w-[8rem] flex-col items-center rounded border border-gray-300 bg-white px-3 py-2 text-center text-sm shadow-sm transition-colors hover:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:hover:border-gray-600"
+                  className="flex flex-col items-center px-3 py-2 text-center text-sm transition-colors hover:bg-gray-50 dark:hover:bg-gray-800"
                 >
                   <span className="font-medium">{p.name}</span>
                   <span className="text-xs text-gray-500">
@@ -709,6 +721,46 @@ export function FamilyTree({
                     {p.death_estimate ?? ""}
                   </span>
                 </button>
+                {/* Loose people have no family-chart card to attach these
+                    to, and there are typically few of them at once — small
+                    always-visible buttons here rather than the on-tree
+                    cards' hover-reveal "..." overflow, which exists
+                    specifically to declutter many cards visible at once. */}
+                <div className="flex border-t border-gray-200 text-xs dark:border-gray-800">
+                  {onAttachToTree && (
+                    <button
+                      type="button"
+                      onClick={() => onAttachToTree(p)}
+                      title="Add to tree"
+                      aria-label={`Add ${p.name} to the tree`}
+                      className="flex-1 border-r border-gray-200 py-1 text-gray-500 hover:bg-gray-50 hover:text-gray-800 dark:border-gray-800 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+                    >
+                      🔗
+                    </button>
+                  )}
+                  {onOpenDossier && (
+                    <button
+                      type="button"
+                      onClick={() => onOpenDossier(p)}
+                      title="Open case file"
+                      aria-label={`Open case file for ${p.name}`}
+                      className="flex-1 border-r border-gray-200 py-1 text-gray-500 hover:bg-gray-50 hover:text-gray-800 dark:border-gray-800 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+                    >
+                      🗂
+                    </button>
+                  )}
+                  {onDeletePerson && (
+                    <button
+                      type="button"
+                      onClick={() => onDeletePerson(p)}
+                      title="Delete"
+                      aria-label={`Delete ${p.name}`}
+                      className="flex-1 py-1 text-gray-500 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/40 dark:hover:text-red-400"
+                    >
+                      🗑
+                    </button>
+                  )}
+                </div>
               </li>
             ))}
           </ul>

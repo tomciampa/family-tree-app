@@ -5,6 +5,8 @@ import { useSearchParams } from "next/navigation";
 import { FamilyTree } from "@/components/family-tree";
 import { PersonPanel } from "./person-panel";
 import { PersonDossier } from "./person-dossier";
+import { AttachToTreeForm } from "./attach-to-tree-form";
+import { deletePerson } from "./actions";
 import type { PersonDocument } from "./document-list";
 import type { Tables } from "@/lib/supabase/database.types";
 import type { PersonSummary } from "@/lib/family";
@@ -34,6 +36,7 @@ export function TreeView({
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dossierId, setDossierId] = useState<string | null>(null);
+  const [attachingId, setAttachingId] = useState<string | null>(null);
   // "?highlight=<personId>" from the document candidate-match review
   // queue's "view in tree" link (see documents-view.tsx) — read once on
   // mount, since each click there opens a fresh tab/page load rather than
@@ -51,6 +54,34 @@ export function TreeView({
   const handleOpenDossier = useCallback(
     (person: Person) => setDossierId(person.id),
     [],
+  );
+  // Only used by the loose-people list's plain HTML buttons, not threaded
+  // into FamilyTree's imperative chart-building effect the way
+  // onPersonClick/onOpenDossier are (those go through refs specifically
+  // so their identity can change without remounting the chart) — no
+  // stability requirement here, useCallback is just tidiness.
+  const handleAttachToTree = useCallback(
+    (person: Person) => setAttachingId(person.id),
+    [],
+  );
+  const handleDeletePerson = useCallback(
+    async (person: Person) => {
+      const factCount = facts.filter((f) => f.person_id === person.id).length;
+      const anecdoteCount = anecdotes.filter(
+        (a) => a.person_id === person.id,
+      ).length;
+      const docCount = personDocuments.filter(
+        (d) => d.personId === person.id,
+      ).length;
+      const hasData = factCount + anecdoteCount + docCount > 0;
+      const message = hasData
+        ? `Delete ${person.name}? This also removes ${factCount} fact(s), ${anecdoteCount} stor${anecdoteCount === 1 ? "y" : "ies"}, and unlinks ${docCount} document(s) attached to them. This can't be undone.`
+        : `Delete ${person.name}? This can't be undone.`;
+      if (!window.confirm(message)) return;
+      const result = await deletePerson(person.id);
+      if (result?.error) window.alert(result.error);
+    },
+    [facts, anecdotes, personDocuments],
   );
 
   const peopleById = new Map(people.map((p) => [p.id, p]));
@@ -99,6 +130,8 @@ export function TreeView({
     ? personDocuments.filter((d) => d.personId === dossierPerson.id)
     : [];
 
+  const attachingPerson = people.find((p) => p.id === attachingId) ?? null;
+
   return (
     <>
       <div className="flex items-start gap-4">
@@ -114,6 +147,8 @@ export function TreeView({
             unionChildren={unionChildren}
             onPersonClick={handlePersonClick}
             onOpenDossier={handleOpenDossier}
+            onAttachToTree={handleAttachToTree}
+            onDeletePerson={handleDeletePerson}
             highlightPersonId={highlightPersonId}
           />
         </div>
@@ -138,6 +173,15 @@ export function TreeView({
           people={people}
           personSummaries={personSummaries}
           onClose={() => setSelectedId(null)}
+        />
+      )}
+      {attachingPerson && (
+        <AttachToTreeForm
+          loosePerson={attachingPerson}
+          people={people}
+          unions={unions}
+          personSummaries={personSummaries}
+          onClose={() => setAttachingId(null)}
         />
       )}
     </>
