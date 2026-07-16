@@ -11,15 +11,27 @@ type Person = Tables<"people">;
 type UnionRow = Tables<"unions">;
 type UnionChild = Tables<"union_children">;
 
-// family-chart has no notion of a "union" — a marriage is implicit from a
-// shared spouse pairing, and parentage is implicit from a child listing
-// both parent ids. We derive all three of its per-person relationship
-// lists (parents/spouses/children) from our own unions + union_children.
-function toF3Data(
-  people: Person[],
+type RelativesLookup = Map<
+  string,
+  { parents: string[]; spouses: string[]; children: string[] }
+>;
+
+// The single source of truth for a person's REAL recorded relatives —
+// used both to build family-chart's own per-node rels (toF3Data below)
+// and, independently, by the mini-tree badge tooltip (see
+// applyMiniTreeTooltips) to know what SHOULD be there regardless of what
+// family-chart's rendering actually does with it. That distinction turned
+// out to matter for real: family-chart contextually trims a rendered
+// node's own d.data.rels depending on its role in the current layout (a
+// sibling-of-main's own spouses/children can come back empty even though
+// they're fully recorded), so the badge tooltip must NOT read it back off
+// the rendered datum — it has to be computed straight from unions/
+// union_children, same as this function, kept entirely independent of
+// whatever the current tree layout happens to include.
+function buildRelativesLookup(
   unions: UnionRow[],
   unionChildren: UnionChild[],
-): F3Data {
+): RelativesLookup {
   const unionsById = new Map(unions.map((u) => [u.id, u]));
 
   const childToUnionId = new Map<string, string>();
@@ -54,8 +66,14 @@ function toF3Data(
     }
   }
 
-  return people.map((person) => {
-    const incomingUnionId = childToUnionId.get(person.id);
+  const allPersonIds = new Set([
+    ...childToUnionId.keys(),
+    ...spousesByPerson.keys(),
+    ...childrenByPerson.keys(),
+  ]);
+  const lookup: RelativesLookup = new Map();
+  for (const personId of allPersonIds) {
+    const incomingUnionId = childToUnionId.get(personId);
     const incomingUnion = incomingUnionId
       ? unionsById.get(incomingUnionId)
       : undefined;
@@ -64,7 +82,28 @@ function toF3Data(
           (id): id is string => !!id,
         )
       : [];
+    lookup.set(personId, {
+      parents,
+      spouses: [...(spousesByPerson.get(personId) ?? [])],
+      children: [...(childrenByPerson.get(personId) ?? [])],
+    });
+  }
+  return lookup;
+}
 
+// family-chart has no notion of a "union" — a marriage is implicit from a
+// shared spouse pairing, and parentage is implicit from a child listing
+// both parent ids. We derive all three of its per-person relationship
+// lists (parents/spouses/children) from our own unions + union_children.
+function toF3Data(
+  people: Person[],
+  unions: UnionRow[],
+  unionChildren: UnionChild[],
+): F3Data {
+  const relatives = buildRelativesLookup(unions, unionChildren);
+
+  return people.map((person) => {
+    const rels = relatives.get(person.id);
     const dates = [person.birth_estimate, person.death_estimate]
       .filter(Boolean)
       .join(" – ");
@@ -80,9 +119,9 @@ function toF3Data(
         dates,
       },
       rels: {
-        parents,
-        spouses: [...(spousesByPerson.get(person.id) ?? [])],
-        children: [...(childrenByPerson.get(person.id) ?? [])],
+        parents: rels?.parents ?? [],
+        spouses: rels?.spouses ?? [],
+        children: rels?.children ?? [],
       },
     };
   }) as unknown as F3Data;
@@ -105,6 +144,31 @@ function buildSpousesLookup(unions: UnionRow[]): SpousesLookup {
     }
   }
   return (personId: string) => spousesByPerson.get(personId) ?? [];
+}
+
+// Builds the mini-tree badge's hover text, e.g. "2 spouses, 2 children not
+// shown" — only the categories that actually have something hidden, in
+// genealogical order (parents, then spouses, then children), correctly
+// singular/plural. Returns null when nothing's actually hidden (shouldn't
+// normally happen, since the badge itself only renders when family-chart's
+// own all_rels_displayed is false, but a null guard here is cheap insurance
+// against the two calculations ever disagreeing).
+function describeHiddenRelatives(hidden: {
+  parents: string[];
+  spouses: string[];
+  children: string[];
+}): string | null {
+  const parts: string[] = [];
+  if (hidden.parents.length > 0) {
+    parts.push(`${hidden.parents.length} parent${hidden.parents.length === 1 ? "" : "s"}`);
+  }
+  if (hidden.spouses.length > 0) {
+    parts.push(`${hidden.spouses.length} spouse${hidden.spouses.length === 1 ? "" : "s"}`);
+  }
+  if (hidden.children.length > 0) {
+    parts.push(`${hidden.children.length} child${hidden.children.length === 1 ? "" : "ren"}`);
+  }
+  return parts.length > 0 ? `${parts.join(", ")} not shown` : null;
 }
 
 // --- "View both families" ------------------------------------------------
@@ -266,6 +330,16 @@ export function FamilyTree({
   unionsRef.current = unions;
   const getSpousesRef = useRef<SpousesLookup>(() => []);
   getSpousesRef.current = buildSpousesLookup(unions);
+  // family-chart's own mini-tree badge only knows a single flattened
+  // boolean ("something is hidden") — it can't tell a hidden parent from a
+  // hidden spouse from a hidden child, and its fixed top-of-card position
+  // doesn't correspond to any of those directions either. Recomputed every
+  // render straight from unions/union_children (see buildRelativesLookup's
+  // own comment for why this must NOT be read off family-chart's rendered
+  // per-node d.data.rels instead), consulted in setAfterUpdate below to
+  // compute the real answer ourselves — see applyMiniTreeTooltips.
+  const relativesByPersonIdRef = useRef<RelativesLookup>(new Map());
+  relativesByPersonIdRef.current = buildRelativesLookup(unions, unionChildren);
 
   // The couple currently being viewed via "view both families" (see the
   // section above) — null means normal single-person navigation. Read via
@@ -600,9 +674,50 @@ export function FamilyTree({
       cardEl.appendChild(menuWrapper);
     });
 
+    // Figures out, per rendered card that has family-chart's own mini-tree
+    // badge, exactly which real relatives (by category) aren't part of the
+    // current view, and sets that as the badge's title/aria-label. Purely
+    // additive: doesn't touch the badge's existing click-through (still
+    // bubbles to the card's own recenter handler) or its position.
+    //
+    // Must run on the same delay as the highlight-pulse below, not
+    // synchronously at the top of setAfterUpdate — this was the actual bug
+    // behind an early wrong reading (Laurie showing "1 spouse not shown"
+    // instead of the real 2 spouses + 2 children): d3's exit transition for
+    // cards leaving the previous view hasn't necessarily removed them from
+    // the DOM yet when setAfterUpdate first fires, so an immediate
+    // querySelectorAll("[data-person-id]") over-counts "currently shown" by
+    // including not-yet-removed outgoing cards, silently deflating the
+    // hidden-relatives diff.
+    const applyMiniTreeTooltips = () => {
+      const renderedIds = new Set(
+        Array.from(container.querySelectorAll<HTMLElement>(".card[data-person-id]"))
+          .map((el) => el.getAttribute("data-person-id"))
+          .filter((id): id is string => !!id),
+      );
+      const badges = container.querySelectorAll<HTMLElement>("div.mini-tree");
+      badges.forEach((badge) => {
+        const cardEl = badge.closest<HTMLElement>(".card[data-person-id]");
+        const personId = cardEl?.getAttribute("data-person-id");
+        const rels = personId ? relativesByPersonIdRef.current.get(personId) : undefined;
+        if (!rels) return;
+        const hidden = {
+          parents: rels.parents.filter((id) => !renderedIds.has(id)),
+          spouses: rels.spouses.filter((id) => !renderedIds.has(id)),
+          children: rels.children.filter((id) => !renderedIds.has(id)),
+        };
+        const description = describeHiddenRelatives(hidden);
+        if (!description) return;
+        badge.setAttribute("title", description);
+        badge.setAttribute("aria-label", description);
+      });
+    };
+
     // See pendingHighlightRef's own comment above for why this waits for
-    // the real transition instead of applying the pulse immediately.
+    // the real transition instead of applying the pulse immediately —
+    // applyMiniTreeTooltips needs the exact same wait, see its own comment.
     f3Chart.setAfterUpdate((props?: { transition_time?: number }) => {
+      window.setTimeout(applyMiniTreeTooltips, (props?.transition_time ?? 0) + 50);
       const id = pendingHighlightRef.current;
       if (!id) return;
       pendingHighlightRef.current = null;
