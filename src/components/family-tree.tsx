@@ -189,6 +189,14 @@ function describeHiddenRelatives(hidden: {
 // This reuses family-chart's real, collision-free ancestry+sibling layout
 // instead of re-deriving it.
 const SYNTHETIC_ANCHOR_ID = "__couple-view-anchor__";
+// How long a single card-body click waits before actually recentering,
+// giving a following second click on the same person time to arrive and
+// turn it into a double-click (open the dossier) instead — see
+// setOnCardClick and pendingCardClickRef's own comment for why this is
+// tracked ourselves rather than via a native dblclick listener. Long
+// enough that a real double-click reliably lands within it; short enough
+// that a single click doesn't feel laggy.
+const DOUBLE_CLICK_WINDOW_MS = 300;
 // Matches the depth family-chart used before per-person ancestryDepth was
 // capped to 1 for normal navigation (see the chart setup below) — full
 // real depth, effectively "as deep as recorded data goes."
@@ -355,6 +363,28 @@ export function FamilyTree({
   // view) apart from "already in couple view, data changed for some other
   // reason" (leave main and pan/zoom alone).
   const prevCoupleViewRef = useRef<typeof coupleView>(null);
+  // Single-click recenters, double-click opens the dossier — both live on
+  // the same card body, so single-click's own action is delayed briefly
+  // (see setOnCardClick below) to give a possible second click time to
+  // arrive and cancel it, rather than recentering AND then opening the
+  // dossier on every double-click. Deliberately NOT implemented as a native
+  // dblclick listener on the card element: a button click that also
+  // changes the tree (e.g. ⚭ both-families, which calls setCoupleView and
+  // triggers an immediate re-render) can rebuild the card's whole DOM
+  // subtree between a double-click's two constituent clicks, so the
+  // second click lands on a freshly-created element the button's own
+  // stopPropagation guard was never attached to — the browser still
+  // recognizes it as a "dblclick" (same new target for both halves) and
+  // it bubbles straight to the card with nothing to stop it (confirmed by
+  // real testing, not assumed). Tracking by person id + timing here
+  // instead sidesteps that entirely: family-chart's own click listener
+  // lives on .card, which every action button's stopPropagation already
+  // keeps button clicks from ever reaching, so this only ever fires for
+  // genuine card-body clicks regardless of what re-renders happen between
+  // them.
+  const pendingCardClickRef = useRef<{ id: string; timer: number } | null>(
+    null,
+  );
   // "View in tree" from the document-matching review queue (see
   // documents-view.tsx): a person id to recenter on and briefly pulse.
   // Applied via setAfterUpdate below rather than immediately after calling
@@ -440,10 +470,14 @@ export function FamilyTree({
       .setMiniTree(true);
 
     // Clicking the card itself only re-centers the tree on that person —
-    // family-chart's own default click behavior, nothing more. Opening our
-    // "add to this person's record" panel is a separate, explicit action
-    // (the "+" button below), not something that should happen just from
-    // navigating the tree.
+    // family-chart's own default click behavior, nothing more. Double-
+    // clicking it opens the dossier instead: the single click's own
+    // recenter is delayed by DOUBLE_CLICK_WINDOW_MS so a genuine second
+    // click on the same person, arriving within that window, can cancel it
+    // and open the dossier instead of recentering AND then also opening
+    // the dossier on every double-click. See pendingCardClickRef's own
+    // comment for why this is tracked by person id + timing here rather
+    // than as a native dblclick listener.
     //
     // Exception: is_ancestry cards (with ancestryDepth capped to 1 for
     // normal navigation, this is exactly main's two immediate parents —
@@ -453,9 +487,23 @@ export function FamilyTree({
     // by clicking a sibling or the couple's own real children instead.
     f3Card.setOnCardClick((e: MouseEvent, d: TreeDatum) => {
       if (d.data.id === SYNTHETIC_ANCHOR_ID) return; // shouldn't be reachable — card is hidden, see setOnCardUpdate
-      if (d.is_ancestry) return;
-      if (coupleViewRef.current) setCoupleView(null);
-      f3Card.onCardClickDefault(e, d);
+
+      const pending = pendingCardClickRef.current;
+      if (pending && pending.id === d.data.id) {
+        window.clearTimeout(pending.timer);
+        pendingCardClickRef.current = null;
+        const person = peopleByIdRef.current.get(d.data.id);
+        if (person) onOpenDossierRef.current?.(person);
+        return;
+      }
+
+      const timer = window.setTimeout(() => {
+        pendingCardClickRef.current = null;
+        if (d.is_ancestry) return;
+        if (coupleViewRef.current) setCoupleView(null);
+        f3Card.onCardClickDefault(e, d);
+      }, DOUBLE_CLICK_WINDOW_MS);
+      pendingCardClickRef.current = { id: d.data.id, timer };
     });
 
     // setOnCardUpdate is called every time a card's DOM is (re)rendered,
@@ -485,15 +533,17 @@ export function FamilyTree({
       // "Anthony Ciampa" records).
       cardEl.setAttribute("data-person-id", d.data.id);
 
-      // Per-card actions (add/both-families/dossier — editing a person's
-      // core details moved into the dossier's own identity form, and
-      // deleting into the dossier's "Delete this person", so family-chart's
-      // native edit form and this menu's old ✎ button are both gone) used
-      // to be permanent icons pinned to the card's corners — with several
-      // cards on screen at once that read as cluttered. They now live
-      // behind a single "..." toggle in one consistent corner (top-right),
-      // revealed as a flyout on hover or tap; see the .card-actions-menu
-      // rules in globals.css for the reveal mechanics (:hover for desktop,
+      // Per-card actions (add/both-families — editing a person's core
+      // details moved into the dossier's own identity form, deleting into
+      // the dossier's "Delete this person", and opening the dossier itself
+      // into a double-click on the card body, handled entirely in
+      // setOnCardClick above, so family-chart's native edit form, this
+      // menu's old ✎ button, and its old 🗂 button are all gone) used to be
+      // permanent icons pinned to the card's corners — with several cards
+      // on screen at once that read as cluttered. They now live behind a
+      // single "..." toggle in one consistent corner (top-right), revealed
+      // as a flyout on hover or tap; see the .card-actions-menu rules in
+      // globals.css for the reveal mechanics (:hover for desktop,
       // :focus-within so tapping the real <button> on touch/keyboard works
       // too, since hover never fires there). Every action button below
       // still calls stopPropagation() first so it doesn't also trigger the
@@ -573,24 +623,6 @@ export function FamilyTree({
         });
         flyout.appendChild(familiesButton);
       }
-
-      // Case-file dossier — a full read view of this person (summary +
-      // Facts/Stories tabs), separate from both the card's own click
-      // (recenter) and the "+" button (the add-to-record forms above).
-      const dossierButton = document.createElement("button");
-      dossierButton.type = "button";
-      dossierButton.className = "card-action-btn card-action-dossier";
-      dossierButton.textContent = "🗂";
-      dossierButton.setAttribute(
-        "aria-label",
-        `Open case file for ${d.data.data["first name"]}`,
-      );
-      dossierButton.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const person = peopleByIdRef.current.get(d.data.id);
-        if (person) onOpenDossierRef.current?.(person);
-      });
-      flyout.appendChild(dossierButton);
 
       menuWrapper.appendChild(flyout);
       cardEl.appendChild(menuWrapper);
