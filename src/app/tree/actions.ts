@@ -6,7 +6,7 @@ import { generateObject } from "ai";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { getFamilyId } from "@/lib/family";
-import { FACT_SOURCE_TYPES } from "./constants";
+import { FACT_SOURCE_TYPES, STANDARD_FIELD_KEYS } from "./constants";
 
 async function requireUser() {
   const supabase = await createClient();
@@ -524,19 +524,48 @@ type ExtractFactResult =
       sourceRef: string;
     };
 
-// Standard slots the dossier's Facts tab standardized section (see
-// person-identity.tsx) looks for by exact field name — keeping this list
-// in the same order they're displayed there so a newly-extracted set of
-// facts lines up with what the reviewer sees on save.
-const STANDARD_FIELD_KEYS = [
-  ["birthDate", "Birth Date"],
-  ["birthPlace", "Birth Place"],
-  ["deathDate", "Death Date"],
-  ["deathPlace", "Death Place"],
-  ["causeOfDeath", "Cause of Death"],
-  ["occupation", "Occupation"],
-  ["placesLived", "Places Lived"],
-] as const;
+// Shared by both AI Gateway call sites that pull these standard fields out
+// of free text — a new document being processed (extractFactFromDocument)
+// and retroactively re-parsing an already-recorded fact whose text merges
+// several of these together (parseFactsIntoStandardFields). Every field is
+// independently nullable: source text rarely documents all seven, and
+// guessing at one that isn't actually there is worse than leaving it blank.
+const standardFieldsShape = {
+  birthDate: z
+    .string()
+    .nullable()
+    .describe("The person's birth date exactly as recorded, or null if not stated"),
+  birthPlace: z
+    .string()
+    .nullable()
+    .describe("The person's birth place, or null if not stated"),
+  deathDate: z
+    .string()
+    .nullable()
+    .describe("The person's death date exactly as recorded, or null if not stated"),
+  deathPlace: z
+    .string()
+    .nullable()
+    .describe("The person's death place, or null if not stated"),
+  causeOfDeath: z
+    .string()
+    .nullable()
+    .describe("Cause of death, or null if not stated"),
+  occupation: z
+    .string()
+    .nullable()
+    .describe("The person's occupation, or null if not stated"),
+  placesLived: z
+    .string()
+    .nullable()
+    .describe(
+      "Place(s) the person is recorded as having lived, or null if not stated",
+    ),
+};
+
+export type ParsedStandardFields = {
+  [K in (typeof STANDARD_FIELD_KEYS)[number][0]]: string | null;
+};
 
 export async function extractFactFromDocument(
   personId: string,
@@ -564,42 +593,7 @@ export async function extractFactFromDocument(
     const result = await generateObject({
       model: "anthropic/claude-sonnet-5",
       schema: z.object({
-        // Separated standard fields rather than one merged field/value —
-        // each populates its own slot in the dossier's standardized
-        // section instead of landing as one blob a person then has to
-        // read prose out of. Every one is independently nullable: a
-        // document rarely documents all seven, and guessing at one that
-        // isn't actually there is worse than leaving it blank.
-        birthDate: z
-          .string()
-          .nullable()
-          .describe("The person's birth date exactly as recorded, or null if not stated"),
-        birthPlace: z
-          .string()
-          .nullable()
-          .describe("The person's birth place, or null if not stated"),
-        deathDate: z
-          .string()
-          .nullable()
-          .describe("The person's death date exactly as recorded, or null if not stated"),
-        deathPlace: z
-          .string()
-          .nullable()
-          .describe("The person's death place, or null if not stated"),
-        causeOfDeath: z
-          .string()
-          .nullable()
-          .describe("Cause of death, or null if not stated"),
-        occupation: z
-          .string()
-          .nullable()
-          .describe("The person's occupation, or null if not stated"),
-        placesLived: z
-          .string()
-          .nullable()
-          .describe(
-            "Place(s) the person is recorded as having lived, or null if not stated",
-          ),
+        ...standardFieldsShape,
         otherFacts: z
           .array(
             z.object({
@@ -684,6 +678,41 @@ export async function extractFactFromDocument(
     sourceType: extracted.sourceType,
     sourceRef: extracted.sourceRef,
   };
+}
+
+type ParseFactsResult = { error: string } | { parsed: ParsedStandardFields };
+
+// Retroactively re-derives standardized fields from an existing fact (or
+// facts) whose text merges several of them together, e.g. one "Death" fact
+// covering birth date, death date, and occupation in prose — the exact gap
+// that leaves every standardized slot showing "not recorded" even though
+// the data is right there. Read-only: this never writes anything itself,
+// it only returns candidate values for the dossier to show for review —
+// the caller decides what to keep and saves each one via the ordinary
+// addFact, same as any other fact. The source fact(s) are never modified.
+export async function parseFactsIntoStandardFields(
+  facts: { field: string; value: string }[],
+): Promise<ParseFactsResult> {
+  await requireUser();
+  if (facts.length === 0) return { error: "No facts to parse." };
+
+  const text = facts.map((f) => `${f.field}: ${f.value}`).join("\n");
+
+  try {
+    const result = await generateObject({
+      model: "anthropic/claude-sonnet-5",
+      schema: z.object(standardFieldsShape),
+      messages: [
+        {
+          role: "user",
+          content: `The following are existing genealogy facts recorded about one person, which may merge several details together in prose (e.g. one fact covering both a birth date and a cause of death). Pull out any of these standard fields it states, leaving anything not stated as null. Don't guess at a value that isn't actually there.\n\n${text}`,
+        },
+      ],
+    });
+    return { parsed: result.object };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Parsing failed." };
+  }
 }
 
 export async function addStory(
