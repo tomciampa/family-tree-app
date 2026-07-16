@@ -6,6 +6,7 @@ import { generateObject } from "ai";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { getFamilyId } from "@/lib/family";
+import { getSignedDocumentUrls } from "@/lib/documents";
 import { FACT_SOURCE_TYPES, STANDARD_FIELD_KEYS } from "./constants";
 
 async function requireUser() {
@@ -713,6 +714,92 @@ export async function parseFactsIntoStandardFields(
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Parsing failed." };
   }
+}
+
+type DocumentForViewer = {
+  viewUrl: string | null;
+  transcriptionRaw: string | null;
+  documentType: string | null;
+  filename: string | null;
+  kind: string | null;
+};
+
+type GetDocumentForViewerResult = { error: string } | DocumentForViewer;
+
+// Classifies a document's "kind" — a short, human-readable category like
+// "Death Certificate" or "Letter" — the first time it's opened in the
+// viewer modal (see fact-list.tsx's source badge), then caches it on the
+// row so later views don't re-classify. Neither documents.document_type
+// (just a MIME type) nor a fact's source_type (almost everything in real
+// data is "document" regardless of whether the underlying source was an
+// official record or someone's letter) can tell these apart — this is
+// the one signal that actually can, since it reads what the document
+// itself says rather than how it happened to get labeled upstream.
+async function classifyDocumentKind(
+  supabase: SupabaseClient,
+  documentId: string,
+  transcriptionRaw: string | null,
+): Promise<string | null> {
+  if (!transcriptionRaw || !transcriptionRaw.trim()) return null;
+
+  try {
+    const result = await generateObject({
+      model: "anthropic/claude-sonnet-5",
+      schema: z.object({
+        kind: z
+          .string()
+          .describe(
+            "A short, human-readable category for this genealogy source document, e.g. 'Death Certificate', 'Birth Certificate', 'Marriage Certificate', 'Funeral Card', 'Letter', 'Family Tree Chart', 'Photo', 'Immigration Record'. Title Case, 1-4 words.",
+          ),
+      }),
+      messages: [
+        {
+          role: "user",
+          content: `Classify this genealogy source document's category based on its transcribed content:\n\n${transcriptionRaw}`,
+        },
+      ],
+    });
+    const kind = result.object.kind.trim();
+    if (!kind) return null;
+
+    await supabase.from("documents").update({ kind }).eq("id", documentId);
+    return kind;
+  } catch {
+    // Classification is a nice-to-have for the viewer's header label, not
+    // essential to viewing the document itself — fail soft rather than
+    // blocking the whole viewer over it.
+    return null;
+  }
+}
+
+export async function getDocumentForViewer(
+  documentId: string,
+): Promise<GetDocumentForViewerResult> {
+  const supabase = await requireUser();
+
+  const { data: document, error } = await supabase
+    .from("documents")
+    .select("file_path, filename, document_type, transcription_raw, kind")
+    .eq("id", documentId)
+    .single();
+  if (error || !document) {
+    return { error: error?.message ?? "Document not found." };
+  }
+
+  const urlByPath = await getSignedDocumentUrls(supabase, [document.file_path]);
+  const viewUrl = urlByPath.get(document.file_path) ?? null;
+
+  const kind =
+    document.kind ??
+    (await classifyDocumentKind(supabase, documentId, document.transcription_raw));
+
+  return {
+    viewUrl,
+    transcriptionRaw: document.transcription_raw,
+    documentType: document.document_type,
+    filename: document.filename,
+    kind,
+  };
 }
 
 export async function addStory(

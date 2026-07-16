@@ -25,3 +25,18 @@ export async function getSignedDocumentUrls(
   }
   return urlByPath;
 }
+
+// Splits transcription text around a needle so it can be wrapped in
+// <mark> — shared by the document review workspace (needle = a candidate
+// person's extracted name, set by hovering a match) and the document
+// viewer modal opened from a fact's source badge (needle = that fact's
+// own value). A needle that doesn't appear anywhere in the text is a
+// silent no-op (single unmatched chunk returned) rather than an error —
+// expected for facts whose value is a paraphrase of the source rather
+// than a verbatim excerpt.
+export function splitWithHighlight(text: string, needle: string | null) {
+  if (!needle || !needle.trim()) return [{ text, match: false }];
+  const escaped = needle.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const parts = text.split(new RegExp(`(${escaped})`, "gi"));
+  return parts.map((part, i) => ({ text: part, match: i % 2 === 1 }));
+}

@@ -1,4 +1,8 @@
+"use client";
+
+import { useState } from "react";
 import type { Tables } from "@/lib/supabase/database.types";
+import { DocumentViewerModal } from "./document-viewer-modal";
 
 type Fact = Tables<"facts">;
 
@@ -35,6 +39,10 @@ export function FactList({
   theme?: keyof typeof THEME;
 }) {
   const t = THEME[theme];
+  // Which fact's source badge is currently open in the viewer modal, if
+  // any — null document_id was already excluded from being clickable in
+  // the first place, so this is only ever set to a real, viewable fact.
+  const [openFact, setOpenFact] = useState<Fact | null>(null);
 
   if (facts.length === 0) {
     return t.empty ? <p className={t.empty}>No sourced facts recorded yet.</p> : null;
@@ -50,27 +58,34 @@ export function FactList({
           </div>
           {/* Clickable regardless of source_type (document/letter/chart/
               conflict all go through the same document_id link) — opens
-              the document review page in a new tab with this fact's own
-              value as the highlight needle, reusing the exact transcription
-              highlight/scroll mechanism built for candidate-match hovering.
-              A fact with no linked document (e.g. a firsthand/secondhand
-              account with nothing scanned) stays a plain, non-interactive
-              badge — there's nothing to open. */}
+              the document viewer modal with this fact's own value as the
+              highlight needle, reusing the exact transcription
+              highlight/scroll mechanism built for candidate-match
+              hovering. A fact with no linked document (e.g. a
+              firsthand/secondhand account with nothing scanned) stays a
+              plain, non-interactive badge — there's nothing to open. */}
           {fact.document_id ? (
-            <a
-              href={`/documents/${fact.document_id}?highlightText=${encodeURIComponent(fact.value)}`}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
+              onClick={() => setOpenFact(fact)}
               className={`${t.badge} cursor-pointer hover:underline`}
               title="View source document"
             >
               {fact.source_type}
-            </a>
+            </button>
           ) : (
             <span className={t.badge}>{fact.source_type}</span>
           )}
         </div>
       ))}
+
+      {openFact && openFact.document_id && (
+        <DocumentViewerModal
+          documentId={openFact.document_id}
+          highlightText={openFact.value}
+          onClose={() => setOpenFact(null)}
+        />
+      )}
     </div>
   );
 }

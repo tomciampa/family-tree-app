@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Tables } from "@/lib/supabase/database.types";
 import type { PersonSummary } from "@/lib/family";
+import { splitWithHighlight } from "@/lib/documents";
 import { FamilyTree } from "@/components/family-tree";
 import { PersonSearch } from "@/components/person-search";
 import {
@@ -55,36 +56,18 @@ function namesConflict(a: string, b: string) {
   return a.trim().toLowerCase() !== b.trim().toLowerCase();
 }
 
-// Splits transcription text around a candidate's extracted name so it can
-// be wrapped in <mark>, e.g. "CIAMPA Vincenzo" as literally transcribed —
-// not the matched person's canonical tree name, which can differ in
-// spelling or word order.
-function splitWithHighlight(text: string, needle: string | null) {
-  if (!needle || !needle.trim()) return [{ text, match: false }];
-  const escaped = needle.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const parts = text.split(new RegExp(`(${escaped})`, "gi"));
-  return parts.map((part, i) => ({ text: part, match: i % 2 === 1 }));
-}
-
 export function DocumentReview({
   doc,
   people,
   unions,
   unionChildren,
   personSummaries,
-  initialHighlight = null,
 }: {
   doc: ReviewDocument;
   people: Person[];
   unions: UnionRow[];
   unionChildren: UnionChild[];
   personSummaries: Record<string, PersonSummary>;
-  // Arriving from a fact's source badge (see fact-list.tsx) rather than
-  // from hovering a candidate match here — same transcription highlight
-  // mechanism, just seeded with the fact's own value up front instead of
-  // a name picked up later via handleFocusMatch. No matching personId in
-  // this case, so the embedded tree's recenter/pulse stays untouched.
-  initialHighlight?: string | null;
 }) {
   const [isExtracting, setIsExtracting] = useState(false);
   const [isMatching, setIsMatching] = useState(false);
@@ -98,9 +81,7 @@ export function DocumentReview({
   const [highlightPersonId, setHighlightPersonId] = useState<string | null>(
     null,
   );
-  const [highlightName, setHighlightName] = useState<string | null>(
-    initialHighlight,
-  );
+  const [highlightName, setHighlightName] = useState<string | null>(null);
 
   const transcriptionRef = useRef<HTMLDivElement>(null);
   useEffect(() => {

@@ -146,6 +146,7 @@ export type Database = {
           file_path: string
           filename: string | null
           id: string
+          kind: string | null
           recorded_at: string | null
           status: string
           transcription_raw: string | null
@@ -158,6 +159,7 @@ export type Database = {
           file_path: string
           filename?: string | null
           id?: string
+          kind?: string | null
           recorded_at?: string | null
           status?: string
           transcription_raw?: string | null
@@ -170,6 +172,7 @@ export type Database = {
           file_path?: string
           filename?: string | null
           id?: string
+          kind?: string | null
           recorded_at?: string | null
           status?: string
           transcription_raw?: string | null

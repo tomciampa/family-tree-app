@@ -8,13 +8,10 @@ import type { CandidatePerson } from "../documents-view";
 
 export default async function DocumentReviewPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ highlightText?: string }>;
 }) {
   const { id } = await params;
-  const { highlightText } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -74,7 +71,6 @@ export default async function DocumentReviewPage({
         unions={unions ?? []}
         unionChildren={unionChildren ?? []}
         personSummaries={personSummaries}
-        initialHighlight={highlightText ?? null}
       />
     </main>
   );
