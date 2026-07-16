@@ -48,7 +48,27 @@ export function FactList({
             <span className={t.label}>{fact.field}</span>
             <p>{fact.value}</p>
           </div>
-          <span className={t.badge}>{fact.source_type}</span>
+          {/* Clickable regardless of source_type (document/letter/chart/
+              conflict all go through the same document_id link) — opens
+              the document review page in a new tab with this fact's own
+              value as the highlight needle, reusing the exact transcription
+              highlight/scroll mechanism built for candidate-match hovering.
+              A fact with no linked document (e.g. a firsthand/secondhand
+              account with nothing scanned) stays a plain, non-interactive
+              badge — there's nothing to open. */}
+          {fact.document_id ? (
+            <a
+              href={`/documents/${fact.document_id}?highlightText=${encodeURIComponent(fact.value)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`${t.badge} cursor-pointer hover:underline`}
+              title="View source document"
+            >
+              {fact.source_type}
+            </a>
+          ) : (
+            <span className={t.badge}>{fact.source_type}</span>
+          )}
         </div>
       ))}
     </div>

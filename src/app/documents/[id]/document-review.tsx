@@ -72,12 +72,19 @@ export function DocumentReview({
   unions,
   unionChildren,
   personSummaries,
+  initialHighlight = null,
 }: {
   doc: ReviewDocument;
   people: Person[];
   unions: UnionRow[];
   unionChildren: UnionChild[];
   personSummaries: Record<string, PersonSummary>;
+  // Arriving from a fact's source badge (see fact-list.tsx) rather than
+  // from hovering a candidate match here — same transcription highlight
+  // mechanism, just seeded with the fact's own value up front instead of
+  // a name picked up later via handleFocusMatch. No matching personId in
+  // this case, so the embedded tree's recenter/pulse stays untouched.
+  initialHighlight?: string | null;
 }) {
   const [isExtracting, setIsExtracting] = useState(false);
   const [isMatching, setIsMatching] = useState(false);
@@ -91,7 +98,9 @@ export function DocumentReview({
   const [highlightPersonId, setHighlightPersonId] = useState<string | null>(
     null,
   );
-  const [highlightName, setHighlightName] = useState<string | null>(null);
+  const [highlightName, setHighlightName] = useState<string | null>(
+    initialHighlight,
+  );
 
   const transcriptionRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
