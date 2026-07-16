@@ -55,24 +55,23 @@ function findCandidateFacts(facts: Fact[]): Fact[] {
   return facts.filter((f) => !standardLower.has(f.field.trim().toLowerCase()));
 }
 
-// The parsed fields get attributed back to whatever fact(s) they were
-// derived from, not invented as a new source — same source_type as the
-// original(s), source_ref noting they were parsed rather than directly
-// transcribed, and the source document carried over only when every
-// candidate fact points at the same one (otherwise there's no single
-// document to attribute all of them to).
-function deriveSourceInfo(candidateFacts: Fact[]) {
-  const sourceType = candidateFacts[0]?.source_type ?? "secondhand";
-  const refs = Array.from(
-    new Set(candidateFacts.map((f) => f.source_ref).filter((r): r is string => !!r)),
-  );
-  const sourceRef =
-    refs.length > 0 ? `Parsed from: ${refs.join(", ")}` : "Parsed from existing fact";
-  const documentIds = Array.from(
-    new Set(candidateFacts.map((f) => f.document_id).filter((d): d is string => !!d)),
-  );
-  const documentId = documentIds.length === 1 ? documentIds[0] : null;
-  return { sourceType, sourceRef, documentId };
+// The parsed fields get attributed back to the ONE fact they were derived
+// from, not invented as a new source — same source_type, source_ref
+// noting it was parsed rather than directly transcribed, and the same
+// source document. Scoped to a single fact deliberately: blending
+// several facts into one parse call means a result can't be traced back
+// to which one it actually came from, and — worse — the model can lift a
+// detail from a fact about a genuinely different person's life (e.g. an
+// ancestor mentioned in the same document set) and attribute it to this
+// person instead. One fact in, one attribution out.
+function deriveSourceInfo(sourceFact: Fact) {
+  return {
+    sourceType: sourceFact.source_type,
+    sourceRef: sourceFact.source_ref
+      ? `Parsed from: ${sourceFact.source_ref}`
+      : "Parsed from existing fact",
+    documentId: sourceFact.document_id,
+  };
 }
 
 function Row({ label, value }: { label: string; value: string | null }) {
@@ -119,6 +118,9 @@ export function PersonIdentitySection({
   const [reviewRows, setReviewRows] = useState<
     { key: string; label: string; value: string; included: boolean }[]
   >([]);
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(
+    null,
+  );
   const [isSavingParsed, startSavingParsed] = useTransition();
 
   function cancelEdit() {
@@ -178,14 +180,19 @@ export function PersonIdentitySection({
   const hasEmptySlot = STANDARD_FIELD_KEYS.some(([key]) => !slotValues[key]);
   const canOfferParse =
     parseStatus === "idle" && candidateFacts.length > 0 && hasEmptySlot;
+  const selectedCandidate =
+    candidateFacts.find((f) => f.id === selectedCandidateId) ??
+    candidateFacts[0] ??
+    null;
 
   function handleParse() {
+    if (!selectedCandidate) return;
     setParseStatus("loading");
     setParseError(null);
     startSavingParsed(async () => {
-      const result = await parseFactsIntoStandardFields(
-        candidateFacts.map((f) => ({ field: f.field, value: f.value })),
-      );
+      const result = await parseFactsIntoStandardFields([
+        { field: selectedCandidate.field, value: selectedCandidate.value },
+      ]);
       if ("error" in result) {
         setParseError(result.error);
         setParseStatus("idle");
@@ -201,7 +208,7 @@ export function PersonIdentitySection({
       }));
       if (rows.length === 0) {
         setParseError(
-          "Nothing new found in the existing facts for the empty slots.",
+          `Nothing new found in "${selectedCandidate.field}" for the empty slots.`,
         );
         setParseStatus("idle");
         return;
@@ -219,11 +226,11 @@ export function PersonIdentitySection({
 
   function handleSaveParsed() {
     const toSave = reviewRows.filter((r) => r.included && r.value.trim());
-    if (toSave.length === 0) {
+    if (toSave.length === 0 || !selectedCandidate) {
       cancelParse();
       return;
     }
-    const { sourceType, sourceRef, documentId } = deriveSourceInfo(candidateFacts);
+    const { sourceType, sourceRef, documentId } = deriveSourceInfo(selectedCandidate);
     startSavingParsed(async () => {
       for (const row of toSave) {
         const result = await addFact(
@@ -250,18 +257,6 @@ export function PersonIdentitySection({
           Standardized
         </p>
         <div className="flex items-center gap-3">
-          {canOfferParse && (
-            <button
-              type="button"
-              onClick={handleParse}
-              className="text-xs text-[#6b5c45] underline hover:text-[#2b2015]"
-            >
-              Parse into standardized fields
-            </button>
-          )}
-          {parseStatus === "loading" && (
-            <span className="text-xs text-[#6b5c45]">Parsing…</span>
-          )}
           {!isEditing && (
             <button
               type="button"
@@ -274,13 +269,50 @@ export function PersonIdentitySection({
         </div>
       </div>
 
+      {canOfferParse && (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-[#6b5c45]">
+          <span>Parse</span>
+          {/* Scoped to exactly one fact at a time — see deriveSourceInfo's
+              comment for why blending several facts into one parse call
+              is a real correctness risk, not just a style choice. */}
+          {candidateFacts.length > 1 ? (
+            <select
+              value={selectedCandidate?.id ?? ""}
+              onChange={(e) => setSelectedCandidateId(e.target.value)}
+              className="rounded border border-[#c9b896] bg-[#fffdf8] px-1.5 py-0.5 text-xs text-[#2b2015]"
+            >
+              {candidateFacts.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.field}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="font-medium text-[#2b2015]">
+              &quot;{selectedCandidate?.field}&quot;
+            </span>
+          )}
+          <span>into standardized fields</span>
+          <button
+            type="button"
+            onClick={handleParse}
+            className="rounded border border-[#c9b896] bg-[#efe6d2] px-2 py-0.5 text-xs text-[#2b2015] hover:bg-[#e3d7ba]"
+          >
+            Parse
+          </button>
+        </div>
+      )}
+      {parseStatus === "loading" && (
+        <p className="text-xs text-[#6b5c45]">Parsing…</p>
+      )}
+
       {parseError && <p className="text-sm text-red-600">{parseError}</p>}
 
       {parseStatus === "review" && (
         <div className="flex flex-col gap-3 rounded border border-[#c9b896] bg-[#fffdf8] p-3">
           <p className="text-xs text-[#6b5c45]">
-            Parsed from existing facts — review before saving. The original
-            fact is left untouched either way.
+            Parsed from &quot;{selectedCandidate?.field}&quot; — review before
+            saving. The original fact is left untouched either way.
           </p>
           {reviewRows.map((row, i) => (
             <label key={row.key} className="flex items-start gap-2">
