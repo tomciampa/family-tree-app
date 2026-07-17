@@ -197,10 +197,19 @@ const SYNTHETIC_ANCHOR_ID = "__couple-view-anchor__";
 // enough that a real double-click reliably lands within it; short enough
 // that a single click doesn't feel laggy.
 const DOUBLE_CLICK_WINDOW_MS = 300;
-// Matches the depth family-chart used before per-person ancestryDepth was
-// capped to 1 for normal navigation (see the chart setup below) — full
-// real depth, effectively "as deep as recorded data goes."
-const COUPLE_VIEW_ANCESTRY_DEPTH = 25;
+// The normal single-person-centering default: shallow enough that a big
+// tree doesn't render hundreds of distant ancestors/descendants at once,
+// deep enough to show great-grandparents/great-grandchildren without any
+// extra clicks. Either direction can be extended to FULL_DEPTH per-view —
+// see expandedAncestry/expandedProgeny below — by clicking that person's
+// own mini-tree badge, without changing this default for anyone else.
+const DEFAULT_ANCESTRY_DEPTH = 2;
+const DEFAULT_PROGENY_DEPTH = 2;
+// Effectively "as deep as recorded data goes" — used both for "view both
+// families" (full native blood-line tracing for both spouses, unaffected
+// by the shallow default above) and for badge-triggered expansion in
+// whichever direction a mini-tree badge signals more hidden relatives.
+const FULL_DEPTH = 25;
 
 function buildSyntheticAnchor(
   parent1Id: string,
@@ -363,6 +372,17 @@ export function FamilyTree({
   // view) apart from "already in couple view, data changed for some other
   // reason" (leave main and pan/zoom alone).
   const prevCoupleViewRef = useRef<typeof coupleView>(null);
+  // Set by clicking a person's mini-tree badge (see applyMiniTreeTooltips)
+  // to bump that direction's depth to FULL_DEPTH for the current view —
+  // reset back to the shallow DEFAULT_*_DEPTH whenever a card body click
+  // actually recenters onto someone new (see setOnCardClick and the
+  // highlightPersonId effect below), so the shallow default is what greets
+  // every newly-centered person regardless of what was expanded before.
+  // Read by the data-sync effect below, which applies these alongside
+  // coupleView (a couple view always uses FULL_DEPTH for both regardless
+  // of these flags — see that effect's own comment).
+  const [expandedAncestry, setExpandedAncestry] = useState(false);
+  const [expandedProgeny, setExpandedProgeny] = useState(false);
   // Single-click recenters, double-click opens the dossier — both live on
   // the same card body, so single-click's own action is delayed briefly
   // (see setOnCardClick below) to give a possible second click time to
@@ -420,16 +440,15 @@ export function FamilyTree({
       .setCardYSpacing(150)
       .setOrientationVertical()
       .setSingleParentEmptyCard(false)
-      // Capped to 1 (immediate parents only) for normal navigation: with
-      // showSiblingsOfMain below, main is meant to be a person like Scott
-      // (not one of his parents), so their own full blood ancestry going
-      // up would otherwise auto-render both parents' entire chains,
-      // uncollapsible. Full-depth ancestry for BOTH a couple's lines at
-      // once is available instead via the explicit "view both families"
-      // action — see the data-sync effect below, which raises this
-      // dynamically while a synthetic couple-anchor is main.
-      .setAncestryDepth(1)
-      .setProgenyDepth(25)
+      // Shallow by default in both directions — see DEFAULT_ANCESTRY_DEPTH/
+      // DEFAULT_PROGENY_DEPTH's own comment. Either direction can go to
+      // FULL_DEPTH for the current view: automatically for both while
+      // "view both families" is active, or per-direction by clicking a
+      // person's own mini-tree badge — see the data-sync effect below,
+      // which raises these dynamically based on coupleView/expandedAncestry/
+      // expandedProgeny.
+      .setAncestryDepth(DEFAULT_ANCESTRY_DEPTH)
+      .setProgenyDepth(DEFAULT_PROGENY_DEPTH)
       // family-chart's own documented option (calculateTree's
       // show_siblings_of_main) for exactly the "stable row" this app
       // needs: main's siblings, laid out alongside them, natively — no
@@ -455,7 +474,24 @@ export function FamilyTree({
     // (they do have relatives) and not reachable from the focused person.
     // A search-to-jump control covers the whole dataset regardless of
     // which cluster is currently in view.
-    f3Chart.setPersonDropdown((d: { data: { "first name": string } }) => d.data["first name"]);
+    //
+    // Custom onSelect instead of family-chart's default (which would just
+    // call updateMainId + updateTree on its own): this is a third way main
+    // can change, alongside a card-body click and "view in tree", and
+    // needs the exact same reset back to the shallow default depth — left
+    // out here, a previous badge-triggered expansion would silently carry
+    // over onto whoever gets searched for next.
+    f3Chart.setPersonDropdown(
+      (d: { data: { "first name": string } }) => d.data["first name"],
+      {
+        onSelect: (personId: string) => {
+          setExpandedAncestry(false);
+          setExpandedProgeny(false);
+          f3Chart.updateMainId(personId);
+          f3Chart.updateTree({ initial: false });
+        },
+      },
+    );
 
     const f3Card = f3Chart
       .setCardHtml()
@@ -479,12 +515,12 @@ export function FamilyTree({
     // comment for why this is tracked by person id + timing here rather
     // than as a native dblclick listener.
     //
-    // Exception: is_ancestry cards (with ancestryDepth capped to 1 for
-    // normal navigation, this is exactly main's two immediate parents —
-    // or, while viewing a couple, that couple itself, since they're the
-    // synthetic anchor's own immediate "parents"). Recentering onto one
-    // discards the stable row that was the point of being here — explored
-    // by clicking a sibling or the couple's own real children instead.
+    // Exception: is_ancestry cards (main's own ancestors, up to whatever
+    // depth is currently in effect — or, while viewing a couple, that
+    // couple itself, since they're the synthetic anchor's own immediate
+    // "parents"). Recentering onto one discards the stable row that was
+    // the point of being here — explored by clicking a sibling or the
+    // couple's own real children instead.
     f3Card.setOnCardClick((e: MouseEvent, d: TreeDatum) => {
       if (d.data.id === SYNTHETIC_ANCHOR_ID) return; // shouldn't be reachable — card is hidden, see setOnCardUpdate
 
@@ -501,6 +537,11 @@ export function FamilyTree({
         pendingCardClickRef.current = null;
         if (d.is_ancestry) return;
         if (coupleViewRef.current) setCoupleView(null);
+        // A real recenter always lands back on the shallow default depth
+        // in both directions, regardless of what a mini-tree badge had
+        // expanded for the person being left.
+        setExpandedAncestry(false);
+        setExpandedProgeny(false);
         f3Card.onCardClickDefault(e, d);
       }, DOUBLE_CLICK_WINDOW_MS);
       pendingCardClickRef.current = { id: d.data.id, timer };
@@ -630,9 +671,15 @@ export function FamilyTree({
 
     // Figures out, per rendered card that has family-chart's own mini-tree
     // badge, exactly which real relatives (by category) aren't part of the
-    // current view, and sets that as the badge's title/aria-label. Purely
-    // additive: doesn't touch the badge's existing click-through (still
-    // bubbles to the card's own recenter handler) or its position.
+    // current view, sets that as the badge's title/aria-label, and wires
+    // up a click on the badge to reveal them: bumps ancestryDepth and/or
+    // progenyDepth to FULL_DEPTH (see the data-sync effect, which reacts to
+    // expandedAncestry/expandedProgeny) for whichever direction(s) this
+    // specific badge is signaling, without recentering. A badge signaling
+    // ONLY a hidden spouse (no hidden parents or children — spouses aren't
+    // gated by either depth setting, so there's nothing for this to
+    // expand) deliberately leaves the click alone to bubble through to the
+    // card's own recenter handler, same as before this feature existed.
     //
     // Must run on the same delay as the highlight-pulse below, not
     // synchronously at the top of setAfterUpdate — this was the actual bug
@@ -664,6 +711,15 @@ export function FamilyTree({
         if (!description) return;
         badge.setAttribute("title", description);
         badge.setAttribute("aria-label", description);
+
+        const hasHiddenAncestors = hidden.parents.length > 0;
+        const hasHiddenDescendants = hidden.children.length > 0;
+        badge.addEventListener("click", (e) => {
+          if (!hasHiddenAncestors && !hasHiddenDescendants) return;
+          e.stopPropagation();
+          if (hasHiddenAncestors) setExpandedAncestry(true);
+          if (hasHiddenDescendants) setExpandedProgeny(true);
+        });
       });
     };
 
@@ -704,6 +760,11 @@ export function FamilyTree({
     if (!highlightPersonId || !chartRef.current) return;
     if (!touched.has(highlightPersonId)) return; // not part of any recorded relationship, nothing to center on
     pendingHighlightRef.current = highlightPersonId;
+    // Same shallow default every other recenter lands on — see
+    // setOnCardClick's own reset for why this shouldn't inherit whatever
+    // was expanded for whoever was previously centered.
+    setExpandedAncestry(false);
+    setExpandedProgeny(false);
     chartRef.current.updateMainId(highlightPersonId);
     chartRef.current.updateTree({ initial: false, tree_position: "fit" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -717,19 +778,31 @@ export function FamilyTree({
   // keeps them in focus instead of resetting to the tree's root person.
   //
   // Also reacts to coupleView: entering "view both families" needs the
-  // synthetic anchor added to the data, ancestryDepth raised so BOTH
-  // parents' full lines actually render, and main forced to the synthetic
-  // anchor (only on the transition into couple view — once already there,
-  // a data change for some unrelated reason shouldn't re-fit the view).
-  // Exiting is simpler: the click that exits already recentered onto a
-  // real person via onCardClickDefault, so this just needs to drop the
-  // synthetic node and the depth cap back to normal without touching main.
+  // synthetic anchor added to the data, both depths raised to FULL_DEPTH so
+  // BOTH parents' full lines (and their real children/descendants) actually
+  // render exactly as before this default-depth feature existed, and main
+  // forced to the synthetic anchor (only on the transition into couple view
+  // — once already there, a data change for some unrelated reason shouldn't
+  // re-fit the view). Exiting is simpler: the click that exits already
+  // recentered onto a real person via onCardClickDefault, so this just
+  // needs to drop the synthetic node and the depth cap back to normal
+  // without touching main.
+  //
+  // Also reacts to expandedAncestry/expandedProgeny: set by clicking a
+  // person's mini-tree badge (see applyMiniTreeTooltips above), each
+  // independently raises its own direction to FULL_DEPTH without touching
+  // main or the other direction. coupleView takes priority in both
+  // directions over these — "view both families" is meant to show
+  // everything regardless of what was or wasn't expanded beforehand.
   useEffect(() => {
     if (!chartRef.current) return;
     const enteringCoupleView = !!coupleView && !prevCoupleViewRef.current;
     const data = buildTreeData(connected, unions, unionChildren, coupleView);
     chartRef.current.setAncestryDepth(
-      coupleView ? COUPLE_VIEW_ANCESTRY_DEPTH : 1,
+      coupleView || expandedAncestry ? FULL_DEPTH : DEFAULT_ANCESTRY_DEPTH,
+    );
+    chartRef.current.setProgenyDepth(
+      coupleView || expandedProgeny ? FULL_DEPTH : DEFAULT_PROGENY_DEPTH,
     );
     chartRef.current.updateData(data);
     if (enteringCoupleView) {
@@ -741,7 +814,7 @@ export function FamilyTree({
     });
     prevCoupleViewRef.current = coupleView;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [people, unions, unionChildren, coupleView]);
+  }, [people, unions, unionChildren, coupleView, expandedAncestry, expandedProgeny]);
 
   if (people.length === 0) return null;
 
