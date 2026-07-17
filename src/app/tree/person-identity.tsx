@@ -75,6 +75,17 @@ function deriveSourceInfo(sourceFact: Fact) {
   };
 }
 
+// Derived only as a display/editing default, never written back on its
+// own — a plain "First Robert Last Ciampa" split is often right but not
+// always (e.g. multi-word surnames), so it stays editable via "Edit
+// identity" rather than being silently saved as fact.
+function splitName(name: string): { first: string; last: string } {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { first: "", last: "" };
+  if (parts.length === 1) return { first: parts[0], last: "" };
+  return { first: parts[0], last: parts[parts.length - 1] };
+}
+
 function Row({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
@@ -103,11 +114,14 @@ export function PersonIdentitySection({
   // standardized identity fields, is what replaced family-chart's native
   // edit form as the only way to fix a typo in it.
   const [name, setName] = useState(person.name);
-  const [firstName, setFirstName] = useState(person.first_name ?? "");
+  const derivedName = splitName(person.name);
+  const [firstName, setFirstName] = useState(
+    person.first_name ?? derivedName.first,
+  );
   const [preferredName, setPreferredName] = useState(
     person.preferred_name ?? "",
   );
-  const [lastName, setLastName] = useState(person.last_name ?? "");
+  const [lastName, setLastName] = useState(person.last_name ?? derivedName.last);
   const [marriedName, setMarriedName] = useState(person.married_name ?? "");
   const [gender, setGender] = useState(person.gender ?? "");
   const [aliases, setAliases] = useState(person.aliases ?? "");
@@ -133,9 +147,9 @@ export function PersonIdentitySection({
     setIsEditing(false);
     setError(null);
     setName(person.name);
-    setFirstName(person.first_name ?? "");
+    setFirstName(person.first_name ?? derivedName.first);
     setPreferredName(person.preferred_name ?? "");
-    setLastName(person.last_name ?? "");
+    setLastName(person.last_name ?? derivedName.last);
     setMarriedName(person.married_name ?? "");
     setGender(person.gender ?? "");
     setAliases(person.aliases ?? "");
@@ -272,7 +286,7 @@ export function PersonIdentitySection({
     <div className="flex flex-col gap-4 border-b border-[#c9b896] pb-5">
       <div className="flex items-center justify-between">
         <p className="text-xs uppercase tracking-[0.2em] text-[#6b5c45]">
-          Standardized
+          Vital Details
         </p>
         <div className="flex items-center gap-3">
           {!isEditing && (
@@ -287,102 +301,106 @@ export function PersonIdentitySection({
         </div>
       </div>
 
-      {canOfferParse && (
-        <div className="flex flex-wrap items-center gap-2 text-xs text-[#6b5c45]">
-          <span>Parse</span>
-          {/* Scoped to exactly one fact at a time — see deriveSourceInfo's
-              comment for why blending several facts into one parse call
-              is a real correctness risk, not just a style choice. */}
-          {candidateFacts.length > 1 ? (
-            <select
-              value={selectedCandidate?.id ?? ""}
-              onChange={(e) => setSelectedCandidateId(e.target.value)}
-              className="rounded border border-[#c9b896] bg-[#fffdf8] px-1.5 py-0.5 text-xs text-[#2b2015]"
-            >
-              {candidateFacts.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.field}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <span className="font-medium text-[#2b2015]">
-              &quot;{selectedCandidate?.field}&quot;
-            </span>
-          )}
-          <span>into standardized fields</span>
-          <button
-            type="button"
-            onClick={handleParse}
-            className="rounded border border-[#c9b896] bg-[#efe6d2] px-2 py-0.5 text-xs text-[#2b2015] hover:bg-[#e3d7ba]"
-          >
-            Parse
-          </button>
-        </div>
-      )}
-      {parseStatus === "loading" && (
-        <p className="text-xs text-[#6b5c45]">Parsing…</p>
-      )}
-
-      {parseError && <p className="text-sm text-red-600">{parseError}</p>}
-
-      {parseStatus === "review" && (
-        <div className="flex flex-col gap-3 rounded border border-[#c9b896] bg-[#fffdf8] p-3">
-          <p className="text-xs text-[#6b5c45]">
-            Parsed from &quot;{selectedCandidate?.field}&quot; — review before
-            saving. The original fact is left untouched either way.
-          </p>
-          {reviewRows.map((row, i) => (
-            <label key={row.key} className="flex items-start gap-2">
-              <input
-                type="checkbox"
-                checked={row.included}
-                onChange={(e) =>
-                  setReviewRows((rows) =>
-                    rows.map((r, idx) =>
-                      idx === i ? { ...r, included: e.target.checked } : r,
-                    ),
-                  )
-                }
-                className="mt-1"
-              />
-              <span className="flex flex-1 flex-col gap-1">
-                <span className="text-xs uppercase tracking-wide text-[#6b5c45]">
-                  {row.label}
+      {isEditing && (
+        <>
+          {canOfferParse && (
+            <div className="flex flex-wrap items-center gap-2 text-xs text-[#6b5c45]">
+              <span>Parse</span>
+              {/* Scoped to exactly one fact at a time — see deriveSourceInfo's
+                  comment for why blending several facts into one parse call
+                  is a real correctness risk, not just a style choice. */}
+              {candidateFacts.length > 1 ? (
+                <select
+                  value={selectedCandidate?.id ?? ""}
+                  onChange={(e) => setSelectedCandidateId(e.target.value)}
+                  className="rounded border border-[#c9b896] bg-[#fffdf8] px-1.5 py-0.5 text-xs text-[#2b2015]"
+                >
+                  {candidateFacts.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.field}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="font-medium text-[#2b2015]">
+                  &quot;{selectedCandidate?.field}&quot;
                 </span>
-                <input
-                  value={row.value}
-                  onChange={(e) =>
-                    setReviewRows((rows) =>
-                      rows.map((r, idx) =>
-                        idx === i ? { ...r, value: e.target.value } : r,
-                      ),
-                    )
-                  }
-                  className={inputClassName}
-                />
-              </span>
-            </label>
-          ))}
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={handleSaveParsed}
-              disabled={isSavingParsed}
-              className="rounded border border-[#c9b896] bg-[#efe6d2] px-3 py-1.5 text-sm text-[#2b2015] hover:bg-[#e3d7ba] disabled:opacity-50"
-            >
-              {isSavingParsed ? "Saving…" : "Save selected"}
-            </button>
-            <button
-              type="button"
-              onClick={cancelParse}
-              disabled={isSavingParsed}
-              className="rounded px-3 py-1.5 text-sm text-[#6b5c45] hover:text-[#2b2015]"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
+              )}
+              <span>into standardized fields</span>
+              <button
+                type="button"
+                onClick={handleParse}
+                className="rounded border border-[#c9b896] bg-[#efe6d2] px-2 py-0.5 text-xs text-[#2b2015] hover:bg-[#e3d7ba]"
+              >
+                Parse
+              </button>
+            </div>
+          )}
+          {parseStatus === "loading" && (
+            <p className="text-xs text-[#6b5c45]">Parsing…</p>
+          )}
+
+          {parseError && <p className="text-sm text-red-600">{parseError}</p>}
+
+          {parseStatus === "review" && (
+            <div className="flex flex-col gap-3 rounded border border-[#c9b896] bg-[#fffdf8] p-3">
+              <p className="text-xs text-[#6b5c45]">
+                Parsed from &quot;{selectedCandidate?.field}&quot; — review before
+                saving. The original fact is left untouched either way.
+              </p>
+              {reviewRows.map((row, i) => (
+                <label key={row.key} className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    checked={row.included}
+                    onChange={(e) =>
+                      setReviewRows((rows) =>
+                        rows.map((r, idx) =>
+                          idx === i ? { ...r, included: e.target.checked } : r,
+                        ),
+                      )
+                    }
+                    className="mt-1"
+                  />
+                  <span className="flex flex-1 flex-col gap-1">
+                    <span className="text-xs uppercase tracking-wide text-[#6b5c45]">
+                      {row.label}
+                    </span>
+                    <input
+                      value={row.value}
+                      onChange={(e) =>
+                        setReviewRows((rows) =>
+                          rows.map((r, idx) =>
+                            idx === i ? { ...r, value: e.target.value } : r,
+                          ),
+                        )
+                      }
+                      className={inputClassName}
+                    />
+                  </span>
+                </label>
+              ))}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleSaveParsed}
+                  disabled={isSavingParsed}
+                  className="rounded border border-[#c9b896] bg-[#efe6d2] px-3 py-1.5 text-sm text-[#2b2015] hover:bg-[#e3d7ba] disabled:opacity-50"
+                >
+                  {isSavingParsed ? "Saving…" : "Save selected"}
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelParse}
+                  disabled={isSavingParsed}
+                  className="rounded px-3 py-1.5 text-sm text-[#6b5c45] hover:text-[#2b2015]"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {isEditing ? (
@@ -468,9 +486,9 @@ export function PersonIdentitySection({
         </form>
       ) : (
         <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3">
-          <Row label="First name" value={person.first_name} />
+          <Row label="First name" value={person.first_name ?? (derivedName.first || null)} />
           <Row label="Preferred name" value={person.preferred_name} />
-          <Row label="Last name" value={person.last_name} />
+          <Row label="Last name" value={person.last_name ?? (derivedName.last || null)} />
           <Row label="Married name" value={person.married_name} />
           <Row label="Gender" value={person.gender} />
           <Row label="Aliases" value={person.aliases} />
