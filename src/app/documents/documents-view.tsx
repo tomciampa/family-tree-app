@@ -51,6 +51,12 @@ const statusStyles: Record<string, string> = {
   no_match: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
 };
 
+// Matches next.config.ts's experimental.serverActions.bodySizeLimit —
+// checked client-side first so an obviously-oversized file gets instant,
+// friendly feedback without a wasted round trip.
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const TOO_LARGE_MESSAGE = "File too large — please keep uploads under 10MB.";
+
 export function DocumentsView({ documents }: { documents: DocumentRow[] }) {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -61,11 +67,32 @@ export function DocumentsView({ documents }: { documents: DocumentRow[] }) {
     setIsUploading(true);
     setError(null);
     for (const file of Array.from(files)) {
-      const formData = new FormData();
-      formData.set("file", file);
-      const result = await uploadDocument(formData);
-      if (result?.error) {
-        setError(`${file.name}: ${result.error}`);
+      if (file.size > MAX_UPLOAD_BYTES) {
+        setError(`${file.name}: ${TOO_LARGE_MESSAGE}`);
+        continue;
+      }
+      try {
+        const formData = new FormData();
+        formData.set("file", file);
+        const result = await uploadDocument(formData);
+        if (result?.error) {
+          setError(`${file.name}: ${result.error}`);
+        }
+      } catch (err) {
+        // A Server Action whose request body gets rejected (e.g. Next's
+        // body size limit applies to the raw multipart body, which is
+        // slightly larger than the file itself, so a file just under our
+        // client-side check above could still be rejected server-side)
+        // throws instead of resolving with {error}. Catching this here —
+        // per file, inside the loop — is what actually fixes the original
+        // bug: without it, the throw skipped every line after it,
+        // including setIsUploading(false) below, leaving the UI stuck on
+        // "Uploading…" forever with no feedback.
+        const message =
+          err instanceof Error && /body exceeded/i.test(err.message)
+            ? TOO_LARGE_MESSAGE
+            : "Upload failed — please try again.";
+        setError(`${file.name}: ${message}`);
       }
     }
     setIsUploading(false);
