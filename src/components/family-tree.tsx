@@ -751,6 +751,37 @@ export function FamilyTree({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasConnected]);
 
+  // The container's width changes whenever the dossier pane docks/undocks
+  // beside it (see tree-view.tsx's flex layout) — the SVG itself is CSS
+  // width:100%/height:100% so it visually resizes for free, but the tree's
+  // current pan/zoom transform was computed for the old width and needs an
+  // explicit re-fit, or it reads as off-center/partly clipped in the new
+  // space. tree_position: "fit" reads the container's CURRENT
+  // getBoundingClientRect() at call time (confirmed via family-chart's own
+  // source), so this re-fits to whatever size the container is right now
+  // without touching data, main, coupleView, or expanded ancestry/progeny —
+  // unlike the previous approach (keying FamilyTree on dossier-open state
+  // to force a full remount for this same re-fit), which reset all of it as
+  // a side effect. Debounced via rAF: ResizeObserver can fire more than
+  // once per real layout change, and ties the fit to the frame the new
+  // size actually lands in rather than a somewhat-arbitrary delay.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    let rafId: number | null = null;
+    const observer = new ResizeObserver(() => {
+      if (rafId !== null) window.cancelAnimationFrame(rafId);
+      rafId = window.requestAnimationFrame(() => {
+        chartRef.current?.updateTree({ initial: false, tree_position: "fit" });
+      });
+    });
+    observer.observe(container);
+    return () => {
+      if (rafId !== null) window.cancelAnimationFrame(rafId);
+      observer.disconnect();
+    };
+  }, [hasConnected]);
+
   // "View in tree" support: recenter on the requested person and queue a
   // brief highlight pulse for their card (applied once the real transition
   // settles — see setAfterUpdate above). Declared after the chart-creation

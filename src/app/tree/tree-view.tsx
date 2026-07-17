@@ -136,12 +136,15 @@ export function TreeView({
     <>
       <div className="flex items-start gap-4">
         <div className="min-w-0 flex-1">
-          {/* Keyed on open/closed (not on which person) so family-chart
-              only remounts — and re-fits its internal svg_dim to the new
-              container width — when the available space actually changes,
-              not on every dossier-to-dossier switch while already docked. */}
+          {/* No key tied to dossier-open state here on purpose — that used
+              to force a full remount (to re-fit the chart's SVG to the
+              narrower docked width), which also silently discarded main/
+              coupleView/expanded-ancestry state every time the dossier
+              opened or closed. FamilyTree now re-fits itself via its own
+              ResizeObserver instead, so the component instance — and
+              everything it's currently centered/expanded on — survives
+              the dossier docking/undocking. */}
           <FamilyTree
-            key={dossierPerson ? "docked" : "full"}
             people={people}
             unions={unions}
             unionChildren={unionChildren}
