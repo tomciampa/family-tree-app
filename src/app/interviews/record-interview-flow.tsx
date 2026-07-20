@@ -6,7 +6,8 @@ import type { PersonSummary } from "@/lib/family";
 import { PersonSearch } from "@/components/person-search";
 import { createClient } from "@/lib/supabase/client";
 import { addFirstPerson } from "@/app/tree/actions";
-import { createInterviewSession } from "./actions";
+import { createInterviewSession, createInterviewSegments } from "./actions";
+import { INTERVIEW_PROMPTS } from "./prompts";
 
 type Person = Tables<"people">;
 
@@ -71,11 +72,21 @@ export function RecordInterviewFlow({
   >("idle");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [recordError, setRecordError] = useState<string | null>(null);
+  const [promptIndex, setPromptIndex] = useState(0);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Mirrors of promptIndex/elapsedSeconds that recorder.onstop's closure
+  // (fixed at startRecording() time) and click handlers can read
+  // synchronously, plus the boundary list itself — segment start/end times
+  // come from whatever the on-screen timer reads at the moment of a "Next
+  // question" click or Stop, exactly as the state display shows.
+  const promptIndexRef = useRef(0);
+  const segmentStartRef = useRef(0);
+  const segmentsRef = useRef<{ label: string; startSeconds: number; endSeconds: number }[]>([]);
 
   useEffect(() => {
     return () => {
@@ -144,6 +155,10 @@ export function RecordInterviewFlow({
       recorder.start();
       mediaRecorderRef.current = recorder;
       setElapsedSeconds(0);
+      promptIndexRef.current = 0;
+      segmentStartRef.current = 0;
+      segmentsRef.current = [];
+      setPromptIndex(0);
       timerRef.current = setInterval(() => {
         setElapsedSeconds((s) => s + 1);
       }, 1000);
@@ -156,8 +171,28 @@ export function RecordInterviewFlow({
     }
   }
 
+  function handleNextQuestion() {
+    if (promptIndexRef.current >= INTERVIEW_PROMPTS.length - 1) return;
+    segmentsRef.current.push({
+      label: INTERVIEW_PROMPTS[promptIndexRef.current].label,
+      startSeconds: segmentStartRef.current,
+      endSeconds: elapsedSeconds,
+    });
+    segmentStartRef.current = elapsedSeconds;
+    promptIndexRef.current += 1;
+    setPromptIndex(promptIndexRef.current);
+  }
+
   function stopRecording() {
     if (timerRef.current) clearInterval(timerRef.current);
+    // Close out whichever prompt was current when Stop was pressed — the
+    // same boundary mechanism "Next question" uses, just triggered by Stop
+    // instead.
+    segmentsRef.current.push({
+      label: INTERVIEW_PROMPTS[promptIndexRef.current].label,
+      startSeconds: segmentStartRef.current,
+      endSeconds: elapsedSeconds,
+    });
     mediaRecorderRef.current?.stop();
     streamRef.current?.getTracks().forEach((t) => t.stop());
   }
@@ -198,6 +233,21 @@ export function RecordInterviewFlow({
     });
     if ("error" in result) {
       setRecordError(`Couldn't save the recording: ${result.error}`);
+      setRecordingStatus("error");
+      return;
+    }
+
+    const segmentsResult = await createInterviewSegments({
+      parentDocumentId: result.documentId,
+      filePath: storagePath,
+      mimeType,
+      segments: segmentsRef.current,
+    });
+    if ("error" in segmentsResult) {
+      // The session itself saved fine — surface this but don't block
+      // finishing, since the recording (the thing that can't be redone) is
+      // already safe.
+      setRecordError(`Recording saved, but segments couldn't be saved: ${segmentsResult.error}`);
       setRecordingStatus("error");
       return;
     }
@@ -278,6 +328,18 @@ export function RecordInterviewFlow({
             Recording an interview with {intervieweeName}
           </h2>
 
+          {recordingStatus !== "saving" && (
+            <div className="rounded border border-gray-200 bg-gray-50 p-4 text-center dark:border-gray-800 dark:bg-gray-900/40">
+              <p className="text-xs uppercase tracking-wide text-gray-500">
+                Question {promptIndex + 1} of {INTERVIEW_PROMPTS.length} —{" "}
+                {INTERVIEW_PROMPTS[promptIndex].label}
+              </p>
+              <p className="mt-1 text-lg font-medium">
+                {INTERVIEW_PROMPTS[promptIndex].prompt}
+              </p>
+            </div>
+          )}
+
           <div className="flex flex-col items-center gap-3 py-6">
             {recordingStatus === "recording" ? (
               <>
@@ -288,13 +350,24 @@ export function RecordInterviewFlow({
                   </span>
                 </div>
                 <p className="text-sm text-gray-500">Recording…</p>
-                <button
-                  type="button"
-                  onClick={stopRecording}
-                  className="rounded bg-red-600 px-6 py-3 text-base font-medium text-white hover:bg-red-700"
-                >
-                  Stop Recording
-                </button>
+                <div className="flex gap-3">
+                  {promptIndex < INTERVIEW_PROMPTS.length - 1 && (
+                    <button
+                      type="button"
+                      onClick={handleNextQuestion}
+                      className="rounded border border-gray-300 px-4 py-3 text-base font-medium hover:border-gray-400 dark:border-gray-700 dark:hover:border-gray-600"
+                    >
+                      Next question
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={stopRecording}
+                    className="rounded bg-red-600 px-6 py-3 text-base font-medium text-white hover:bg-red-700"
+                  >
+                    Stop Recording
+                  </button>
+                </div>
               </>
             ) : recordingStatus === "saving" ? (
               <p className="text-base text-gray-500">Saving recording…</p>

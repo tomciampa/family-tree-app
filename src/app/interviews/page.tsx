@@ -19,15 +19,23 @@ export default async function InterviewsPage() {
 
   const [
     { data: sessions, error },
+    { data: allSegments },
     { data: people },
     { data: unions },
     { data: unionChildren },
   ] = await Promise.all([
     supabase
       .from("documents")
-      .select("id, filename, file_path, recorded_at, interviewee_person_id")
+      .select(
+        "id, filename, file_path, recorded_at, interviewee_person_id, transcription_raw",
+      )
       .not("interviewee_person_id", "is", null)
       .order("recorded_at", { ascending: false }),
+    supabase
+      .from("documents")
+      .select("id, parent_document_id, kind, audio_start_seconds, audio_end_seconds, transcription_raw")
+      .not("parent_document_id", "is", null)
+      .order("audio_start_seconds", { ascending: true }),
     supabase.from("people").select("*"),
     supabase.from("unions").select("*"),
     supabase.from("union_children").select("*"),
@@ -38,12 +46,20 @@ export default async function InterviewsPage() {
     (sessions ?? []).map((s) => s.file_path),
   );
   const peopleById = new Map((people ?? []).map((p) => [p.id, p]));
+  const segmentsByParent = new Map<string, NonNullable<typeof allSegments>>();
+  for (const seg of allSegments ?? []) {
+    if (!seg.parent_document_id) continue;
+    const list = segmentsByParent.get(seg.parent_document_id) ?? [];
+    list.push(seg);
+    segmentsByParent.set(seg.parent_document_id, list);
+  }
   const sessionsWithDetails: InterviewRow[] = (sessions ?? []).map((s) => ({
     ...s,
     intervieweeName: s.interviewee_person_id
       ? (peopleById.get(s.interviewee_person_id)?.name ?? "Unknown")
       : "Unknown",
     playUrl: urlByPath.get(s.file_path) ?? null,
+    segments: segmentsByParent.get(s.id) ?? [],
   }));
 
   const personSummaries = Object.fromEntries(
