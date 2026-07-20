@@ -413,6 +413,44 @@ export type Database = {
           },
         ]
       }
+      familysearch_connection: {
+        Row: {
+          access_token: string
+          connected_at: string
+          connected_by: string | null
+          family_id: string
+          fs_display_name: string
+          fs_user_id: string
+          token_expires_at: string
+        }
+        Insert: {
+          access_token: string
+          connected_at?: string
+          connected_by?: string | null
+          family_id: string
+          fs_display_name: string
+          fs_user_id: string
+          token_expires_at: string
+        }
+        Update: {
+          access_token?: string
+          connected_at?: string
+          connected_by?: string | null
+          family_id?: string
+          fs_display_name?: string
+          fs_user_id?: string
+          token_expires_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "familysearch_connection_family_id_fkey"
+            columns: ["family_id"]
+            isOneToOne: true
+            referencedRelation: "families"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       people: {
         Row: {
           aliases: string | null
