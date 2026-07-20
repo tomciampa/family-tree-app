@@ -140,39 +140,51 @@ export type Database = {
       }
       documents: {
         Row: {
+          audio_end_seconds: number | null
+          audio_start_seconds: number | null
           candidate_people: Json | null
           document_type: string | null
           family_id: string | null
           file_path: string
           filename: string | null
           id: string
+          interviewee_person_id: string | null
           kind: string | null
+          parent_document_id: string | null
           recorded_at: string | null
           status: string
           transcription_raw: string | null
           uploaded_by: string | null
         }
         Insert: {
+          audio_end_seconds?: number | null
+          audio_start_seconds?: number | null
           candidate_people?: Json | null
           document_type?: string | null
           family_id?: string | null
           file_path: string
           filename?: string | null
           id?: string
+          interviewee_person_id?: string | null
           kind?: string | null
+          parent_document_id?: string | null
           recorded_at?: string | null
           status?: string
           transcription_raw?: string | null
           uploaded_by?: string | null
         }
         Update: {
+          audio_end_seconds?: number | null
+          audio_start_seconds?: number | null
           candidate_people?: Json | null
           document_type?: string | null
           family_id?: string | null
           file_path?: string
           filename?: string | null
           id?: string
+          interviewee_person_id?: string | null
           kind?: string | null
+          parent_document_id?: string | null
           recorded_at?: string | null
           status?: string
           transcription_raw?: string | null
@@ -184,6 +196,20 @@ export type Database = {
             columns: ["family_id"]
             isOneToOne: false
             referencedRelation: "families"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "documents_interviewee_person_id_fkey"
+            columns: ["interviewee_person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "documents_parent_document_id_fkey"
+            columns: ["parent_document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
             referencedColumns: ["id"]
           },
           {

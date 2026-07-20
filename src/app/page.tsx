@@ -29,6 +29,12 @@ export default async function Home() {
         <Link href="/documents" className="underline">
           Documents
         </Link>
+        <Link href="/interviews" className="underline">
+          Record a memory
+        </Link>
+        <Link href="/familysearch" className="underline">
+          FamilySearch
+        </Link>
       </div>
       <form action={signOut}>
         <button
