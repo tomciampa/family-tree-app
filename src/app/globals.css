@@ -51,13 +51,19 @@ body {
    Card re-skin (visual redesign stage 2): --text-color and
    --genderless-color now come from the new neutral design tokens
    (design-tokens.css) instead of the old archival-paper hex values.
-   --background-color (the canvas behind the cards), --male-color, and
-   --female-color are deliberately UNCHANGED here — this pass is scoped to
-   the person card itself, not the canvas or the mini-tree badge/"view
-   both families" button, which still key off male/female color and are
-   explicitly being kept as-is per this stage's scope. */
+
+   Canvas re-skin (visual redesign stage 3): --background-color now uses
+   --color-bg-surface-alt — one step deeper than the card's own
+   --color-bg-surface, per design-tokens.css's own "nested surface" step —
+   so the canvas still reads as visibly distinct from the cards floating
+   on it rather than collapsing to the same flat gray.
+
+   --male-color/--female-color are still deliberately UNCHANGED — used in
+   multiple places (mini-tree badge, connector lines, marriage-date
+   labels), and reserved for their own dedicated stage rather than being
+   swept up incidentally here. */
 .f3.f3-cont {
-  --background-color: #e8dfc8; /* aged parchment canvas — unchanged this stage */
+  --background-color: var(--color-bg-surface-alt);
   --text-color: var(--color-text-primary);
   --genderless-color: var(--color-bg-surface);
   --male-color: #5c7360; /* muted ledger-green — unchanged this stage */
