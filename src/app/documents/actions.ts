@@ -7,7 +7,11 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { getFamilyId } from "@/lib/family";
 import { addFirstPerson } from "@/app/tree/actions";
-import { candidatePersonSchema, type CandidatePerson } from "./candidate-schema";
+import {
+  candidatePersonSchema,
+  factFieldForRelation,
+  type CandidatePerson,
+} from "./candidate-schema";
 
 async function requireUser() {
   const supabase = await createClient();
@@ -473,14 +477,6 @@ export async function matchCandidatesForDocument(
   revalidatePath("/documents");
   revalidatePath(`/documents/${documentId}`);
   return { candidates: results };
-}
-
-function factFieldForRelation(relation: string | null): string {
-  if (!relation) return "Document";
-  const r = relation.toLowerCase();
-  if (r.includes("deceas")) return "Death";
-  if (r.includes("birth") || r === "newborn") return "Birth";
-  return relation.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function factValueForCandidate(candidate: CandidatePerson): string {

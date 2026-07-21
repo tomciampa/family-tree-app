@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import type { Tables } from "@/lib/supabase/database.types";
 import type { PersonSummary } from "@/lib/family";
 import { RecordInterviewFlow } from "./record-interview-flow";
@@ -131,6 +132,7 @@ function InterviewItem({ session }: { session: InterviewRow }) {
   }
 
   const hasUntranscribedSegments = segments.some((s) => !s.transcription_raw);
+  const hasExtraction = segments.some((s) => s.candidate_people);
 
   return (
     <div className="flex flex-col gap-2 rounded border border-gray-200 px-4 py-3 text-sm dark:border-gray-800">
@@ -144,6 +146,15 @@ function InterviewItem({ session }: { session: InterviewRow }) {
             : ""}
         </span>
       </div>
+
+      {hasExtraction && (
+        <Link
+          href={`/interviews/${session.id}`}
+          className="self-start text-xs font-medium underline hover:text-gray-700 dark:hover:text-gray-300"
+        >
+          Review & confirm →
+        </Link>
+      )}
       {session.playUrl ? (
         <audio controls preload="none" src={session.playUrl} className="w-full">
           Your browser doesn&apos;t support audio playback.

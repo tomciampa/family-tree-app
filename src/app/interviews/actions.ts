@@ -7,7 +7,12 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { getFamilyId } from "@/lib/family";
 import { matchFamilyCandidates, type CandidateWithMatch } from "@/app/documents/actions";
-import { candidatePersonSchema, type CandidatePerson } from "@/app/documents/candidate-schema";
+import {
+  candidatePersonSchema,
+  factFieldForRelation,
+  type CandidatePerson,
+} from "@/app/documents/candidate-schema";
+import { addFirstPerson } from "@/app/tree/actions";
 import { INTERVIEW_PROMPTS } from "./prompts";
 
 async function requireUser() {
@@ -395,9 +400,14 @@ function resolveAbout(
 
 export type InterviewCandidateFact = z.infer<typeof interviewCandidateFactSchema> & {
   aboutRef: AboutRef;
+  // Set once confirmInterviewBatch actually writes this to `facts` — lets
+  // re-running the batch (e.g. after a later segment gets extracted) skip
+  // what's already been written instead of duplicating it.
+  written?: { factId: string };
 };
 export type InterviewCandidateAnecdote = z.infer<typeof interviewCandidateAnecdoteSchema> & {
   aboutRef: AboutRef;
+  written?: { anecdoteId: string };
 };
 
 export type InterviewExtraction = {
@@ -562,4 +572,218 @@ export async function matchCandidatesForSegment(
 
   revalidatePath("/interviews");
   return { extraction: updatedExtraction };
+}
+
+function relationFactValue(candidate: CandidatePerson, intervieweeName: string): string {
+  const parts = [candidate.dates, candidate.note].filter((v): v is string => !!v);
+  const base = candidate.relation
+    ? `${intervieweeName}'s ${candidate.relation}, per interview`
+    : `Named in interview with ${intervieweeName}`;
+  return parts.length > 0 ? `${base} · ${parts.join(" · ")}` : base;
+}
+
+export type PersonResolutionInput =
+  | { action: "confirm"; personId: string }
+  | { action: "create"; name: string }
+  | { action: "skip" };
+
+export type BatchConfirmSummary = {
+  peopleConfirmed: number;
+  peopleCreated: number;
+  peopleSkipped: number;
+  factsWritten: number;
+  anecdotesWritten: number;
+};
+
+// The one write path for this whole feature — nothing before this touches
+// facts, anecdotes, document_people, or creates a person. Processes every
+// segment of a session in one pass: resolves each people[] candidate the
+// caller made a decision for (confirm/create/skip — an unresolved
+// multiple_matches candidate with no decision is treated as skip, same as
+// leaving a document candidate unresolved), then writes every fact/
+// anecdote whose "about" resolves to a real person (the interviewee
+// directly, or a candidate that just got confirmed/created), each sourced
+// to its own segment's document_id — not the parent session's, since
+// that's the whole reason segments exist. Idempotent: already-resolved
+// people and already-written facts/anecdotes (tracked via `resolution` /
+// `written` markers persisted back onto the segment's own candidate_people)
+// are skipped, so re-running this — e.g. after extracting a segment that
+// was added later — never duplicates data.
+export async function confirmInterviewBatch(
+  parentDocumentId: string,
+  resolutions: Record<string, PersonResolutionInput>,
+): Promise<{ error: string } | { summary: BatchConfirmSummary }> {
+  const supabase = await requireUser();
+  const familyId = await getFamilyId();
+
+  const anchor = await getIntervieweePersonId(supabase, parentDocumentId);
+  if ("error" in anchor) return anchor;
+  const { intervieweePersonId } = anchor;
+
+  const { data: interviewee, error: intervieweeError } = await supabase
+    .from("people")
+    .select("name")
+    .eq("id", intervieweePersonId)
+    .single();
+  if (intervieweeError || !interviewee) {
+    return { error: intervieweeError?.message ?? "Interviewee not found." };
+  }
+
+  const { data: segments, error: segmentsError } = await supabase
+    .from("documents")
+    .select("id, kind, candidate_people")
+    .eq("parent_document_id", parentDocumentId)
+    .order("audio_start_seconds", { ascending: true });
+  if (segmentsError || !segments) {
+    return { error: segmentsError?.message ?? "Could not load segments." };
+  }
+
+  const summary: BatchConfirmSummary = {
+    peopleConfirmed: 0,
+    peopleCreated: 0,
+    peopleSkipped: 0,
+    factsWritten: 0,
+    anecdotesWritten: 0,
+  };
+
+  for (const segment of segments) {
+    const extraction = segment.candidate_people as unknown as InterviewExtraction | null;
+    if (!extraction) continue;
+
+    const people = [...extraction.people] as CandidateWithMatch[];
+    // Index into this segment's own people[] -> the real person it
+    // resolved to, for this segment's facts/anecdotes to look up below.
+    const resolvedPersonId = new Map<number, string>();
+
+    for (let i = 0; i < people.length; i++) {
+      const candidate = people[i];
+      if (candidate.resolution) {
+        if (candidate.resolution.personId) {
+          resolvedPersonId.set(i, candidate.resolution.personId);
+        }
+        continue;
+      }
+
+      const decision = resolutions[`${segment.id}:${i}`];
+      if (!decision || decision.action === "skip") {
+        people[i] = { ...candidate, resolution: { action: "skipped" } };
+        summary.peopleSkipped++;
+        continue;
+      }
+
+      let personId: string;
+      if (decision.action === "create") {
+        const created = await addFirstPerson(decision.name);
+        if ("error" in created) return { error: created.error };
+        personId = created.personId;
+        summary.peopleCreated++;
+      } else {
+        personId = decision.personId;
+        summary.peopleConfirmed++;
+      }
+
+      const { error: linkError } = await supabase
+        .from("document_people")
+        .insert({ document_id: segment.id, person_id: personId });
+      if (linkError && linkError.code !== "23505") return { error: linkError.message };
+
+      // A base "who is this person" fact, same as document confirmation
+      // always writes — the interview's own richer facts[] below cover
+      // everything else, but relation-to-interviewee only ever lives in
+      // this candidate's own `relation` field otherwise.
+      const { error: factError } = await supabase.from("facts").insert({
+        person_id: personId,
+        field: factFieldForRelation(candidate.relation),
+        value: relationFactValue(candidate, interviewee.name),
+        source_type: "firsthand",
+        source_ref: `${interviewee.name} interview — ${segment.kind ?? "segment"}`,
+        document_id: segment.id,
+        family_id: familyId,
+        recorded_at: new Date().toISOString(),
+      });
+      if (factError) return { error: factError.message };
+      summary.factsWritten++;
+
+      people[i] = {
+        ...candidate,
+        resolution: {
+          action: decision.action === "create" ? "created" : "confirmed",
+          personId,
+        },
+      };
+      resolvedPersonId.set(i, personId);
+    }
+
+    function resolveTargetPersonId(aboutRef: AboutRef): string | undefined {
+      if (aboutRef.type === "interviewee") return intervieweePersonId;
+      if (aboutRef.type === "person") return resolvedPersonId.get(aboutRef.index);
+      return undefined;
+    }
+
+    const facts = [...extraction.facts];
+    for (let j = 0; j < facts.length; j++) {
+      const fact = facts[j];
+      if (fact.written) continue;
+      const personId = resolveTargetPersonId(fact.aboutRef);
+      if (!personId) continue;
+
+      const { data: inserted, error: factError } = await supabase
+        .from("facts")
+        .insert({
+          person_id: personId,
+          field: fact.field,
+          value: fact.value,
+          confidence: fact.confidence,
+          source_type: "firsthand",
+          source_ref: `${interviewee.name} interview — ${segment.kind ?? "segment"}`,
+          document_id: segment.id,
+          family_id: familyId,
+          recorded_at: new Date().toISOString(),
+        })
+        .select("id")
+        .single();
+      if (factError || !inserted) return { error: factError?.message ?? "Could not save fact." };
+
+      facts[j] = { ...fact, written: { factId: inserted.id } };
+      summary.factsWritten++;
+    }
+
+    const anecdotes = [...extraction.anecdotes];
+    for (let k = 0; k < anecdotes.length; k++) {
+      const anecdote = anecdotes[k];
+      if (anecdote.written) continue;
+      const personId = resolveTargetPersonId(anecdote.aboutRef);
+      if (!personId) continue;
+
+      const { data: inserted, error: anecdoteError } = await supabase
+        .from("anecdotes")
+        .insert({
+          person_id: personId,
+          story_text: anecdote.storyText,
+          who_told_it: interviewee.name,
+          document_id: segment.id,
+          family_id: familyId,
+          recorded_at: new Date().toISOString(),
+        })
+        .select("id")
+        .single();
+      if (anecdoteError || !inserted) {
+        return { error: anecdoteError?.message ?? "Could not save anecdote." };
+      }
+
+      anecdotes[k] = { ...anecdote, written: { anecdoteId: inserted.id } };
+      summary.anecdotesWritten++;
+    }
+
+    const updatedExtraction: InterviewExtraction = { people, facts, anecdotes };
+    const { error: updateError } = await supabase
+      .from("documents")
+      .update({ candidate_people: updatedExtraction })
+      .eq("id", segment.id);
+    if (updateError) return { error: updateError.message };
+  }
+
+  revalidatePath("/interviews");
+  revalidatePath("/tree");
+  return { summary };
 }

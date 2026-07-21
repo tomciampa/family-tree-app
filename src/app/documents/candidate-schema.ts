@@ -30,3 +30,15 @@ export const candidatePersonSchema = z.object({
 });
 
 export type CandidatePerson = z.infer<typeof candidatePersonSchema>;
+
+// Also split out (rather than left private in actions.ts) so interview
+// batch confirmation (app/interviews/actions.ts) derives a fact's field
+// label the exact same way document confirmation does, for whichever
+// candidate person a fact/anecdote ends up attributed to.
+export function factFieldForRelation(relation: string | null): string {
+  if (!relation) return "Document";
+  const r = relation.toLowerCase();
+  if (r.includes("deceas")) return "Death";
+  if (r.includes("birth") || r === "newborn") return "Birth";
+  return relation.replace(/\b\w/g, (c) => c.toUpperCase());
+}
