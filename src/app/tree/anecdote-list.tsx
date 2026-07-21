@@ -2,7 +2,8 @@ import type { Tables } from "@/lib/supabase/database.types";
 
 type Anecdote = Tables<"anecdotes">;
 
-// See fact-list.tsx for why there are two variants sharing one component.
+// See fact-list.tsx for why there are three variants sharing one
+// component (plain / archival / neutral).
 const THEME = {
   plain: {
     container:
@@ -16,6 +17,13 @@ const THEME = {
     item: "border-l-2 border-[#a97b52] pl-3 text-sm italic text-[#2b2015]",
     attribution: "mt-1 block text-xs not-italic text-[#6b5c45]",
     empty: "text-sm italic text-[#6b5c45]",
+  },
+  neutral: {
+    container: "flex flex-col gap-4",
+    item: "border-l-2 border-[color:var(--color-border)] pl-3 text-sm italic text-[color:var(--color-text-primary)]",
+    attribution:
+      "mt-1 block text-[length:var(--font-size-caption)] not-italic text-[color:var(--color-text-secondary)]",
+    empty: "text-sm italic text-[color:var(--color-text-secondary)]",
   },
 } as const;
 

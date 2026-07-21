@@ -43,8 +43,8 @@ function extractYear(value: string | null): number | null {
 }
 
 const inputClassName =
-  "rounded border border-[#c9b896] bg-[#fffdf8] px-2 py-1 text-sm text-[#2b2015]";
-const labelClassName = "flex flex-col gap-1 text-xs text-[#6b5c45]";
+  "rounded-[var(--radius-sm)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-page)] px-2 py-1 text-sm text-[color:var(--color-text-primary)]";
+const labelClassName = "flex flex-col gap-1 text-xs text-[color:var(--color-text-secondary)]";
 
 // Facts whose field name doesn't already exactly match one of the seven
 // standardized slots are the ones that might have unparsed info buried in
@@ -89,10 +89,10 @@ function splitName(name: string): { first: string; last: string } {
 function Row({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
-      <dt className="text-xs uppercase tracking-wide text-[#6b5c45]">
+      <dt className="text-xs uppercase tracking-wide text-[color:var(--color-text-secondary)]">
         {label}
       </dt>
-      <dd className={`text-sm ${value ? "" : "italic text-[#6b5c45]"}`}>
+      <dd className={`text-sm ${value ? "" : "italic text-[color:var(--color-text-secondary)]"}`}>
         {value ?? NOT_RECORDED}
       </dd>
     </div>
@@ -283,9 +283,9 @@ export function PersonIdentitySection({
   }
 
   return (
-    <div className="flex flex-col gap-4 border-b border-[#c9b896] pb-5">
+    <div className="flex flex-col gap-4 border-b border-[color:var(--color-border)] pb-5">
       <div className="flex items-center justify-between">
-        <p className="text-xs uppercase tracking-[0.2em] text-[#6b5c45]">
+        <p className="text-xs uppercase tracking-[0.2em] text-[color:var(--color-text-secondary)]">
           Vital Details
         </p>
         <div className="flex items-center gap-3">
@@ -293,7 +293,7 @@ export function PersonIdentitySection({
             <button
               type="button"
               onClick={() => setIsEditing(true)}
-              className="text-xs text-[#6b5c45] underline hover:text-[#2b2015]"
+              className="text-xs text-[color:var(--color-text-secondary)] underline transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-text-primary)]"
             >
               Edit identity
             </button>
@@ -304,7 +304,7 @@ export function PersonIdentitySection({
       {isEditing && (
         <>
           {canOfferParse && (
-            <div className="flex flex-wrap items-center gap-2 text-xs text-[#6b5c45]">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-[color:var(--color-text-secondary)]">
               <span>Parse</span>
               {/* Scoped to exactly one fact at a time — see deriveSourceInfo's
                   comment for why blending several facts into one parse call
@@ -313,7 +313,7 @@ export function PersonIdentitySection({
                 <select
                   value={selectedCandidate?.id ?? ""}
                   onChange={(e) => setSelectedCandidateId(e.target.value)}
-                  className="rounded border border-[#c9b896] bg-[#fffdf8] px-1.5 py-0.5 text-xs text-[#2b2015]"
+                  className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-page)] px-1.5 py-0.5 text-xs text-[color:var(--color-text-primary)]"
                 >
                   {candidateFacts.map((f) => (
                     <option key={f.id} value={f.id}>
@@ -322,7 +322,7 @@ export function PersonIdentitySection({
                   ))}
                 </select>
               ) : (
-                <span className="font-medium text-[#2b2015]">
+                <span className="font-medium text-[color:var(--color-text-primary)]">
                   &quot;{selectedCandidate?.field}&quot;
                 </span>
               )}
@@ -330,21 +330,21 @@ export function PersonIdentitySection({
               <button
                 type="button"
                 onClick={handleParse}
-                className="rounded border border-[#c9b896] bg-[#efe6d2] px-2 py-0.5 text-xs text-[#2b2015] hover:bg-[#e3d7ba]"
+                className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] px-2 py-0.5 text-xs text-[color:var(--color-text-primary)] transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)]"
               >
                 Parse
               </button>
             </div>
           )}
           {parseStatus === "loading" && (
-            <p className="text-xs text-[#6b5c45]">Parsing…</p>
+            <p className="text-xs text-[color:var(--color-text-secondary)]">Parsing…</p>
           )}
 
           {parseError && <p className="text-sm text-red-600">{parseError}</p>}
 
           {parseStatus === "review" && (
-            <div className="flex flex-col gap-3 rounded border border-[#c9b896] bg-[#fffdf8] p-3">
-              <p className="text-xs text-[#6b5c45]">
+            <div className="flex flex-col gap-3 rounded-[var(--radius-sm)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-page)] p-3">
+              <p className="text-xs text-[color:var(--color-text-secondary)]">
                 Parsed from &quot;{selectedCandidate?.field}&quot; — review before
                 saving. The original fact is left untouched either way.
               </p>
@@ -363,7 +363,7 @@ export function PersonIdentitySection({
                     className="mt-1"
                   />
                   <span className="flex flex-1 flex-col gap-1">
-                    <span className="text-xs uppercase tracking-wide text-[#6b5c45]">
+                    <span className="text-xs uppercase tracking-wide text-[color:var(--color-text-secondary)]">
                       {row.label}
                     </span>
                     <input
@@ -385,7 +385,7 @@ export function PersonIdentitySection({
                   type="button"
                   onClick={handleSaveParsed}
                   disabled={isSavingParsed}
-                  className="rounded border border-[#c9b896] bg-[#efe6d2] px-3 py-1.5 text-sm text-[#2b2015] hover:bg-[#e3d7ba] disabled:opacity-50"
+                  className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] px-3 py-1.5 text-sm text-[color:var(--color-text-primary)] transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] disabled:opacity-50"
                 >
                   {isSavingParsed ? "Saving…" : "Save selected"}
                 </button>
@@ -393,7 +393,7 @@ export function PersonIdentitySection({
                   type="button"
                   onClick={cancelParse}
                   disabled={isSavingParsed}
-                  className="rounded px-3 py-1.5 text-sm text-[#6b5c45] hover:text-[#2b2015]"
+                  className="rounded-[var(--radius-sm)] px-3 py-1.5 text-sm text-[color:var(--color-text-secondary)] transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-text-primary)]"
                 >
                   Cancel
                 </button>
@@ -471,14 +471,14 @@ export function PersonIdentitySection({
             <button
               type="submit"
               disabled={isPending}
-              className="rounded border border-[#c9b896] bg-[#efe6d2] px-3 py-1.5 text-sm text-[#2b2015] hover:bg-[#e3d7ba] disabled:opacity-50"
+              className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] px-3 py-1.5 text-sm text-[color:var(--color-text-primary)] transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] disabled:opacity-50"
             >
               {isPending ? "Saving…" : "Save"}
             </button>
             <button
               type="button"
               onClick={cancelEdit}
-              className="rounded px-3 py-1.5 text-sm text-[#6b5c45] hover:text-[#2b2015]"
+              className="rounded-[var(--radius-sm)] px-3 py-1.5 text-sm text-[color:var(--color-text-secondary)] transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-text-primary)]"
             >
               Cancel
             </button>

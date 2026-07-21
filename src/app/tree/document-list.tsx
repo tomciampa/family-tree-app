@@ -8,7 +8,8 @@ export type PersonDocument = {
   viewUrl: string | null;
 };
 
-// See fact-list.tsx for why there are two variants sharing one component.
+// See fact-list.tsx for why there are three variants sharing one
+// component (plain / archival / neutral).
 const THEME = {
   plain: {
     container:
@@ -25,6 +26,15 @@ const THEME = {
     badge:
       "rounded border border-[#c9b896] bg-[#efe6d2] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[#6b5c45]",
     empty: "text-sm italic text-[#6b5c45]",
+  },
+  neutral: {
+    container: "flex flex-col gap-3",
+    heading:
+      "text-[length:var(--font-size-caption)] font-medium uppercase tracking-wide text-[color:var(--color-text-secondary)]",
+    link: "underline decoration-[color:var(--color-accent)] transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-accent)]",
+    badge:
+      "rounded-[var(--radius-xs)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[color:var(--color-text-secondary)]",
+    empty: "text-sm italic text-[color:var(--color-text-secondary)]",
   },
 } as const;
 

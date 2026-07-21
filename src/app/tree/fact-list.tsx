@@ -6,11 +6,15 @@ import { DocumentViewerModal } from "./document-viewer-modal";
 
 type Fact = Tables<"facts">;
 
-// Two visual variants sharing one rendering path: "plain" matches
+// Three visual variants sharing one rendering path: "plain" matches
 // PersonPanel's original inline styling exactly (so extracting this out
-// changed nothing there), "archival" is for the case-file dossier's
-// parchment/ink palette (see globals.css's .f3.f3-cont theme block for
-// where those same tones come from).
+// changed nothing there), "archival" was the case-file dossier's
+// parchment/ink palette, and "neutral" (visual redesign stage 5) is its
+// replacement — the same new design tokens the tree cards use (see
+// globals.css's .f3.f3-cont theme block), via Tailwind's arbitrary-value
+// syntax so these stay wired to design-tokens.css rather than duplicating
+// hex values. "archival" is left in place rather than deleted even though
+// nothing uses it anymore post-migration, in case it's wanted again.
 const THEME = {
   plain: {
     container:
@@ -26,6 +30,15 @@ const THEME = {
     badge:
       "rounded border border-[#c9b896] bg-[#efe6d2] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[#6b5c45]",
     empty: "text-sm italic text-[#6b5c45]",
+  },
+  neutral: {
+    container: "flex flex-col gap-3",
+    label:
+      "text-[length:var(--font-size-caption)] uppercase tracking-wide text-[color:var(--color-text-secondary)]",
+    badge:
+      "rounded-[var(--radius-xs)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[color:var(--color-text-secondary)] transition-colors duration-[var(--duration-base)]",
+    empty:
+      "text-sm italic text-[color:var(--color-text-secondary)]",
   },
 } as const;
 

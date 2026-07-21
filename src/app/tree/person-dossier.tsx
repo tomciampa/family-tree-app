@@ -61,32 +61,32 @@ export function PersonDossier({
   }
 
   return (
-    <aside className="flex h-[75vh] w-full max-w-md shrink-0 flex-col overflow-hidden rounded-sm border border-[#c9b896] bg-[#f7f1e3] font-serif text-[#2b2015] shadow-xl">
-      <div className="flex items-start justify-between gap-4 border-b border-[#c9b896] px-6 py-5">
+    <aside className="flex h-[75vh] w-full max-w-md shrink-0 flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] font-[family-name:var(--font-family-base)] text-[color:var(--color-text-primary)] shadow-[var(--shadow-3)]">
+      <div className="flex items-start justify-between gap-4 border-b border-[color:var(--color-border)] px-6 py-5">
         <div>
-          <h2 className="text-2xl font-semibold">
+          <h2 className="text-[length:var(--font-size-heading-2)] leading-[var(--line-height-heading-2)] font-semibold">
             {person.is_placeholder ? `${person.name} (?)` : person.name}
           </h2>
         </div>
         <button
           type="button"
           onClick={onClose}
-          className="shrink-0 rounded border border-[#c9b896] px-2 py-1 text-sm text-[#6b5c45] hover:bg-[#efe6d2]"
+          className="shrink-0 rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-2 py-1 text-sm text-[color:var(--color-text-secondary)] transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)]"
         >
           Close ✕
         </button>
       </div>
 
-      <div className="flex border-b border-[#c9b896] px-6">
+      <div className="flex border-b border-[color:var(--color-border)] px-6">
         {tabs.map(({ key, label }) => (
           <button
             key={key}
             type="button"
             onClick={() => setTab(key)}
-            className={`-mb-px border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
+            className={`-mb-px border-b-2 px-4 py-3 text-sm font-medium transition-colors duration-[var(--duration-base)] ${
               tab === key
-                ? "border-[#5c7360] text-[#2b2015]"
-                : "border-transparent text-[#6b5c45] hover:text-[#2b2015]"
+                ? "border-[color:var(--color-accent)] text-[color:var(--color-text-primary)]"
+                : "border-transparent text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]"
             }`}
           >
             {label}
@@ -98,18 +98,18 @@ export function PersonDossier({
         {tab === "facts" && (
           <div className="flex flex-col gap-6">
             <PersonIdentitySection person={person} facts={facts} />
-            <FactList facts={facts} theme="archival" />
+            <FactList facts={facts} theme="neutral" />
           </div>
         )}
         {tab === "stories" && (
-          <AnecdoteList anecdotes={anecdotes} theme="archival" />
+          <AnecdoteList anecdotes={anecdotes} theme="neutral" />
         )}
         {tab === "documents" && (
-          <DocumentList documents={documents} theme="archival" showHeading={false} />
+          <DocumentList documents={documents} theme="neutral" showHeading={false} />
         )}
       </div>
 
-      <div className="border-t border-[#c9b896] bg-[#efe6d2] px-6 py-3">
+      <div className="border-t border-[color:var(--color-border)] bg-[color:var(--color-bg-surface-alt)] px-6 py-3">
         {deleteError && (
           <p className="mb-1 text-xs text-red-600">{deleteError}</p>
         )}
