@@ -1,0 +1,192 @@
+/* ==========================================================================
+   Design tokens — Stage 1 of the visual redesign (Apple-inspired light/
+   neutral aesthetic: whites/light grays, dark neutral text, blue accent).
+
+   IMPORTANT: nothing in this file is wired up to anything yet. These are
+   plain CSS custom properties, deliberately not referenced by Tailwind's
+   @theme block, any component class, or the existing archival-paper theme
+   in globals.css (--background, --foreground, --tree-line, --tree-muted,
+   and family-chart's own --background-color/--text-color/--male-color/
+   --female-color/--genderless-color). Defining them here has zero visual
+   or functional effect on the app as it stands today — that's the point
+   of this stage. Applying them to real components is Stage 2+.
+
+   Token names are namespaced (--color-*, --font-*, --space-*, --radius-*,
+   --shadow-*, --duration-*, --ease-*) specifically so they can't collide
+   with any existing variable when Stage 2 starts consuming them.
+   ========================================================================== */
+
+:root {
+  /* --- Color: neutral surface scale -------------------------------------
+     Apple's own light-mode grays — a page background of pure white, with
+     progressively-deeper light-gray surfaces for cards/panels that sit on
+     top of it, plus two border weights (a barely-there hairline and a
+     slightly more visible divider). */
+  --color-bg-page: #ffffff;
+  --color-bg-surface: #f5f5f7; /* raised surface / secondary background */
+  --color-bg-surface-alt: #ececef; /* nested surface, one step deeper */
+  --color-bg-surface-hover: #e8e8ed; /* hover state for a surface/row */
+  --color-border-subtle: #e5e5ea; /* hairline dividers */
+  --color-border: #d2d2d7; /* visible borders, input outlines */
+
+  /* --- Color: text -------------------------------------------------------
+     Apple's near-black primary text (never pure #000, which reads harsher
+     on a white background) down through two lighter grays for secondary
+     and tertiary/placeholder text. */
+  --color-text-primary: #1d1d1f;
+  --color-text-secondary: #6e6e73;
+  --color-text-tertiary: #86868b;
+  --color-text-on-accent: #ffffff; /* text/icons placed on the accent color */
+
+  /* --- Color: accent -------------------------------------------------------
+     Primary actions, links, focus rings, selected states. */
+  --color-accent: #0071e3;
+  --color-accent-hover: #0077ed;
+  --color-accent-active: #005bb5;
+  --color-accent-subtle: #e8f2fd; /* tinted background, e.g. selected row/badge */
+
+  /* --- Color: semantic (success / warning / error) -----------------------
+     Each has a solid form (icons, text-on-color) and a subtle tinted
+     background + matching foreground for badge/pill-style use, the same
+     shape as the amber/green/gray status pills already used around the
+     app (e.g. documents-view.tsx's matchStatus badges). */
+  --color-success: #34c759;
+  --color-success-subtle-bg: #e7f8ec;
+  --color-success-subtle-fg: #1e8a3c;
+
+  --color-warning: #ff9500;
+  --color-warning-subtle-bg: #fff2e0;
+  --color-warning-subtle-fg: #b96400;
+
+  --color-error: #ff3b30;
+  --color-error-subtle-bg: #ffe9e7;
+  --color-error-subtle-fg: #c92a1e;
+
+  /* --- Typography ----------------------------------------------------------
+     System font stack (no serif, no Geist) — matches the OS's native UI
+     font on every platform instead of shipping/loading a custom typeface. */
+  --font-family-base: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    sans-serif;
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* Type scale: size paired with a matched line-height for each step.
+     rem-based (assumes a 16px root) so it respects the user's browser
+     text-size setting; px equivalents noted for quick reference. */
+  --font-size-display: 2.5rem; /* 40px */
+  --line-height-display: 1.1;
+
+  --font-size-heading-1: 2rem; /* 32px */
+  --line-height-heading-1: 1.2;
+
+  --font-size-heading-2: 1.5rem; /* 24px */
+  --line-height-heading-2: 1.25;
+
+  --font-size-heading-3: 1.25rem; /* 20px */
+  --line-height-heading-3: 1.3;
+
+  --font-size-body: 1rem; /* 16px */
+  --line-height-body: 1.5;
+
+  --font-size-body-small: 0.875rem; /* 14px */
+  --line-height-body-small: 1.45;
+
+  --font-size-caption: 0.8125rem; /* 13px */
+  --line-height-caption: 1.4;
+
+  /* --- Spacing ---------------------------------------------------------
+     4px base unit. Named semantically (xs..3xl) rather than numerically
+     so these can never be confused with Tailwind's own default spacing
+     scale, which the app already uses via utility classes (p-4, gap-2,
+     etc.) and which this token set is not replacing. */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+  --space-2xl: 32px;
+  --space-3xl: 48px;
+
+  /* --- Radius ------------------------------------------------------------
+     Generous, Apple-style rounding. xs/full added alongside the requested
+     8/12/16px trio for small tags and fully-round elements (avatars,
+     pills, icon buttons). */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+
+  /* --- Elevation / shadow -------------------------------------------------
+     Soft, layered, low-opacity — each level pairs a tight "contact"
+     shadow with a softer, larger diffuse one, rather than a single hard
+     shadow. Ordered by depth: resting card -> raised/hover -> popover ->
+     modal. */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 1px rgba(0, 0, 0, 0.03);
+  --shadow-2: 0 2px 8px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-3: 0 8px 24px rgba(0, 0, 0, 0.08), 0 2px 6px rgba(0, 0, 0, 0.04);
+  --shadow-4: 0 16px 48px rgba(0, 0, 0, 0.12), 0 4px 12px rgba(0, 0, 0, 0.06);
+
+  /* --- Motion --------------------------------------------------------------
+     Subtle, quick transitions for hover/state changes — nothing here
+     should ever feel sluggish. --ease-standard is the general-purpose
+     curve (symmetric accelerate/decelerate); --ease-emphasized has a
+     slightly longer settle, for larger surface transitions (panels,
+     modals) rather than small hover states. */
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 240ms;
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Apple's dark-mode surface scale: a near-black page background with
+       progressively lighter (not darker) surfaces layered on top, the
+       inverse relationship from light mode. */
+    --color-bg-page: #000000;
+    --color-bg-surface: #1c1c1e;
+    --color-bg-surface-alt: #2c2c2e;
+    --color-bg-surface-hover: #3a3a3c;
+    --color-border-subtle: #38383a;
+    --color-border: #48484a;
+
+    --color-text-primary: #f5f5f7;
+    --color-text-secondary: #a1a1a6;
+    --color-text-tertiary: #8e8e93;
+    --color-text-on-accent: #ffffff;
+
+    /* Dark-mode system colors read slightly brighter/more saturated than
+       their light-mode counterparts to hold contrast against near-black
+       surfaces — matching Apple's own dark-mode palette, not just the
+       light-mode values reused as-is. */
+    --color-accent: #0a84ff;
+    --color-accent-hover: #409cff;
+    --color-accent-active: #0060c0;
+    --color-accent-subtle: #0a2c4d;
+
+    --color-success: #30d158;
+    --color-success-subtle-bg: #0f2e1a;
+    --color-success-subtle-fg: #4ade80;
+
+    --color-warning: #ff9f0a;
+    --color-warning-subtle-bg: #3a2405;
+    --color-warning-subtle-fg: #ffb84d;
+
+    --color-error: #ff453a;
+    --color-error-subtle-bg: #3a0f0c;
+    --color-error-subtle-fg: #ff6f66;
+
+    /* Shadows need more opacity on dark surfaces to read at all — a
+       shadow calibrated for a white background all but disappears against
+       near-black. */
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 1px rgba(0, 0, 0, 0.3);
+    --shadow-2: 0 2px 8px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.35);
+    --shadow-3: 0 8px 24px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.4);
+    --shadow-4: 0 16px 48px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.45);
+  }
+}

@@ -51,11 +51,27 @@ of the real one. Also watch for two separately-expanded overlays sharing a commo
 siblings; clicking a parent's card body does NOT recenter (only siblings do).
 
 ## Design
-Visual identity is a deliberate "archival paper" theme — warm cream/parchment background,
-dark ink text, muted sepia/ledger-green accents. Not a generic dark-mode SaaS look. This
-matters because primary users include elderly, non-technical family members — legibility
-and warmth over trendy styling. If touching tree UI colors, use family-chart's own theming
-API (CSS custom properties), not ad hoc per-element overrides.
+Visual identity is being redesigned toward a clean, Apple-inspired light/neutral aesthetic —
+whites and light grays, dark neutral text, a blue accent for primary actions/links, soft
+layered shadows, generous rounded corners. This deliberately supersedes the earlier "archival
+paper" direction (warm cream/parchment, sepia/ledger-green accents) that used to be
+documented here — that palette is being replaced on purpose, not accidentally. Don't
+reintroduce cream/parchment/sepia tones thinking you're honoring a still-current preference;
+you'd be reverting an intentional change.
+
+`src/app/design-tokens.css` is the source of truth: a full token system (color, typography,
+spacing, radius, elevation, motion) as namespaced CSS custom properties (`--color-*`,
+`--font-*`, `--space-*`, `--radius-*`, `--shadow-*`, `--duration-*`/`--ease-*`). Use these
+tokens rather than inventing new colors, spacing, or shadow values ad hoc. The rollout is
+staged — tokens existing doesn't mean every surface has been migrated to use them yet, so
+check what a given component actually does before assuming it already reflects the new look.
+If touching tree UI colors, still go through family-chart's own theming API (CSS custom
+properties, not ad hoc per-element overrides) — just point those variables at the new tokens
+once that migration happens, not at new one-off hex values.
+
+The underlying reasoning hasn't changed even though the palette has: primary users include
+elderly, non-technical family members, so legibility and clarity take priority over
+trendiness within the new palette too.
 
 ## Working conventions
 - **Always verify with a real browser test before committing**, not just typecheck/build —

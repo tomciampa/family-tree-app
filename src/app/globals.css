@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+/* Stage 1 of the visual redesign: a design token system, defined but not
+   yet applied anywhere — see design-tokens.css for the full set and why
+   it's safe to import unconditionally at this stage (namespaced variable
+   names, nothing below references them yet). */
+@import "./design-tokens.css";
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
