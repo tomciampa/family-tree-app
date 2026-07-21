@@ -35,27 +35,90 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* Archival-paper theme for the tree, via family-chart's own documented
-   CSS custom properties (its default theme is dark/near-black, which read
-   as low-contrast gray-on-gray in places — a real accessibility problem
-   for a family history app meant to be used by elderly relatives, not
-   just an aesthetic one). Every person card currently has no gender data,
-   so --genderless-color is what actually paints card backgrounds;
-   --male-color/--female-color still matter because the mini-tree badge
-   (the small "more relatives not shown" pill above a card) always uses
-   them for its two halves regardless of the person's own gender.
+/* Tree theme, via family-chart's own documented CSS custom properties
+   (its default theme is dark/near-black, which read as low-contrast
+   gray-on-gray in places — a real accessibility problem for a family
+   history app meant to be used by elderly relatives, not just an
+   aesthetic one). Every person card currently has no gender data, so
+   --genderless-color is what actually paints card backgrounds.
    Selector is .f3.f3-cont (matching the two classes the container itself
    carries), not just .f3 — family-chart's own family-chart.css defines
    these same variables on plain .f3, and since it's imported from within
    a client component, it ends up later in the cascade than this file,
    winning any same-specificity tie. Two classes beats one regardless of
-   import order. */
+   import order.
+
+   Card re-skin (visual redesign stage 2): --text-color and
+   --genderless-color now come from the new neutral design tokens
+   (design-tokens.css) instead of the old archival-paper hex values.
+   --background-color (the canvas behind the cards), --male-color, and
+   --female-color are deliberately UNCHANGED here — this pass is scoped to
+   the person card itself, not the canvas or the mini-tree badge/"view
+   both families" button, which still key off male/female color and are
+   explicitly being kept as-is per this stage's scope. */
 .f3.f3-cont {
-  --background-color: #e8dfc8; /* aged parchment canvas */
-  --text-color: #2b2015; /* dark ink */
-  --genderless-color: #f7f1e3; /* paper-white card fill */
-  --male-color: #5c7360; /* muted ledger-green */
-  --female-color: #a97b52; /* muted sepia */
+  --background-color: #e8dfc8; /* aged parchment canvas — unchanged this stage */
+  --text-color: var(--color-text-primary);
+  --genderless-color: var(--color-bg-surface);
+  --male-color: #5c7360; /* muted ledger-green — unchanged this stage */
+  --female-color: #a97b52; /* muted sepia — unchanged this stage */
+}
+
+/* Card surface: radius, elevation, and font re-skinned onto the new
+   tokens. .card-image-rect is the actual visible card box (family-chart's
+   HTML-card mode — .card itself is a transparent positioning wrapper);
+   .card-inner is its direct parent, which is what family-chart's own
+   hover/main-card rules key off, so the shadow/transition overrides below
+   target that. Compound .f3.f3-cont prefix for the same specificity
+   reason as the variables above — beats family-chart's own plain-.f3
+   rules regardless of import order.
+
+   Explicitly NOT touched: any click handling, the hover-lift transform
+   distance, the main-card outline's presence, or the "..." menu's
+   show/hide mechanism (:hover/:focus-within) — purely color/radius/
+   shadow/timing values swapped onto what already works. */
+.f3.f3-cont {
+  font-family: var(--font-family-base);
+}
+
+.f3.f3-cont div.card-image-rect {
+  border-radius: var(--radius-lg);
+}
+
+/* .card > div would also match the app-added .card-actions-menu sibling
+   (a second direct child of .card, absolutely positioned) — scoped to
+   .card-inner specifically so the "..." menu wrapper doesn't pick up a
+   stray shadow from this rule. */
+.f3.f3-cont div.card > div.card-inner {
+  box-shadow: var(--shadow-1);
+  transition:
+    transform var(--duration-base) var(--ease-standard),
+    box-shadow var(--duration-base) var(--ease-standard);
+}
+
+.f3.f3-cont div.card-main .card-inner,
+.f3.f3-cont div.card:hover .card-inner {
+  box-shadow: var(--shadow-3);
+}
+
+.f3.f3-cont div.card-main .card-inner {
+  outline-color: var(--color-border);
+}
+
+/* Card text: first line (name) as the emphasized label, second line
+   (dates) smaller and muted — same two-line layout setCardDisplay always
+   renders, just weighted like a title + caption instead of two equal
+   lines. */
+.f3.f3-cont .card-label > div:first-child {
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  font-weight: var(--font-weight-semibold);
+}
+
+.f3.f3-cont .card-label > div:nth-child(2) {
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+  color: var(--color-text-secondary);
 }
 
 /* Connector lines between cards are drawn with an inline stroke="#fff"
@@ -116,16 +179,16 @@ body {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  border: 1px solid #c9b896;
-  background: #efe6d2;
-  color: #2b2015;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-1);
 }
 
 .f3 .card-actions-flyout {
@@ -136,10 +199,10 @@ body {
   flex-direction: row;
   gap: 4px;
   padding: 4px;
-  background: #f7f1e3;
-  border: 1px solid #c9b896;
-  border-radius: 12px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  background: var(--color-bg-page);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-2);
 }
 
 .f3 .card-actions-menu:hover .card-actions-flyout,
@@ -164,21 +227,25 @@ body {
 }
 
 .f3 .card-action-edit {
-  background: #52525b;
+  background: var(--color-text-secondary);
 }
 
 .f3 .card-action-add {
-  background: #2563eb;
+  background: var(--color-accent);
   font-size: 14px;
 }
 
 .f3 .card-action-dossier {
-  background: #efe6d2;
-  color: #2b2015;
-  border: 1px solid #c9b896;
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
   font-size: 11px;
 }
 
+/* Still keyed off --male-color via an inline style set in family-tree.tsx
+   (not this file) — deliberately unchanged this stage, same as the
+   mini-tree badge; both are tied to the male/female color pair, which is
+   out of scope for this card-surface-only pass. */
 .f3 .card-action-families {
   color: white;
   font-size: 11px;
