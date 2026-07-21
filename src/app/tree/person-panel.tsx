@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import type { Tables } from "@/lib/supabase/database.types";
 import {
   addParents,
@@ -18,10 +18,16 @@ import { AnecdoteList } from "./anecdote-list";
 import { DocumentList, type PersonDocument } from "./document-list";
 import { PersonSearch } from "@/components/person-search";
 import type { PersonSummary } from "@/lib/family";
+import {
+  findSuggestedConnections,
+  type SuggestedConnection,
+} from "@/lib/suggested-connections";
 
 type Person = Tables<"people">;
 type Fact = Tables<"facts">;
 type Anecdote = Tables<"anecdotes">;
+type UnionRow = Tables<"unions">;
+type UnionChild = Tables<"union_children">;
 type Marriage = { unionId: string; spouseName: string | null };
 
 const inputClassName =
@@ -113,14 +119,51 @@ function PersonFieldPicker({
   );
 }
 
+// The one-click alternative to manually searching — sits above each
+// "Add ___" form's normal PersonFieldPicker(s), which stay as the fallback
+// for anyone the resolver can't place.
+function SuggestedConnectionBanner({
+  suggestions,
+  relationLabel,
+  isPending,
+  onConfirm,
+}: {
+  suggestions: SuggestedConnection[];
+  relationLabel: string;
+  isPending: boolean;
+  onConfirm: () => void;
+}) {
+  if (suggestions.length === 0) return null;
+  const names = suggestions.map((s) => s.personName).join(" & ");
+  const label = suggestions.length > 1 ? `${relationLabel}s` : relationLabel;
+  return (
+    <div className="rounded border border-blue-200 bg-blue-50 p-3 text-sm dark:border-blue-900 dark:bg-blue-950/30">
+      <p>
+        <span className="font-medium">{names}</span> — connect as {label}?
+      </p>
+      <button
+        type="button"
+        onClick={onConfirm}
+        disabled={isPending}
+        className="mt-2 rounded bg-blue-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-800 disabled:opacity-50"
+      >
+        {isPending ? "Connecting…" : "Connect"}
+      </button>
+    </div>
+  );
+}
+
 export function PersonPanel({
   person,
   hasParents,
   marriages,
   facts,
+  allFacts,
   anecdotes,
   documents,
   people,
+  unions,
+  unionChildren,
   personSummaries,
   onClose,
 }: {
@@ -128,9 +171,12 @@ export function PersonPanel({
   hasParents: boolean;
   marriages: Marriage[];
   facts: Fact[];
+  allFacts: Fact[];
   anecdotes: Anecdote[];
   documents: PersonDocument[];
   people: Person[];
+  unions: UnionRow[];
+  unionChildren: UnionChild[];
   personSummaries: Record<string, PersonSummary>;
   onClose: () => void;
 }) {
@@ -163,6 +209,28 @@ export function PersonPanel({
 
   // Can't be your own parent/sibling/spouse/child.
   const otherPeople = people.filter((p) => p.id !== person.id);
+
+  // Loose people whose own stored relation (e.g. Hugo's "maternal
+  // grandfather of Maxine") resolves, by walking the real connected tree
+  // from that named anchor, to exactly this person — see
+  // findSuggestedConnections for how. Computed for all three buckets
+  // unconditionally (cheap — a handful of loose people at most) rather
+  // than only for whichever form is open, so switching between forms
+  // never shows a stale suggestion. Sibling/spouse will always be empty
+  // right now since no relation types map to those buckets yet — that's
+  // expected, not a bug; the wiring is ready for when they do.
+  const parentSuggestions = useMemo(
+    () => findSuggestedConnections(person.id, "parent", people, unions, unionChildren, allFacts),
+    [person.id, people, unions, unionChildren, allFacts],
+  );
+  const siblingSuggestions = useMemo(
+    () => findSuggestedConnections(person.id, "sibling", people, unions, unionChildren, allFacts),
+    [person.id, people, unions, unionChildren, allFacts],
+  );
+  const spouseSuggestions = useMemo(
+    () => findSuggestedConnections(person.id, "spouse", people, unions, unionChildren, allFacts),
+    [person.id, people, unions, unionChildren, allFacts],
+  );
 
   function closeForm() {
     setActiveForm(null);
@@ -318,6 +386,28 @@ export function PersonPanel({
             }}
             className="flex flex-col gap-3"
           >
+            <SuggestedConnectionBanner
+              suggestions={parentSuggestions}
+              relationLabel="parent"
+              isPending={isPending}
+              onConfirm={() => {
+                setError(null);
+                startTransition(async () => {
+                  const result = await addParents(
+                    person.id,
+                    { mode: "existing", personId: parentSuggestions[0].personId },
+                    parentSuggestions[1]
+                      ? { mode: "existing", personId: parentSuggestions[1].personId }
+                      : null,
+                  );
+                  if ("error" in result) {
+                    setError(result.error);
+                    return;
+                  }
+                  handleClose();
+                });
+              }}
+            />
             <PersonFieldPicker
               label="First parent"
               state={parent1}
@@ -383,6 +473,32 @@ export function PersonPanel({
             }}
             className="flex flex-col gap-3"
           >
+            <SuggestedConnectionBanner
+              suggestions={siblingSuggestions}
+              relationLabel="sibling"
+              isPending={isPending}
+              onConfirm={() => {
+                setError(null);
+                startTransition(async () => {
+                  for (const suggestion of siblingSuggestions) {
+                    const ref: PersonRef = { mode: "existing", personId: suggestion.personId };
+                    const first = await addSibling(person.id, ref);
+                    const result =
+                      "warning" in first
+                        ? window.confirm(first.warning)
+                          ? await addSibling(person.id, ref, true)
+                          : null
+                        : first;
+                    if (!result) continue;
+                    if ("error" in result) {
+                      setError(result.error);
+                      return;
+                    }
+                  }
+                  handleClose();
+                });
+              }}
+            />
             <PersonFieldPicker
               label="Sibling"
               state={sibling}
@@ -442,6 +558,33 @@ export function PersonPanel({
             }}
             className="flex flex-col gap-3"
           >
+            <SuggestedConnectionBanner
+              suggestions={spouseSuggestions.slice(0, 1)}
+              relationLabel="spouse"
+              isPending={isPending}
+              onConfirm={() => {
+                setError(null);
+                const ref: PersonRef = {
+                  mode: "existing",
+                  personId: spouseSuggestions[0].personId,
+                };
+                startTransition(async () => {
+                  const first = await addSpouseAndChild(person.id, ref, null);
+                  const result =
+                    "warning" in first
+                      ? window.confirm(first.warning)
+                        ? await addSpouseAndChild(person.id, ref, null, true)
+                        : null
+                      : first;
+                  if (!result) return;
+                  if ("error" in result) {
+                    setError(result.error);
+                    return;
+                  }
+                  handleClose();
+                });
+              }}
+            />
             <PersonFieldPicker
               label="Spouse"
               state={spouse}

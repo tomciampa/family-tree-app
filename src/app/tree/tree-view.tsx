@@ -171,9 +171,12 @@ export function TreeView({
           hasParents={childToUnion.has(selectedPerson.id)}
           marriages={marriages}
           facts={personFacts}
+          allFacts={facts}
           anecdotes={personAnecdotes}
           documents={selectedPersonDocuments}
           people={people}
+          unions={unions}
+          unionChildren={unionChildren}
           personSummaries={personSummaries}
           onClose={() => setSelectedId(null)}
         />
