@@ -58,16 +58,24 @@ body {
    so the canvas still reads as visibly distinct from the cards floating
    on it rather than collapsing to the same flat gray.
 
-   --male-color/--female-color are still deliberately UNCHANGED — used in
-   multiple places (mini-tree badge, connector lines, marriage-date
-   labels), and reserved for their own dedicated stage rather than being
-   swept up incidentally here. */
+   Retiring male/female colors (visual redesign stage 4): this app never
+   tracks gender, so the old green/tan two-tone split (mini-tree badge
+   halves, connector lines, the marriage-date line they sit on) was never
+   a meaningful convention — just family-chart's demo styling left in
+   place. Both variables now resolve to the same neutral
+   --color-text-secondary rather than being recolored as a new two-tone
+   pair, since one consistent line/border color is the more honest choice
+   once there's no real data behind the split. This also affects the
+   "view both families" (⚭) button, whose background is set inline in
+   family-tree.tsx as var(--male-color, #5c7360) — not touched directly
+   (that'd be a .tsx edit), but it inherits the same neutral automatically
+   since it reads this same variable. */
 .f3.f3-cont {
   --background-color: var(--color-bg-surface-alt);
   --text-color: var(--color-text-primary);
   --genderless-color: var(--color-bg-surface);
-  --male-color: #5c7360; /* muted ledger-green — unchanged this stage */
-  --female-color: #a97b52; /* muted sepia — unchanged this stage */
+  --male-color: var(--color-text-secondary);
+  --female-color: var(--color-text-secondary);
 }
 
 /* Card surface: radius, elevation, and font re-skinned onto the new
@@ -137,7 +145,8 @@ body {
 
 /* Same story for the two short lines inside the mini-tree badge icon —
    inline stroke="#fff", overridden the same way. Dark ink reads clearly
-   against both the ledger-green and sepia halves of the badge. */
+   against the badge's neutral fill (both halves the same color now, see
+   --male-color/--female-color above). */
 .f3 [data-icon="mini-tree"] line {
   stroke: var(--text-color);
 }
@@ -151,13 +160,12 @@ body {
 }
 
 /* Brief highlight for "view in tree" (from the document candidate-match
-   review queue) — a saturated red pulse, deliberately NOT the gold/sepia
-   family already used elsewhere in this theme (--female-color, mini-tree
-   badge) — those blend into the parchment/cream card fill at a glance,
-   which defeats the point of a "look here" cue. Applied to a specific
-   card via its data-person-id attribute (see family-tree.tsx), not by
-   name text, since this app can have several different people sharing a
-   name. */
+   review queue) — a saturated red pulse, deliberately NOT any neutral
+   gray already used elsewhere in this theme (card fill, canvas, mini-tree
+   badge) — those blend in at a glance, which defeats the point of a
+   "look here" cue. Applied to a specific card via its data-person-id
+   attribute (see family-tree.tsx), not by name text, since this app can
+   have several different people sharing a name. */
 @keyframes f3-highlight-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
   25%, 75% { box-shadow: 0 0 0 8px rgba(220, 38, 38, 0.85); }
@@ -248,10 +256,11 @@ body {
   font-size: 11px;
 }
 
-/* Still keyed off --male-color via an inline style set in family-tree.tsx
-   (not this file) — deliberately unchanged this stage, same as the
-   mini-tree badge; both are tied to the male/female color pair, which is
-   out of scope for this card-surface-only pass. */
+/* Background is set inline in family-tree.tsx as var(--male-color,
+   #5c7360) — not touched here directly, but now renders the same neutral
+   --color-text-secondary as the mini-tree badge/connector lines, since
+   that's what --male-color itself now resolves to (see stage-4 comment
+   above the .f3.f3-cont variable block). */
 .f3 .card-action-families {
   color: white;
   font-size: 11px;
