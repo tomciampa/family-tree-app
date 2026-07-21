@@ -2,9 +2,13 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { transcribe } from "ai";
+import { transcribe, generateObject } from "ai";
+import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { getFamilyId } from "@/lib/family";
+import { matchFamilyCandidates, type CandidateWithMatch } from "@/app/documents/actions";
+import { candidatePersonSchema, type CandidatePerson } from "@/app/documents/candidate-schema";
+import { INTERVIEW_PROMPTS } from "./prompts";
 
 async function requireUser() {
   const supabase = await createClient();
@@ -299,4 +303,263 @@ export async function transcribeInterviewSegments(
 
   revalidatePath("/interviews");
   return { segments: [...alreadyDone, ...updates] };
+}
+
+const interviewCandidateFactSchema = z.object({
+  about: z
+    .string()
+    .describe(
+      "Exactly matches either the interviewee's own name or the exact name of one of the people listed in `people` — whoever this fact is about.",
+    ),
+  field: z
+    .string()
+    .describe(
+      "Short label for the kind of fact, e.g. 'Birthplace', 'Occupation', 'Birth', 'Death', 'Marriage'",
+    ),
+  value: z.string().describe("The factual claim itself, stated concisely"),
+  confidence: z
+    .string()
+    .nullable()
+    .describe(
+      "If the interviewee hedged (e.g. 'I think', 'I'm not sure', 'maybe', 'I guess') capture that hedge briefly here, e.g. 'uncertain' or 'not sure'. Null if stated plainly and confidently.",
+    ),
+  quote: z
+    .string()
+    .describe("The verbatim sentence(s) from the transcript this fact is drawn from"),
+});
+
+const interviewCandidateAnecdoteSchema = z.object({
+  about: z
+    .string()
+    .describe(
+      "Exactly matches either the interviewee's own name or the exact name of one of the people listed in `people` — whoever this story centers on.",
+    ),
+  storyText: z
+    .string()
+    .describe("The narrative story itself, as told — not a discrete factual claim"),
+  quote: z
+    .string()
+    .describe("The verbatim excerpt from the transcript this anecdote is drawn from"),
+});
+
+const interviewExtractionSchema = z.object({
+  people: z
+    .array(candidatePersonSchema)
+    .describe(
+      "Every OTHER person mentioned in this segment — never the interviewee themselves, since they're already known.",
+    ),
+  facts: z
+    .array(interviewCandidateFactSchema)
+    .describe(
+      "Discrete factual claims: names, dates, places, occupations, and other concrete details. Don't duplicate a person's name/relation here — that's already captured in `people`.",
+    ),
+  anecdotes: z
+    .array(interviewCandidateAnecdoteSchema)
+    .describe(
+      "Narrative material that doesn't reduce to a discrete claim — stories, how people met, memorable moments, characterizations.",
+    ),
+});
+
+// Resolves which person a fact/anecdote's "about" name refers to, by exact
+// (then partial, e.g. "Karen" for "Karen Dubois") match against the
+// interviewee's own name or one of this segment's extracted people —
+// resolved once at extraction time and stable afterward, since matching
+// (matchCandidatesForSegment) only enriches each people[] entry in place,
+// never reorders it.
+export type AboutRef =
+  | { type: "interviewee" }
+  | { type: "person"; index: number; name: string }
+  | { type: "unresolved"; raw: string };
+
+function resolveAbout(
+  about: string,
+  intervieweeName: string,
+  people: { name: string }[],
+): AboutRef {
+  const normalize = (s: string) => s.trim().toLowerCase();
+  if (normalize(about) === normalize(intervieweeName)) return { type: "interviewee" };
+
+  const exactIndex = people.findIndex((p) => normalize(p.name) === normalize(about));
+  if (exactIndex >= 0) return { type: "person", index: exactIndex, name: people[exactIndex].name };
+
+  const partialIndex = people.findIndex(
+    (p) =>
+      normalize(p.name).includes(normalize(about)) || normalize(about).includes(normalize(p.name)),
+  );
+  if (partialIndex >= 0) {
+    return { type: "person", index: partialIndex, name: people[partialIndex].name };
+  }
+
+  return { type: "unresolved", raw: about };
+}
+
+export type InterviewCandidateFact = z.infer<typeof interviewCandidateFactSchema> & {
+  aboutRef: AboutRef;
+};
+export type InterviewCandidateAnecdote = z.infer<typeof interviewCandidateAnecdoteSchema> & {
+  aboutRef: AboutRef;
+};
+
+export type InterviewExtraction = {
+  people: (CandidatePerson | CandidateWithMatch)[];
+  facts: InterviewCandidateFact[];
+  anecdotes: InterviewCandidateAnecdote[];
+};
+
+// Resolves a segment's interviewee via its parent session — segments never
+// carry interviewee_person_id themselves (see createInterviewSegments'
+// comment: it's a parent-session-only field).
+async function getIntervieweePersonId(
+  supabase: Awaited<ReturnType<typeof requireUser>>,
+  parentDocumentId: string | null,
+): Promise<{ error: string } | { intervieweePersonId: string }> {
+  if (!parentDocumentId) {
+    return { error: "This isn't an interview segment (no parent session)." };
+  }
+
+  const { data: parent, error: parentError } = await supabase
+    .from("documents")
+    .select("interviewee_person_id")
+    .eq("id", parentDocumentId)
+    .single();
+  if (parentError || !parent?.interviewee_person_id) {
+    return { error: parentError?.message ?? "This interview has no recorded interviewee." };
+  }
+
+  return { intervieweePersonId: parent.interviewee_person_id };
+}
+
+// Reuses the exact document-extraction pipeline (same candidatePersonSchema,
+// same AI Gateway model) applied to a segment's transcript instead of a
+// document's OCR text — plus the interviewee is passed in as a known
+// relationship anchor rather than left for the AI to guess at, and the
+// extraction additionally separates discrete factual claims from narrative
+// material, matching the fact/anecdote distinction the rest of the app
+// already uses.
+export async function extractCandidatesFromSegment(
+  segmentDocumentId: string,
+): Promise<{ error: string } | { extraction: InterviewExtraction }> {
+  const supabase = await requireUser();
+
+  const { data: segment, error: segmentError } = await supabase
+    .from("documents")
+    .select("parent_document_id, kind, transcription_raw")
+    .eq("id", segmentDocumentId)
+    .single();
+  if (segmentError || !segment) {
+    return { error: segmentError?.message ?? "Segment not found." };
+  }
+  const anchor = await getIntervieweePersonId(supabase, segment.parent_document_id);
+  if ("error" in anchor) return anchor;
+  const { intervieweePersonId } = anchor;
+  if (!segment.transcription_raw) {
+    return { error: "Transcribe this segment before extracting." };
+  }
+
+  const { data: interviewee, error: intervieweeError } = await supabase
+    .from("people")
+    .select("name")
+    .eq("id", intervieweePersonId)
+    .single();
+  if (intervieweeError || !interviewee) {
+    return { error: intervieweeError?.message ?? "Interviewee not found." };
+  }
+
+  const promptText = INTERVIEW_PROMPTS.find((p) => p.label === segment.kind)?.prompt;
+
+  let result;
+  try {
+    result = await generateObject({
+      model: "anthropic/claude-sonnet-5",
+      schema: interviewExtractionSchema,
+      messages: [
+        {
+          role: "user",
+          content: [
+            `This is a transcript of one segment of a guided oral-history interview with ${interviewee.name}.`,
+            promptText ? `This segment answers the prompt: "${promptText}"` : "",
+            "",
+            `Extract:`,
+            `1. Every OTHER person mentioned — never ${interviewee.name} themselves, since they're already known. For each, capture their name, their relation to ${interviewee.name} (e.g. "father", "sister", "spouse"), and roleCategory: "family" for anyone personally connected to ${interviewee.name}, "administrative" for anyone mentioned with no personal relation. Include any dates or disambiguating notes.`,
+            `2. Discrete factual claims — names, dates, places, occupations, relationships, or other concrete details. Attribute each to exactly who it's about (${interviewee.name} or one of the people above). If ${interviewee.name} hedges ("I think", "I'm not sure", "maybe", "I guess"), capture that hedge in confidence instead of stating the claim as certain or dropping it.`,
+            `3. Narrative anecdotes — stories, characterizations, and color that don't reduce to a discrete factual claim (how people met, a memorable moment, a personality description). Attribute each to who the story centers on.`,
+            "",
+            "Transcript:",
+            segment.transcription_raw,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        },
+      ],
+    });
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Extraction failed." };
+  }
+
+  const people = result.object.people;
+  const facts = result.object.facts.map((f) => ({
+    ...f,
+    aboutRef: resolveAbout(f.about, interviewee.name, people),
+  }));
+  const anecdotes = result.object.anecdotes.map((a) => ({
+    ...a,
+    aboutRef: resolveAbout(a.about, interviewee.name, people),
+  }));
+
+  const extraction: InterviewExtraction = { people, facts, anecdotes };
+
+  const { error: updateError } = await supabase
+    .from("documents")
+    .update({ candidate_people: extraction })
+    .eq("id", segmentDocumentId);
+  if (updateError) return { error: updateError.message };
+
+  revalidatePath("/interviews");
+  return { extraction };
+}
+
+// Same relationship-signal matching document candidates go through
+// (matchFamilyCandidates, shared with app/documents/actions.ts) — except
+// the anchor is passed explicitly as the interviewee_person_id rather than
+// inferred from a "deceased/self/subject" candidate, since who this
+// segment is about is already known structurally, not guessed at.
+export async function matchCandidatesForSegment(
+  segmentDocumentId: string,
+): Promise<{ error: string } | { extraction: InterviewExtraction }> {
+  const supabase = await requireUser();
+  const familyId = await getFamilyId();
+
+  const { data: segment, error: segmentError } = await supabase
+    .from("documents")
+    .select("parent_document_id, candidate_people")
+    .eq("id", segmentDocumentId)
+    .single();
+  if (segmentError || !segment) {
+    return { error: segmentError?.message ?? "Segment not found." };
+  }
+  const anchor = await getIntervieweePersonId(supabase, segment.parent_document_id);
+  if ("error" in anchor) return anchor;
+  const { intervieweePersonId } = anchor;
+
+  const extraction = segment.candidate_people as unknown as InterviewExtraction | null;
+  if (!extraction) return { error: "Extract candidates before matching." };
+
+  const matched = await matchFamilyCandidates(
+    supabase,
+    familyId,
+    extraction.people as CandidatePerson[],
+    intervieweePersonId,
+  );
+  if ("error" in matched) return matched;
+
+  const updatedExtraction: InterviewExtraction = { ...extraction, people: matched.results };
+
+  const { error: updateError } = await supabase
+    .from("documents")
+    .update({ candidate_people: updatedExtraction })
+    .eq("id", segmentDocumentId);
+  if (updateError) return { error: updateError.message };
+
+  revalidatePath("/interviews");
+  return { extraction: updatedExtraction };
 }

@@ -7,6 +7,7 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { getFamilyId } from "@/lib/family";
 import { addFirstPerson } from "@/app/tree/actions";
+import { candidatePersonSchema, type CandidatePerson } from "./candidate-schema";
 
 async function requireUser() {
   const supabase = await createClient();
@@ -47,31 +48,6 @@ export async function uploadDocument(formData: FormData) {
   revalidatePath("/documents");
   return {};
 }
-
-const candidatePersonSchema = z.object({
-  name: z.string().describe("The person's name as written in the document"),
-  relation: z
-    .string()
-    .nullable()
-    .describe(
-      "This person's role in the document relative to its main subject, e.g. 'deceased', 'spouse', 'father', 'informant'",
-    ),
-  roleCategory: z
-    .enum(["family", "administrative"])
-    .describe(
-      "'family' for anyone related to or personally connected with the document's subject (spouse, parent, child, sibling, etc.). 'administrative' for anyone present only in an official/procedural capacity — the informant, registrar, witness, clergy, notary, doctor who signed a certificate, etc. — who has no personal relation to the subject.",
-    ),
-  dates: z
-    .string()
-    .nullable()
-    .describe("Any date(s) associated with this person in the document"),
-  note: z
-    .string()
-    .nullable()
-    .describe(
-      "Any other disambiguating detail about this person, e.g. a patronymic like 'fu Luigi' (daughter of the late Luigi), a maiden name, or a place",
-    ),
-});
 
 type ExtractCandidatesResult =
   | { error: string }
@@ -160,8 +136,6 @@ export async function extractCandidatesFromDocument(
   return { candidates: result.object.candidates };
 }
 
-type CandidatePerson = z.infer<typeof candidatePersonSchema>;
-
 export type PersonMatch = {
   personId: string;
   personName: string;
@@ -207,12 +181,13 @@ const RELATIONSHIP_MATCH_SCORE = 0.95;
 
 function classifyRelationType(
   relation: string | null,
-): "spouse" | "parent" | "child" | null {
+): "spouse" | "parent" | "child" | "sibling" | null {
   if (!relation) return null;
   const r = relation.toLowerCase();
   if (/spouse|wife|husband|married/.test(r)) return "spouse";
   if (/father|mother|parent/.test(r)) return "parent";
   if (/son|daughter|child/.test(r)) return "child";
+  if (/sister|brother|sibling/.test(r)) return "sibling";
   return null;
 }
 
@@ -221,7 +196,7 @@ function isMainSubjectRelation(relation: string | null): boolean {
   return /deceased|self|subject|newborn/i.test(relation);
 }
 
-type SupabaseClient = Awaited<ReturnType<typeof requireUser>>;
+export type SupabaseClient = Awaited<ReturnType<typeof requireUser>>;
 
 async function getRealSpouseIds(
   supabase: SupabaseClient,
@@ -281,6 +256,32 @@ async function getRealChildIds(
   return (links ?? []).map((l) => l.child_id);
 }
 
+// Siblings share a recorded parent union rather than having a direct edge
+// to each other — same two-hop shape as getRealParentIds (find the
+// union(s) personId is a child of), just followed by every OTHER child of
+// those same union(s) instead of the parents themselves.
+async function getRealSiblingIds(
+  supabase: SupabaseClient,
+  personId: string,
+): Promise<string[]> {
+  const { data: links } = await supabase
+    .from("union_children")
+    .select("union_id")
+    .eq("child_id", personId);
+  if (!links || links.length === 0) return [];
+
+  const { data: siblingLinks } = await supabase
+    .from("union_children")
+    .select("child_id")
+    .in(
+      "union_id",
+      links.map((l) => l.union_id),
+    );
+  return (siblingLinks ?? [])
+    .map((l) => l.child_id)
+    .filter((id) => id !== personId);
+}
+
 function reclassify(matches: PersonMatch[]): CandidateWithMatch["matchStatus"] {
   matches.sort((a, b) => b.score - a.score);
   const [top, runnerUp] = matches;
@@ -297,22 +298,36 @@ function reclassify(matches: PersonMatch[]): CandidateWithMatch["matchStatus"] {
 // literally Vincenzo's spouse in the unions table. This is far more
 // reliable than name similarity alone, which can't tell a maiden name or
 // an Anglicized name from an unrelated same-surname coincidence.
+// explicitAnchorId lets a caller that already knows its real subject (e.g.
+// interview extraction, which is always anchored on the known
+// interviewee_person_id — see matchInterviewSegmentCandidates in
+// app/interviews/actions.ts) skip the inference step entirely, which is
+// both unnecessary work and a source of error when the real anchor is
+// already known rather than guessed from the candidates themselves.
 async function applyRelationshipSignal(
   supabase: SupabaseClient,
   results: CandidateWithMatch[],
+  explicitAnchorId?: string,
 ): Promise<void> {
   const familyCandidates = results.filter((r) => r.roleCategory === "family");
-  const resolvedAnchors = familyCandidates.filter(
-    (r) => r.matchStatus === "high_confidence" && r.matches.length > 0,
-  );
-  if (resolvedAnchors.length === 0) return;
 
-  const mainSubject =
-    resolvedAnchors.find((r) => isMainSubjectRelation(r.relation)) ??
-    [...resolvedAnchors].sort(
-      (a, b) => b.matches[0].score - a.matches[0].score,
-    )[0];
-  const anchorId = mainSubject.matches[0].personId;
+  let anchorId: string;
+  let mainSubject: CandidateWithMatch | undefined;
+  if (explicitAnchorId) {
+    anchorId = explicitAnchorId;
+  } else {
+    const resolvedAnchors = familyCandidates.filter(
+      (r) => r.matchStatus === "high_confidence" && r.matches.length > 0,
+    );
+    if (resolvedAnchors.length === 0) return;
+
+    mainSubject =
+      resolvedAnchors.find((r) => isMainSubjectRelation(r.relation)) ??
+      [...resolvedAnchors].sort(
+        (a, b) => b.matches[0].score - a.matches[0].score,
+      )[0];
+    anchorId = mainSubject.matches[0].personId;
+  }
 
   for (const candidate of familyCandidates) {
     if (candidate === mainSubject) continue;
@@ -324,18 +339,21 @@ async function applyRelationshipSignal(
         ? await getRealSpouseIds(supabase, anchorId)
         : relType === "parent"
           ? await getRealParentIds(supabase, anchorId)
-          : await getRealChildIds(supabase, anchorId);
+          : relType === "child"
+            ? await getRealChildIds(supabase, anchorId)
+            : await getRealSiblingIds(supabase, anchorId);
     if (realRelatedIds.length === 0) continue;
 
     // Only boost matches this candidate's own name search already turned
     // up — never inject a real-related person with zero name corroboration.
     // "parent" covers both father and mother (no gender data to tell them
-    // apart), and a person can have more than one real spouse or child, so
-    // realRelatedIds is often a set, not a single answer: without an
-    // existing name-based match to anchor it to a specific candidate,
-    // there's no reliable way to know which real relative belongs to
-    // which document candidate. Recording the wrong one confidently would
-    // be worse than leaving it ambiguous.
+    // apart), "sibling" covers both sister and brother, and a person can
+    // have more than one real spouse/child/sibling, so realRelatedIds is
+    // often a set, not a single answer: without an existing name-based
+    // match to anchor it to a specific candidate, there's no reliable way
+    // to know which real relative belongs to which document candidate.
+    // Recording the wrong one confidently would be worse than leaving it
+    // ambiguous.
     let boosted = false;
     for (const match of candidate.matches) {
       if (realRelatedIds.includes(match.personId)) {
@@ -354,24 +372,18 @@ type MatchCandidatesResult =
   | { error: string }
   | { candidates: CandidateWithMatch[] };
 
-export async function matchCandidatesForDocument(
-  documentId: string,
-): Promise<MatchCandidatesResult> {
-  const supabase = await requireUser();
-  const familyId = await getFamilyId();
-
-  const { data: document, error: fetchError } = await supabase
-    .from("documents")
-    .select("candidate_people")
-    .eq("id", documentId)
-    .single();
-  if (fetchError || !document) {
-    return { error: fetchError?.message ?? "Document not found." };
-  }
-
-  const candidates = (document.candidate_people ??
-    []) as unknown as CandidatePerson[];
-
+// Shared by document matching (below) and interview segment matching (see
+// matchInterviewSegmentCandidates in app/interviews/actions.ts) — one
+// name-similarity + date + relationship-signal pipeline, not two. Pass
+// explicitAnchorId when the caller already knows its real subject (an
+// interview's interviewee_person_id) rather than needing it inferred from
+// a "deceased/self/subject" candidate the way a document's own text does.
+export async function matchFamilyCandidates(
+  supabase: SupabaseClient,
+  familyId: string,
+  candidates: CandidatePerson[],
+  explicitAnchorId?: string,
+): Promise<{ error: string } | { results: CandidateWithMatch[] }> {
   const results: CandidateWithMatch[] = [];
   for (const candidate of candidates) {
     if (candidate.roleCategory !== "family") {
@@ -423,9 +435,34 @@ export async function matchCandidatesForDocument(
 
   // Second pass: for candidates the name-similarity pass left ambiguous
   // (or ranked low), check whether they already have the recorded
-  // relationship the document describes to another candidate that DID
-  // resolve confidently — a much stronger signal than name text alone.
-  await applyRelationshipSignal(supabase, results);
+  // relationship to the anchor — a much stronger signal than name text
+  // alone.
+  await applyRelationshipSignal(supabase, results, explicitAnchorId);
+
+  return { results };
+}
+
+export async function matchCandidatesForDocument(
+  documentId: string,
+): Promise<MatchCandidatesResult> {
+  const supabase = await requireUser();
+  const familyId = await getFamilyId();
+
+  const { data: document, error: fetchError } = await supabase
+    .from("documents")
+    .select("candidate_people")
+    .eq("id", documentId)
+    .single();
+  if (fetchError || !document) {
+    return { error: fetchError?.message ?? "Document not found." };
+  }
+
+  const candidates = (document.candidate_people ??
+    []) as unknown as CandidatePerson[];
+
+  const matched = await matchFamilyCandidates(supabase, familyId, candidates);
+  if ("error" in matched) return matched;
+  const results = matched.results;
 
   const { error: updateError } = await supabase
     .from("documents")

@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getFamilyId, buildPersonSummaries } from "@/lib/family";
 import { getSignedDocumentUrls } from "@/lib/documents";
-import { InterviewsView, type InterviewRow } from "./interviews-view";
+import { InterviewsView, type InterviewRow, type SegmentRow } from "./interviews-view";
+import type { InterviewExtraction } from "./actions";
 
 export default async function InterviewsPage() {
   const supabase = await createClient();
@@ -33,7 +34,9 @@ export default async function InterviewsPage() {
       .order("recorded_at", { ascending: false }),
     supabase
       .from("documents")
-      .select("id, parent_document_id, kind, audio_start_seconds, audio_end_seconds, transcription_raw")
+      .select(
+        "id, parent_document_id, kind, audio_start_seconds, audio_end_seconds, transcription_raw, candidate_people",
+      )
       .not("parent_document_id", "is", null)
       .order("audio_start_seconds", { ascending: true }),
     supabase.from("people").select("*"),
@@ -46,11 +49,14 @@ export default async function InterviewsPage() {
     (sessions ?? []).map((s) => s.file_path),
   );
   const peopleById = new Map((people ?? []).map((p) => [p.id, p]));
-  const segmentsByParent = new Map<string, NonNullable<typeof allSegments>>();
+  const segmentsByParent = new Map<string, SegmentRow[]>();
   for (const seg of allSegments ?? []) {
     if (!seg.parent_document_id) continue;
     const list = segmentsByParent.get(seg.parent_document_id) ?? [];
-    list.push(seg);
+    list.push({
+      ...seg,
+      candidate_people: seg.candidate_people as unknown as InterviewExtraction | null,
+    });
     segmentsByParent.set(seg.parent_document_id, list);
   }
   const sessionsWithDetails: InterviewRow[] = (sessions ?? []).map((s) => ({

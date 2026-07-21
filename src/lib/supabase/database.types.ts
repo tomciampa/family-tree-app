@@ -17,6 +17,7 @@ export type Database = {
       anecdotes: {
         Row: {
           contributor_id: string | null
+          document_id: string | null
           family_id: string | null
           id: string
           person_id: string | null
@@ -26,6 +27,7 @@ export type Database = {
         }
         Insert: {
           contributor_id?: string | null
+          document_id?: string | null
           family_id?: string | null
           id?: string
           person_id?: string | null
@@ -35,6 +37,7 @@ export type Database = {
         }
         Update: {
           contributor_id?: string | null
+          document_id?: string | null
           family_id?: string | null
           id?: string
           person_id?: string | null
@@ -48,6 +51,13 @@ export type Database = {
             columns: ["contributor_id"]
             isOneToOne: false
             referencedRelation: "contributors"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "anecdotes_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
             referencedColumns: ["id"]
           },
           {
