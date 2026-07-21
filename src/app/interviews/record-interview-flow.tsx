@@ -68,7 +68,7 @@ export function RecordInterviewFlow({
   const [intervieweeId, setIntervieweeId] = useState<string | null>(null);
   const [intervieweeName, setIntervieweeName] = useState<string>("");
   const [recordingStatus, setRecordingStatus] = useState<
-    "idle" | "recording" | "saving" | "error"
+    "idle" | "recording" | "paused" | "saving" | "error"
   >("idle");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [recordError, setRecordError] = useState<string | null>(null);
@@ -181,6 +181,40 @@ export function RecordInterviewFlow({
     segmentStartRef.current = elapsedSeconds;
     promptIndexRef.current += 1;
     setPromptIndex(promptIndexRef.current);
+  }
+
+  // MediaRecorder's own pause()/resume() excludes paused wall-clock time
+  // from the encoded audio entirely (verified: a 3s-record / 5s-paused /
+  // 7s-record take produced a ~10s file, not ~15s) — stopping our own
+  // elapsedSeconds timer in lockstep keeps it in sync with the real
+  // recording position, so segment boundaries stay accurate across a
+  // pause with no extra math. For stepping away mid-session (a bathroom
+  // break, a phone call) — not for resuming a session days later, which
+  // is a bigger feature.
+  function handlePause() {
+    if (timerRef.current) clearInterval(timerRef.current);
+    mediaRecorderRef.current?.pause();
+    setRecordingStatus("paused");
+  }
+
+  function handleResume() {
+    mediaRecorderRef.current?.resume();
+    timerRef.current = setInterval(() => {
+      setElapsedSeconds((s) => s + 1);
+    }, 1000);
+    setRecordingStatus("recording");
+  }
+
+  // For a spoken self-correction the interviewee would rather just redo
+  // than leave for the transcript to sort out — moves the current
+  // answer's start point up to now, so whatever was said since the last
+  // boundary is simply never included in any segment's [start, end)
+  // window. The audio itself isn't (can't be) trimmed — MediaRecorder has
+  // no way to un-encode what's already been captured — but the abandoned
+  // attempt becomes invisible to transcription/extraction either way,
+  // which is what actually matters.
+  function handleRedoAnswer() {
+    segmentStartRef.current = elapsedSeconds;
   }
 
   function stopRecording() {
@@ -341,16 +375,48 @@ export function RecordInterviewFlow({
           )}
 
           <div className="flex flex-col items-center gap-3 py-6">
-            {recordingStatus === "recording" ? (
+            {recordingStatus === "recording" || recordingStatus === "paused" ? (
               <>
                 <div className="flex items-center gap-3">
-                  <span className="h-4 w-4 animate-pulse rounded-full bg-red-600" />
+                  <span
+                    className={`h-4 w-4 rounded-full ${
+                      recordingStatus === "recording"
+                        ? "animate-pulse bg-red-600"
+                        : "bg-amber-500"
+                    }`}
+                  />
                   <span className="text-2xl font-semibold tabular-nums">
                     {formatElapsed(elapsedSeconds)}
                   </span>
                 </div>
-                <p className="text-sm text-gray-500">Recording…</p>
-                <div className="flex gap-3">
+                <p className="text-sm text-gray-500">
+                  {recordingStatus === "recording" ? "Recording…" : "Paused"}
+                </p>
+                <div className="flex flex-wrap justify-center gap-3">
+                  {recordingStatus === "recording" ? (
+                    <button
+                      type="button"
+                      onClick={handlePause}
+                      className="rounded border border-gray-300 px-4 py-3 text-base font-medium hover:border-gray-400 dark:border-gray-700 dark:hover:border-gray-600"
+                    >
+                      Pause
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleResume}
+                      className="rounded bg-green-700 px-4 py-3 text-base font-medium text-white hover:bg-green-800"
+                    >
+                      Resume
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleRedoAnswer}
+                    className="rounded border border-gray-300 px-4 py-3 text-base font-medium hover:border-gray-400 dark:border-gray-700 dark:hover:border-gray-600"
+                  >
+                    Redo this answer
+                  </button>
                   {promptIndex < INTERVIEW_PROMPTS.length - 1 && (
                     <button
                       type="button"
@@ -387,7 +453,11 @@ export function RecordInterviewFlow({
           <button
             type="button"
             onClick={onCancel}
-            disabled={recordingStatus === "recording" || recordingStatus === "saving"}
+            disabled={
+              recordingStatus === "recording" ||
+              recordingStatus === "paused" ||
+              recordingStatus === "saving"
+            }
             className="self-start text-sm text-gray-500 hover:text-gray-700 disabled:opacity-50 dark:hover:text-gray-300"
           >
             Cancel
