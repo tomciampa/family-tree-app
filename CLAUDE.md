@@ -35,6 +35,9 @@ registrar/notary from family-matching) → relationship-aware fuzzy matching aga
 signal than name-string similarity alone — this was a real, verified fix; pure name matching
 confused unrelated same-named people) → manual confirm/reject review queue before anything
 writes to `facts`/`document_people`. Never auto-write a match without human confirmation.
+The relationship signal covers spouse/parent/child and siblings (shared-parent detection via
+`union_children`) — this matcher (`matchFamilyCandidates` in `documents/actions.ts`) is shared
+between document extraction and interview extraction, not duplicated per pipeline.
 
 ## Tree rendering approach (settled after 3 rounds of real bugs — don't rebuild from scratch)
 `family-chart` natively renders only the "main" (focused) person's full blood-line ancestry,
@@ -51,27 +54,76 @@ of the real one. Also watch for two separately-expanded overlays sharing a commo
 siblings; clicking a parent's card body does NOT recenter (only siblings do).
 
 ## Design
-Visual identity is being redesigned toward a clean, Apple-inspired light/neutral aesthetic —
-whites and light grays, dark neutral text, a blue accent for primary actions/links, soft
-layered shadows, generous rounded corners. This deliberately supersedes the earlier "archival
-paper" direction (warm cream/parchment, sepia/ledger-green accents) that used to be
-documented here — that palette is being replaced on purpose, not accidentally. Don't
-reintroduce cream/parchment/sepia tones thinking you're honoring a still-current preference;
-you'd be reverting an intentional change.
+The redesign to a clean, Apple-inspired light/neutral aesthetic — whites and light grays, dark
+neutral text, a blue accent for primary actions/links, soft layered shadows, generous rounded
+corners — is **complete**. It fully replaced the earlier "archival paper" direction (warm
+cream/parchment, sepia/ledger-green accents); no archival-theme surfaces remain anywhere in the
+app. Don't reintroduce cream/parchment/sepia tones thinking you're honoring a still-current
+preference — that palette is gone on purpose, not missed.
 
 `src/app/design-tokens.css` is the source of truth: a full token system (color, typography,
 spacing, radius, elevation, motion) as namespaced CSS custom properties (`--color-*`,
-`--font-*`, `--space-*`, `--radius-*`, `--shadow-*`, `--duration-*`/`--ease-*`). Use these
-tokens rather than inventing new colors, spacing, or shadow values ad hoc. The rollout is
-staged — tokens existing doesn't mean every surface has been migrated to use them yet, so
-check what a given component actually does before assuming it already reflects the new look.
-If touching tree UI colors, still go through family-chart's own theming API (CSS custom
-properties, not ad hoc per-element overrides) — just point those variables at the new tokens
-once that migration happens, not at new one-off hex values.
+`--font-*`, `--space-*`, `--radius-*`, `--shadow-*`, `--duration-*`/`--ease-*`). Every surface
+now uses these tokens — tree, dossier, PersonPanel, DocumentViewerModal, the documents/
+interviews list pages, and their 3-pane review workspaces. Use these tokens rather than
+inventing new colors, spacing, or shadow values ad hoc. If touching tree UI colors, go through
+family-chart's own theming API (CSS custom properties, not ad hoc per-element overrides)
+pointed at these tokens, not new one-off hex values.
 
 The underlying reasoning hasn't changed even though the palette has: primary users include
 elderly, non-technical family members, so legibility and clarity take priority over
-trendiness within the new palette too.
+trendiness within the palette.
+
+Conventions established during the rollout, worth following for any new surface:
+- Reuse the `neutral` theme variant already built into `FactList`/`AnecdoteList`/`DocumentList`
+  (see `fact-list.tsx`) rather than writing new one-off styling for facts/stories/documents
+  lists — that's what it's there for.
+- Status pills (`pending_match`/`matched`/`no_match`, `high_confidence`/`multiple_matches`/
+  `no_match`, etc.) map onto the semantic `--color-warning-*`/`--color-success-*` tokens (and
+  `--color-bg-surface-alt`/`--color-text-secondary` for the neutral/no-match case) — that's
+  their intended use case, not a one-off choice.
+- Verify a visual-only change via `git diff`: every changed line should be a className/style
+  value, never a handler, state, or prop change. When a change sits near an action that writes
+  real data (starting/stopping a recording, confirming a batch match) and no disposable test
+  account exists to safely trigger it live, verify via that same diff — that the handler itself
+  is byte-for-byte untouched — rather than actually triggering the action against real data.
+
+## Audio Interview architecture
+Interview recordings and their per-question segments are stored as rows in the same
+`documents` table used for uploaded certificates/letters — not a separate table — tagged via
+`interviewee_person_id` (the parent recording) and `parent_document_id` (each segment). This
+was a deliberate Stage 1 choice to reuse existing storage/RLS/schema rather than add a parallel
+model, but it already caused a real bug once: the `/documents` list page didn't exclude
+interview rows, and an interview segment's `candidate_people` is shaped as an `{ facts, people,
+anecdotes }` extraction object rather than the `CandidatePerson[]` the documents page expects —
+crashing the page the moment an interview row reached it (fixed by filtering on
+`interviewee_person_id`/`parent_document_id` being null). Any new query against `documents`
+that isn't interview-aware should filter these out explicitly. Flagged as a candidate for
+splitting into its own table/model if this keeps causing friction.
+
+Transcription uses `openai/whisper-1` specifically, not `gpt-4o-transcribe` or
+`gpt-4o-mini-transcribe` — the newer models are more accurate but silently return no timestamps
+at all when timestamp granularities are requested, and word-level timestamps are what's needed
+to slice one continuous session recording into its per-question segments. See the comment in
+`interviews/actions.ts` above the transcription calls before changing the model.
+
+Batch confirmation (`confirmInterviewBatch`) is idempotent — already-resolved people and
+already-written facts/anecdotes are tracked via `resolution`/`written` markers persisted back
+onto each segment's own `candidate_people`, so re-running it (e.g. after extracting a segment
+added later) never duplicates data.
+
+## Suggested Connections
+`src/lib/suggested-connections.ts` resolves loose/unconnected people (most often someone
+extracted from an interview with no `unions`/`union_children` row yet) into one-click "Connect"
+suggestions on the tree, by walking fact-based relation chains — e.g. resolving "maternal
+grandfather of Maxine" by walking from Maxine through her recorded mother's recorded father.
+Conservative by construction: an unrecognized relation type, an anchor name that doesn't match
+a real person, or a hop that can't be walked (a parent-role fact is missing) simply produces no
+suggestion rather than a guess.
+
+There is no gender data anywhere in this app (`people.gender` is never populated by anything) —
+this resolver, like the relationship-signal matcher in the document pipeline above, relies
+entirely on the "Mother"/"Father" fact field convention instead.
 
 ## Working conventions
 - **Always verify with a real browser test before committing**, not just typecheck/build —
