@@ -81,9 +81,12 @@ export default async function Home() {
         >
           FamilySearch
         </Link>
-        <span className="text-sm text-[color:var(--color-text-tertiary)]">
-          Settings <span className="italic">(coming soon)</span>
-        </span>
+        <Link
+          href="/settings"
+          className="text-sm text-[color:var(--color-accent)] underline transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-accent-hover)]"
+        >
+          Settings
+        </Link>
         <form action={signOut}>
           <button
             type="submit"

@@ -398,18 +398,21 @@ export type Database = {
         Row: {
           family_id: string
           joined_at: string | null
+          linked_person_id: string | null
           role: string | null
           user_id: string
         }
         Insert: {
           family_id: string
           joined_at?: string | null
+          linked_person_id?: string | null
           role?: string | null
           user_id: string
         }
         Update: {
           family_id?: string
           joined_at?: string | null
+          linked_person_id?: string | null
           role?: string | null
           user_id?: string
         }
@@ -419,6 +422,13 @@ export type Database = {
             columns: ["family_id"]
             isOneToOne: false
             referencedRelation: "families"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "family_members_linked_person_id_fkey"
+            columns: ["linked_person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
             referencedColumns: ["id"]
           },
         ]

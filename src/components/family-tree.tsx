@@ -304,6 +304,7 @@ export function FamilyTree({
   onDeletePerson,
   highlightPersonId,
   heightClassName = "h-[75vh]",
+  defaultMainPersonId,
 }: {
   people: Person[];
   unions: UnionRow[];
@@ -323,6 +324,12 @@ export function FamilyTree({
   // way the standalone /tree page does) size the canvas without touching
   // the default.
   heightClassName?: string;
+  // The logged-in user's own linked person (see /settings), preferred
+  // over pickDefaultMain's "most descendants" heuristic when present and
+  // actually placed in the tree — see the mainId computation below for
+  // why "actually placed" still falls back to pickDefaultMain rather than
+  // breaking on a linked-but-unconnected person.
+  defaultMainPersonId?: string | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<ReturnType<typeof f3.createChart> | null>(null);
@@ -432,7 +439,15 @@ export function FamilyTree({
       );
 
     const data = toF3Data(connected, unions, unionChildren);
-    const mainId = pickDefaultMain(connected, unions, unionChildren);
+    // Prefer the logged-in user's own linked person (see /settings) when
+    // set AND actually placed in the tree — falls back to today's "most
+    // descendants" default otherwise, so someone who hasn't linked
+    // themselves yet (or linked someone not yet connected) sees exactly
+    // what they always have.
+    const mainId =
+      defaultMainPersonId && connected.some((p) => p.id === defaultMainPersonId)
+        ? defaultMainPersonId
+        : pickDefaultMain(connected, unions, unionChildren);
 
     const f3Chart = f3
       .createChart(container, data)

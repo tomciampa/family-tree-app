@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getSignedDocumentUrls } from "@/lib/documents";
-import { buildPersonSummaries } from "@/lib/family";
+import { buildPersonSummaries, getFamilyId } from "@/lib/family";
 import { TreeView } from "./tree-view";
 import { AddFirstPersonForm } from "./add-first-person-form";
 
@@ -16,6 +16,8 @@ export default async function TreePage() {
     redirect("/login");
   }
 
+  const familyId = await getFamilyId();
+
   const [
     { data: people, error: peopleError },
     { data: unions, error: unionsError },
@@ -23,6 +25,7 @@ export default async function TreePage() {
     { data: facts, error: factsError },
     { data: anecdotes, error: anecdotesError },
     { data: documentLinks, error: documentLinksError },
+    { data: membership },
   ] = await Promise.all([
     supabase.from("people").select("*").order("created_at"),
     supabase.from("unions").select("*").order("created_at"),
@@ -32,6 +35,15 @@ export default async function TreePage() {
     supabase
       .from("document_people")
       .select("person_id, documents(id, filename, file_path, document_type)"),
+    // Not part of the `error` union below — a missing/failed lookup here
+    // should never block rendering the tree, just fall through to
+    // pickDefaultMain's existing behavior (see FamilyTree's own comment).
+    supabase
+      .from("family_members")
+      .select("linked_person_id")
+      .eq("family_id", familyId)
+      .eq("user_id", user.id)
+      .maybeSingle(),
   ]);
 
   const error =
@@ -92,6 +104,7 @@ export default async function TreePage() {
           anecdotes={anecdotes ?? []}
           personDocuments={personDocuments}
           personSummaries={personSummaries}
+          defaultMainPersonId={membership?.linked_person_id ?? null}
         />
       )}
     </main>

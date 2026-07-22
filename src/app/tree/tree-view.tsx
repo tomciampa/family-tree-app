@@ -25,6 +25,7 @@ export function TreeView({
   anecdotes,
   personDocuments,
   personSummaries,
+  defaultMainPersonId,
 }: {
   people: Person[];
   unions: UnionRow[];
@@ -33,6 +34,7 @@ export function TreeView({
   anecdotes: Anecdote[];
   personDocuments: PersonDocument[];
   personSummaries: Record<string, PersonSummary>;
+  defaultMainPersonId?: string | null;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dossierId, setDossierId] = useState<string | null>(null);
@@ -153,6 +155,7 @@ export function TreeView({
             onAttachToTree={handleAttachToTree}
             onDeletePerson={handleDeletePerson}
             highlightPersonId={highlightPersonId}
+            defaultMainPersonId={defaultMainPersonId}
           />
         </div>
         {dossierPerson && (
