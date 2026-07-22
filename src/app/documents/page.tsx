@@ -17,6 +17,15 @@ export default async function DocumentsPage() {
   const { data: documents, error } = await supabase
     .from("documents")
     .select("id, filename, file_path, status, recorded_at, candidate_people")
+    // Interview recordings/segments live in this same table (see
+    // interviews/actions.ts) but shape candidate_people as an
+    // { facts, people, anecdotes } extraction object rather than this
+    // page's CandidatePerson[] — they're never candidates for the
+    // document-matching workflow (already linked via
+    // interviewee_person_id/parent_document_id), so exclude them here
+    // rather than in every consumer of this query's result.
+    .is("interviewee_person_id", null)
+    .is("parent_document_id", null)
     .order("recorded_at", { ascending: false });
 
   const urlByPath = await getSignedDocumentUrls(
