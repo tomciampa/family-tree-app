@@ -37,10 +37,10 @@ function formatSeconds(totalSeconds: number): string {
 
 const matchStatusStyles: Record<string, string> = {
   high_confidence:
-    "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
+    "bg-[color:var(--color-success-subtle-bg)] text-[color:var(--color-success-subtle-fg)]",
   multiple_matches:
-    "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
-  no_match: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
+    "bg-[color:var(--color-warning-subtle-bg)] text-[color:var(--color-warning-subtle-fg)]",
+  no_match: "bg-[color:var(--color-bg-surface-alt)] text-[color:var(--color-text-secondary)]",
 };
 
 type PersonDecision = {
@@ -183,11 +183,11 @@ export function InterviewReview({
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded border border-gray-200 px-4 py-3 dark:border-gray-800">
+    <div className="flex flex-col gap-4 font-[family-name:var(--font-family-base)] text-[color:var(--color-text-primary)]">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-md)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] px-4 py-3 shadow-[var(--shadow-1)]">
         <div>
           <h1 className="text-sm font-medium">Interview with {intervieweeName}</h1>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-[color:var(--color-text-secondary)]">
             {includedCount} candidate{includedCount === 1 ? "" : "s"} checked for this batch
           </p>
         </div>
@@ -195,15 +195,15 @@ export function InterviewReview({
           type="button"
           onClick={handleConfirmBatch}
           disabled={isConfirming || includedCount === 0}
-          className="rounded bg-green-700 px-4 py-2 text-sm font-medium text-white hover:bg-green-800 disabled:opacity-50"
+          className="rounded-[var(--radius-sm)] bg-[color:var(--color-success)] px-4 py-2 text-sm font-medium text-[color:var(--color-text-on-accent)] transition-colors duration-[var(--duration-base)] hover:opacity-90 disabled:opacity-50"
         >
           {isConfirming ? "Confirming…" : `Confirm batch (${includedCount})`}
         </button>
       </div>
 
-      {error && <p className="text-sm text-red-500">{error}</p>}
+      {error && <p className="text-sm text-[color:var(--color-error)]">{error}</p>}
       {summary && (
-        <p className="rounded border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-900 dark:bg-green-950/30 dark:text-green-300">
+        <p className="rounded-[var(--radius-sm)] border border-[color:var(--color-success)] bg-[color:var(--color-success-subtle-bg)] px-3 py-2 text-sm text-[color:var(--color-success-subtle-fg)]">
           Confirmed: {summary.peopleConfirmed} linked, {summary.peopleCreated} created,{" "}
           {summary.peopleSkipped} skipped · {summary.factsWritten} facts,{" "}
           {summary.anecdotesWritten} anecdotes saved.
@@ -211,8 +211,8 @@ export function InterviewReview({
       )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="flex flex-col gap-3 rounded border border-gray-200 p-4 dark:border-gray-800 lg:max-h-[78vh] lg:overflow-y-auto">
-          <h2 className="text-xs font-medium uppercase tracking-wide text-gray-500">
+        <div className="flex flex-col gap-3 rounded-[var(--radius-md)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-4 shadow-[var(--shadow-1)] lg:max-h-[78vh] lg:overflow-y-auto">
+          <h2 className="text-[length:var(--font-size-caption)] font-medium uppercase tracking-wide text-[color:var(--color-text-secondary)]">
             Recording
           </h2>
           {audioUrl ? (
@@ -220,7 +220,7 @@ export function InterviewReview({
               Your browser doesn&apos;t support audio playback.
             </audio>
           ) : (
-            <p className="text-xs text-red-500">Recording unavailable right now.</p>
+            <p className="text-xs text-[color:var(--color-error)]">Recording unavailable right now.</p>
           )}
 
           <div className="flex flex-col gap-3">
@@ -233,21 +233,21 @@ export function InterviewReview({
                     onClick={() =>
                       segment.audio_start_seconds != null && seekTo(segment.audio_start_seconds)
                     }
-                    className="self-start text-xs font-medium uppercase tracking-wide text-gray-500 hover:underline"
+                    className="self-start text-xs font-medium uppercase tracking-wide text-[color:var(--color-text-secondary)] hover:underline"
                   >
                     {segment.kind ?? "Segment"}
                     {segment.audio_start_seconds != null && segment.audio_end_seconds != null && (
-                      <span className="font-normal text-gray-400 dark:text-gray-500">
+                      <span className="font-normal text-[color:var(--color-text-tertiary)]">
                         {" "}
                         ({formatSeconds(segment.audio_start_seconds)}–
                         {formatSeconds(segment.audio_end_seconds)})
                       </span>
                     )}
                   </button>
-                  <pre className="whitespace-pre-wrap font-sans text-xs text-gray-700 dark:text-gray-300">
+                  <pre className="whitespace-pre-wrap font-sans text-xs text-[color:var(--color-text-secondary)]">
                     {parts.map((part, i) =>
                       part.match ? (
-                        <mark key={i} className="rounded bg-amber-200 px-0.5 dark:bg-amber-700/60">
+                        <mark key={i} className="rounded-[var(--radius-xs)] bg-[color:var(--color-accent-subtle)] px-0.5 text-[color:var(--color-text-primary)]">
                           {part.text}
                         </mark>
                       ) : (
@@ -261,8 +261,8 @@ export function InterviewReview({
           </div>
         </div>
 
-        <div className="flex flex-col gap-5 rounded border border-gray-200 p-4 dark:border-gray-800 lg:max-h-[78vh] lg:overflow-y-auto">
-          <h2 className="text-xs font-medium uppercase tracking-wide text-gray-500">
+        <div className="flex flex-col gap-5 rounded-[var(--radius-md)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-4 shadow-[var(--shadow-1)] lg:max-h-[78vh] lg:overflow-y-auto">
+          <h2 className="text-[length:var(--font-size-caption)] font-medium uppercase tracking-wide text-[color:var(--color-text-secondary)]">
             Candidates
           </h2>
           {segments.map((segment) => {
@@ -280,7 +280,7 @@ export function InterviewReview({
             }
             return (
               <div key={segment.id} className="flex flex-col gap-2">
-                <h3 className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                <h3 className="text-xs font-semibold text-[color:var(--color-text-secondary)]">
                   {segment.kind ?? "Segment"}
                 </h3>
 
@@ -308,7 +308,7 @@ export function InterviewReview({
 
                 {extraction.facts.length > 0 && (
                   <div className="flex flex-col gap-0.5">
-                    <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-600">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-[color:var(--color-text-tertiary)]">
                       Facts
                     </p>
                     {extraction.facts.map((f, i) => (
@@ -319,7 +319,7 @@ export function InterviewReview({
                         label={aboutLabel(f.aboutRef, intervieweeName)}
                       >
                         <span className="font-medium">{f.field}:</span> {f.value}
-                        {f.confidence && <span className="text-gray-500"> ({f.confidence})</span>}
+                        {f.confidence && <span className="text-[color:var(--color-text-secondary)]"> ({f.confidence})</span>}
                       </FactAnecdoteLine>
                     ))}
                   </div>
@@ -327,7 +327,7 @@ export function InterviewReview({
 
                 {extraction.anecdotes.length > 0 && (
                   <div className="flex flex-col gap-0.5">
-                    <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-600">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-[color:var(--color-text-tertiary)]">
                       Anecdotes
                     </p>
                     {extraction.anecdotes.map((a, i) => (
@@ -347,8 +347,8 @@ export function InterviewReview({
           })}
         </div>
 
-        <div className="rounded border border-gray-200 p-2 dark:border-gray-800">
-          <h2 className="px-2 py-1 text-xs font-medium uppercase tracking-wide text-gray-500">
+        <div className="rounded-[var(--radius-md)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-2 shadow-[var(--shadow-1)]">
+          <h2 className="px-2 py-1 text-[length:var(--font-size-caption)] font-medium uppercase tracking-wide text-[color:var(--color-text-secondary)]">
             Tree — hover a candidate to preview
           </h2>
           <FamilyTree
@@ -379,13 +379,13 @@ function FactAnecdoteLine({
     <p
       className={`text-[11px] ${
         already
-          ? "text-gray-400 dark:text-gray-600"
+          ? "text-[color:var(--color-text-tertiary)]"
           : included
-            ? "text-gray-700 dark:text-gray-300"
-            : "text-gray-400 dark:text-gray-600"
+            ? "text-[color:var(--color-text-secondary)]"
+            : "text-[color:var(--color-text-tertiary)]"
       }`}
     >
-      <span className="text-gray-500">{label}</span> — {children}
+      <span className="text-[color:var(--color-text-secondary)]">{label}</span> — {children}
       {already && <span className="italic"> · saved</span>}
       {!already && !included && <span className="italic"> · will be skipped for now</span>}
     </p>
@@ -419,10 +419,10 @@ function PersonCandidateRow({
           people.find((p) => p.id === candidate.resolution?.personId)?.name)) ||
       candidate.name;
     return (
-      <li className="text-xs text-gray-500">
-        <span className="font-medium text-gray-700 dark:text-gray-300">{candidate.name}</span>
+      <li className="text-xs text-[color:var(--color-text-secondary)]">
+        <span className="font-medium text-[color:var(--color-text-secondary)]">{candidate.name}</span>
         {candidate.relation && ` — ${candidate.relation}`}
-        <p className="mt-0.5 text-[11px] text-gray-500">
+        <p className="mt-0.5 text-[11px] text-[color:var(--color-text-secondary)]">
           {candidate.resolution.action === "confirmed" && `Confirmed → linked to ${resolvedName}`}
           {candidate.resolution.action === "created" && `Created new person: ${resolvedName}`}
           {candidate.resolution.action === "skipped" && "Skipped"}
@@ -437,7 +437,7 @@ function PersonCandidateRow({
   const inputName = `person-${segmentId}-${index}`;
 
   return (
-    <li className="text-xs text-gray-600 dark:text-gray-400">
+    <li className="text-xs text-[color:var(--color-text-secondary)]">
       <label className="flex items-start gap-2">
         <input
           type="checkbox"
@@ -446,11 +446,11 @@ function PersonCandidateRow({
           className="mt-0.5"
         />
         <span>
-          <span className="font-medium text-gray-800 dark:text-gray-200">{candidate.name}</span>
+          <span className="font-medium text-[color:var(--color-text-primary)]">{candidate.name}</span>
           {candidate.relation && ` — ${candidate.relation}`}
           {candidate.note && ` · ${candidate.note}`}
           <span
-            className={`ml-2 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${matchStatusStyles[candidate.matchStatus]}`}
+            className={`ml-2 rounded-[var(--radius-xs)] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${matchStatusStyles[candidate.matchStatus]}`}
           >
             {candidate.matchStatus === "high_confidence" && matches[0]
               ? `matches ${matches[0].personName} (${Math.round(matches[0].score * 100)}%)`
@@ -462,7 +462,7 @@ function PersonCandidateRow({
       </label>
 
       {decision.included && (
-        <div className="mt-1.5 ml-5 flex flex-col gap-1.5 rounded border border-gray-200 p-2 dark:border-gray-800">
+        <div className="mt-1.5 ml-5 flex flex-col gap-1.5 rounded-[var(--radius-sm)] border border-[color:var(--color-border)] p-2">
           {matches.slice(0, 6).map((m: PersonMatch) => {
             const summary = personSummaries[m.personId];
             const dates = [summary?.birthEstimate, summary?.deathEstimate]
@@ -472,7 +472,7 @@ function PersonCandidateRow({
               <label
                 key={m.personId}
                 onMouseEnter={() => onFocusMatch(m.personId, candidate.name)}
-                className="flex items-start gap-1.5 rounded px-1 py-0.5 hover:bg-gray-50 dark:hover:bg-gray-800/60"
+                className="flex items-start gap-1.5 rounded-[var(--radius-xs)] px-1 py-0.5 transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)]"
               >
                 <input
                   type="radio"
@@ -485,7 +485,7 @@ function PersonCandidateRow({
                 <span>
                   {m.personName} — {(m.score * 100).toFixed(0)}%
                   {m.relationSignal && " · existing relationship"}
-                  <span className="block text-gray-500 dark:text-gray-500">
+                  <span className="block text-[color:var(--color-text-secondary)]">
                     {dates && `${dates} · `}
                     {summary?.relationshipSummary ?? "not yet in the tree"}
                   </span>
@@ -508,7 +508,7 @@ function PersonCandidateRow({
                 <input
                   value={decision.newName}
                   onChange={(e) => onChange({ newName: e.target.value })}
-                  className="rounded border border-gray-300 px-2 py-1 text-xs text-black dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-page)] px-2 py-1 text-xs text-[color:var(--color-text-primary)]"
                 />
               )}
             </span>

@@ -73,16 +73,21 @@ export default async function InterviewsPage() {
   );
 
   return (
-    <main className="flex min-h-screen flex-col gap-6 p-8">
+    <main className="flex min-h-screen flex-col gap-6 p-8 font-[family-name:var(--font-family-base)] text-[color:var(--color-text-primary)]">
       <div className="mx-auto flex w-full max-w-2xl items-center justify-between">
-        <h1 className="text-2xl font-semibold">Interviews</h1>
-        <Link href="/" className="text-sm text-gray-500 underline">
+        <h1 className="text-[length:var(--font-size-heading-2)] leading-[var(--line-height-heading-2)] font-semibold">
+          Interviews
+        </h1>
+        <Link
+          href="/"
+          className="text-sm text-[color:var(--color-text-secondary)] underline transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-text-primary)]"
+        >
           Home
         </Link>
       </div>
 
       {error && (
-        <p className="mx-auto text-sm text-red-500">{error.message}</p>
+        <p className="mx-auto text-sm text-[color:var(--color-error)]">{error.message}</p>
       )}
 
       {!error && (

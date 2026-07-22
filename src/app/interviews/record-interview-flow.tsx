@@ -290,10 +290,12 @@ export function RecordInterviewFlow({
   }
 
   return (
-    <div className="flex flex-col gap-4 rounded-lg border border-gray-300 p-6 dark:border-gray-700">
+    <div className="flex flex-col gap-4 rounded-[var(--radius-lg)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-6 font-[family-name:var(--font-family-base)] text-[color:var(--color-text-primary)] shadow-[var(--shadow-2)]">
       {step === "pick" && (
         <>
-          <h2 className="text-lg font-semibold">Who&apos;s being interviewed?</h2>
+          <h2 className="text-[length:var(--font-size-heading-3)] leading-[var(--line-height-heading-3)] font-semibold">
+            Who&apos;s being interviewed?
+          </h2>
 
           <label className="flex items-center gap-2 text-sm">
             <input
@@ -330,25 +332,25 @@ export function RecordInterviewFlow({
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="Full name"
-              className="ml-6 rounded border border-gray-300 px-2 py-1 text-sm text-black dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+              className="ml-6 rounded-[var(--radius-sm)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-page)] px-2 py-1 text-sm text-[color:var(--color-text-primary)]"
             />
           )}
 
-          {pickError && <p className="text-sm text-red-500">{pickError}</p>}
+          {pickError && <p className="text-sm text-[color:var(--color-error)]">{pickError}</p>}
 
           <div className="flex gap-2">
             <button
               type="button"
               onClick={handleContinueFromPick}
               disabled={isCreatingPerson}
-              className="rounded border border-gray-300 px-3 py-2 text-sm hover:border-gray-400 disabled:opacity-50 dark:border-gray-700 dark:hover:border-gray-600"
+              className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-3 py-2 text-sm transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] disabled:opacity-50"
             >
               {isCreatingPerson ? "Saving…" : "Continue"}
             </button>
             <button
               type="button"
               onClick={onCancel}
-              className="rounded px-3 py-2 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+              className="rounded-[var(--radius-sm)] px-3 py-2 text-sm text-[color:var(--color-text-secondary)] transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-text-primary)]"
             >
               Cancel
             </button>
@@ -358,13 +360,13 @@ export function RecordInterviewFlow({
 
       {step === "record" && (
         <>
-          <h2 className="text-lg font-semibold">
+          <h2 className="text-[length:var(--font-size-heading-3)] leading-[var(--line-height-heading-3)] font-semibold">
             Recording an interview with {intervieweeName}
           </h2>
 
           {recordingStatus !== "saving" && (
-            <div className="rounded border border-gray-200 bg-gray-50 p-4 text-center dark:border-gray-800 dark:bg-gray-900/40">
-              <p className="text-xs uppercase tracking-wide text-gray-500">
+            <div className="rounded-[var(--radius-md)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface-alt)] p-4 text-center">
+              <p className="text-xs uppercase tracking-wide text-[color:var(--color-text-secondary)]">
                 Question {promptIndex + 1} of {INTERVIEW_PROMPTS.length} —{" "}
                 {INTERVIEW_PROMPTS[promptIndex].label}
               </p>
@@ -381,15 +383,15 @@ export function RecordInterviewFlow({
                   <span
                     className={`h-4 w-4 rounded-full ${
                       recordingStatus === "recording"
-                        ? "animate-pulse bg-red-600"
-                        : "bg-amber-500"
+                        ? "animate-pulse bg-[color:var(--color-error)]"
+                        : "bg-[color:var(--color-warning)]"
                     }`}
                   />
                   <span className="text-2xl font-semibold tabular-nums">
                     {formatElapsed(elapsedSeconds)}
                   </span>
                 </div>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-[color:var(--color-text-secondary)]">
                   {recordingStatus === "recording" ? "Recording…" : "Paused"}
                 </p>
                 <div className="flex flex-wrap justify-center gap-3">
@@ -397,7 +399,7 @@ export function RecordInterviewFlow({
                     <button
                       type="button"
                       onClick={handlePause}
-                      className="rounded border border-gray-300 px-4 py-3 text-base font-medium hover:border-gray-400 dark:border-gray-700 dark:hover:border-gray-600"
+                      className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-4 py-3 text-base font-medium transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)]"
                     >
                       Pause
                     </button>
@@ -405,7 +407,7 @@ export function RecordInterviewFlow({
                     <button
                       type="button"
                       onClick={handleResume}
-                      className="rounded bg-green-700 px-4 py-3 text-base font-medium text-white hover:bg-green-800"
+                      className="rounded-[var(--radius-sm)] bg-[color:var(--color-success)] px-4 py-3 text-base font-medium text-[color:var(--color-text-on-accent)] transition-colors duration-[var(--duration-base)] hover:opacity-90"
                     >
                       Resume
                     </button>
@@ -413,7 +415,7 @@ export function RecordInterviewFlow({
                   <button
                     type="button"
                     onClick={handleRedoAnswer}
-                    className="rounded border border-gray-300 px-4 py-3 text-base font-medium hover:border-gray-400 dark:border-gray-700 dark:hover:border-gray-600"
+                    className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-4 py-3 text-base font-medium transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)]"
                   >
                     Redo this answer
                   </button>
@@ -421,7 +423,7 @@ export function RecordInterviewFlow({
                     <button
                       type="button"
                       onClick={handleNextQuestion}
-                      className="rounded border border-gray-300 px-4 py-3 text-base font-medium hover:border-gray-400 dark:border-gray-700 dark:hover:border-gray-600"
+                      className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-4 py-3 text-base font-medium transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)]"
                     >
                       Next question
                     </button>
@@ -429,26 +431,26 @@ export function RecordInterviewFlow({
                   <button
                     type="button"
                     onClick={stopRecording}
-                    className="rounded bg-red-600 px-6 py-3 text-base font-medium text-white hover:bg-red-700"
+                    className="rounded-[var(--radius-sm)] bg-[color:var(--color-error)] px-6 py-3 text-base font-medium text-[color:var(--color-text-on-accent)] transition-colors duration-[var(--duration-base)] hover:opacity-90"
                   >
                     Stop Recording
                   </button>
                 </div>
               </>
             ) : recordingStatus === "saving" ? (
-              <p className="text-base text-gray-500">Saving recording…</p>
+              <p className="text-base text-[color:var(--color-text-secondary)]">Saving recording…</p>
             ) : (
               <button
                 type="button"
                 onClick={startRecording}
-                className="rounded bg-green-700 px-6 py-3 text-base font-medium text-white hover:bg-green-800"
+                className="rounded-[var(--radius-sm)] bg-[color:var(--color-success)] px-6 py-3 text-base font-medium text-[color:var(--color-text-on-accent)] transition-colors duration-[var(--duration-base)] hover:opacity-90"
               >
                 Start Recording
               </button>
             )}
           </div>
 
-          {recordError && <p className="text-sm text-red-500">{recordError}</p>}
+          {recordError && <p className="text-sm text-[color:var(--color-error)]">{recordError}</p>}
 
           <button
             type="button"
@@ -458,7 +460,7 @@ export function RecordInterviewFlow({
               recordingStatus === "paused" ||
               recordingStatus === "saving"
             }
-            className="self-start text-sm text-gray-500 hover:text-gray-700 disabled:opacity-50 dark:hover:text-gray-300"
+            className="self-start text-sm text-[color:var(--color-text-secondary)] transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-text-primary)] disabled:opacity-50"
           >
             Cancel
           </button>

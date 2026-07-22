@@ -46,9 +46,9 @@ export type DocumentRow = {
 
 const statusStyles: Record<string, string> = {
   pending_match:
-    "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
-  matched: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
-  no_match: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
+    "bg-[color:var(--color-warning-subtle-bg)] text-[color:var(--color-warning-subtle-fg)]",
+  matched: "bg-[color:var(--color-success-subtle-bg)] text-[color:var(--color-success-subtle-fg)]",
+  no_match: "bg-[color:var(--color-bg-surface-alt)] text-[color:var(--color-text-secondary)]",
 };
 
 // Matches next.config.ts's experimental.serverActions.bodySizeLimit —
@@ -114,10 +114,10 @@ export function DocumentsView({ documents }: { documents: DocumentRow[] }) {
           }
         }}
         onClick={() => fileInputRef.current?.click()}
-        className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-10 text-center transition-colors ${
+        className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[var(--radius-lg)] border-2 border-dashed p-10 text-center transition-colors duration-[var(--duration-base)] ${
           isDragging
-            ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30"
-            : "border-gray-300 dark:border-gray-700"
+            ? "border-[color:var(--color-accent)] bg-[color:var(--color-accent-subtle)]"
+            : "border-[color:var(--color-border)]"
         }`}
       >
         <input
@@ -135,18 +135,18 @@ export function DocumentsView({ documents }: { documents: DocumentRow[] }) {
         <p className="text-sm font-medium">
           Drag and drop files here, or click to browse
         </p>
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-[color:var(--color-text-secondary)]">
           Certificates, letters, photos, anything — they&apos;ll be matched to
           people later.
         </p>
-        {isUploading && <p className="text-sm text-gray-500">Uploading…</p>}
+        {isUploading && <p className="text-sm text-[color:var(--color-text-secondary)]">Uploading…</p>}
       </div>
 
-      {error && <p className="text-sm text-red-500">{error}</p>}
+      {error && <p className="text-sm text-[color:var(--color-error)]">{error}</p>}
 
       <div className="flex flex-col gap-2">
         {documents.length === 0 && (
-          <p className="text-sm text-gray-500">No documents uploaded yet.</p>
+          <p className="text-sm text-[color:var(--color-text-secondary)]">No documents uploaded yet.</p>
         )}
         {documents.map((doc) => (
           <DocumentItem key={doc.id} doc={doc} />
@@ -200,14 +200,14 @@ function DocumentItem({ doc }: { doc: DocumentRow }) {
   const unresolvedCount = familyCandidates.filter((c) => !c.resolution).length;
 
   return (
-    <div className="rounded border border-gray-200 px-4 py-3 text-sm dark:border-gray-800">
+    <div className="rounded-[var(--radius-md)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] px-4 py-3 text-sm shadow-[var(--shadow-1)]">
       <div className="flex items-center justify-between gap-4">
         {doc.viewUrl ? (
           <a
             href={doc.viewUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="truncate underline hover:text-gray-500"
+            className="truncate underline transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-text-secondary)]"
           >
             {doc.filename ?? doc.file_path}
           </a>
@@ -215,13 +215,13 @@ function DocumentItem({ doc }: { doc: DocumentRow }) {
           <span className="truncate">{doc.filename ?? doc.file_path}</span>
         )}
         <span className="flex items-center gap-3">
-          <span className="text-xs text-gray-500">
+          <span className="text-xs text-[color:var(--color-text-secondary)]">
             {doc.recorded_at
               ? new Date(doc.recorded_at).toLocaleDateString()
               : ""}
           </span>
           <span
-            className={`rounded px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
+            className={`rounded-[var(--radius-xs)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
               statusStyles[status] ?? statusStyles.pending_match
             }`}
           >
@@ -231,7 +231,7 @@ function DocumentItem({ doc }: { doc: DocumentRow }) {
             type="button"
             onClick={handleExtract}
             disabled={isExtracting}
-            className="rounded border border-gray-300 px-2 py-1 text-xs hover:border-gray-400 disabled:opacity-50 dark:border-gray-700 dark:hover:border-gray-600"
+            className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-2 py-1 text-xs transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] disabled:opacity-50"
           >
             {isExtracting ? "Extracting…" : candidates ? "Re-extract" : "Extract"}
           </button>
@@ -240,7 +240,7 @@ function DocumentItem({ doc }: { doc: DocumentRow }) {
               type="button"
               onClick={handleMatch}
               disabled={isMatching}
-              className="rounded border border-gray-300 px-2 py-1 text-xs hover:border-gray-400 disabled:opacity-50 dark:border-gray-700 dark:hover:border-gray-600"
+              className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-2 py-1 text-xs transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] disabled:opacity-50"
             >
               {isMatching ? "Matching…" : "Match"}
             </button>
@@ -248,18 +248,18 @@ function DocumentItem({ doc }: { doc: DocumentRow }) {
         </span>
       </div>
 
-      {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
+      {error && <p className="mt-2 text-xs text-[color:var(--color-error)]">{error}</p>}
 
       {hasFamilyCandidates && (
-        <div className="mt-2 flex items-center justify-between border-t border-gray-100 pt-2 text-xs dark:border-gray-800">
-          <span className="text-gray-500">
+        <div className="mt-2 flex items-center justify-between border-t border-[color:var(--color-border-subtle)] pt-2 text-xs">
+          <span className="text-[color:var(--color-text-secondary)]">
             {unresolvedCount > 0
               ? `${unresolvedCount} of ${familyCandidates.length} candidate${familyCandidates.length === 1 ? "" : "s"} need review`
               : `All ${familyCandidates.length} candidate${familyCandidates.length === 1 ? "" : "s"} resolved`}
           </span>
           <Link
             href={`/documents/${doc.id}`}
-            className="font-medium underline hover:text-gray-700 dark:hover:text-gray-300"
+            className="font-medium text-[color:var(--color-accent)] underline transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-accent-hover)]"
           >
             Review matches →
           </Link>

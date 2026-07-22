@@ -76,7 +76,7 @@ export function InterviewsView({
         <button
           type="button"
           onClick={() => setIsRecording(true)}
-          className="rounded-lg border-2 border-dashed border-gray-300 p-6 text-center text-base font-medium hover:border-gray-400 dark:border-gray-700 dark:hover:border-gray-600"
+          className="rounded-[var(--radius-lg)] border-2 border-dashed border-[color:var(--color-border)] p-6 text-center text-base font-medium transition-colors duration-[var(--duration-base)] hover:border-[color:var(--color-text-tertiary)]"
         >
           🎙️ Record a memory
         </button>
@@ -84,7 +84,7 @@ export function InterviewsView({
 
       <div className="flex flex-col gap-3">
         {sessions.length === 0 && (
-          <p className="text-sm text-gray-500">No recordings yet.</p>
+          <p className="text-sm text-[color:var(--color-text-secondary)]">No recordings yet.</p>
         )}
         {sessions.map((s) => (
           <InterviewItem key={s.id} session={s} />
@@ -135,12 +135,12 @@ function InterviewItem({ session }: { session: InterviewRow }) {
   const hasExtraction = segments.some((s) => s.candidate_people);
 
   return (
-    <div className="flex flex-col gap-2 rounded border border-gray-200 px-4 py-3 text-sm dark:border-gray-800">
+    <div className="flex flex-col gap-2 rounded-[var(--radius-md)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] px-4 py-3 text-sm shadow-[var(--shadow-1)]">
       <div className="flex items-center justify-between gap-4">
         <span className="font-medium">
           Interview with {session.intervieweeName}
         </span>
-        <span className="text-xs text-gray-500">
+        <span className="text-xs text-[color:var(--color-text-secondary)]">
           {session.recorded_at
             ? new Date(session.recorded_at).toLocaleDateString()
             : ""}
@@ -150,7 +150,7 @@ function InterviewItem({ session }: { session: InterviewRow }) {
       {hasExtraction && (
         <Link
           href={`/interviews/${session.id}`}
-          className="self-start text-xs font-medium underline hover:text-gray-700 dark:hover:text-gray-300"
+          className="self-start text-xs font-medium text-[color:var(--color-accent)] underline transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-accent-hover)]"
         >
           Review & confirm →
         </Link>
@@ -160,13 +160,13 @@ function InterviewItem({ session }: { session: InterviewRow }) {
           Your browser doesn&apos;t support audio playback.
         </audio>
       ) : (
-        <p className="text-xs text-red-500">
+        <p className="text-xs text-[color:var(--color-error)]">
           Recording unavailable right now — try reloading the page.
         </p>
       )}
 
       {transcript ? (
-        <p className="whitespace-pre-wrap border-t border-gray-100 pt-2 text-gray-700 dark:border-gray-800 dark:text-gray-300">
+        <p className="whitespace-pre-wrap border-t border-[color:var(--color-border-subtle)] pt-2 text-[color:var(--color-text-secondary)]">
           {transcript}
         </p>
       ) : (
@@ -174,16 +174,16 @@ function InterviewItem({ session }: { session: InterviewRow }) {
           type="button"
           onClick={handleTranscribe}
           disabled={isTranscribing}
-          className="self-start rounded border border-gray-300 px-2 py-1 text-xs hover:border-gray-400 disabled:opacity-50 dark:border-gray-700 dark:hover:border-gray-600"
+          className="self-start rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-2 py-1 text-xs transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] disabled:opacity-50"
         >
           {isTranscribing ? "Transcribing…" : "Transcribe"}
         </button>
       )}
 
       {segments.length > 0 && (
-        <div className="flex flex-col gap-2 border-t border-gray-100 pt-2 dark:border-gray-800">
+        <div className="flex flex-col gap-2 border-t border-[color:var(--color-border-subtle)] pt-2">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
+            <span className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-text-secondary)]">
               Answers ({segments.length})
             </span>
             {hasUntranscribedSegments && (
@@ -191,7 +191,7 @@ function InterviewItem({ session }: { session: InterviewRow }) {
                 type="button"
                 onClick={handleTranscribeSegments}
                 disabled={isTranscribingSegments}
-                className="rounded border border-gray-300 px-2 py-1 text-xs hover:border-gray-400 disabled:opacity-50 dark:border-gray-700 dark:hover:border-gray-600"
+                className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-2 py-1 text-xs transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] disabled:opacity-50"
               >
                 {isTranscribingSegments ? "Transcribing…" : "Transcribe answers"}
               </button>
@@ -203,7 +203,7 @@ function InterviewItem({ session }: { session: InterviewRow }) {
         </div>
       )}
 
-      {error && <p className="text-xs text-red-500">{error}</p>}
+      {error && <p className="text-xs text-[color:var(--color-error)]">{error}</p>}
     </div>
   );
 }
@@ -260,12 +260,12 @@ function SegmentPanel({
   const hasMatches = people.some((p) => "matchStatus" in p);
 
   return (
-    <div className="rounded bg-gray-50 px-2 py-1.5 dark:bg-gray-900/40">
+    <div className="rounded-[var(--radius-sm)] bg-[color:var(--color-bg-surface-alt)] px-2 py-1.5">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-medium text-gray-600 dark:text-gray-400">
+        <p className="text-xs font-medium text-[color:var(--color-text-secondary)]">
           {segment.kind ?? "Segment"}
           {segment.audio_start_seconds != null && segment.audio_end_seconds != null && (
-            <span className="font-normal text-gray-400 dark:text-gray-500">
+            <span className="font-normal text-[color:var(--color-text-tertiary)]">
               {" "}
               ({formatSeconds(segment.audio_start_seconds)}–
               {formatSeconds(segment.audio_end_seconds)})
@@ -279,7 +279,7 @@ function SegmentPanel({
                 type="button"
                 onClick={handleExtract}
                 disabled={isExtracting}
-                className="rounded border border-gray-300 px-2 py-0.5 text-[11px] hover:border-gray-400 disabled:opacity-50 dark:border-gray-700 dark:hover:border-gray-600"
+                className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-2 py-0.5 text-[11px] transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] disabled:opacity-50"
               >
                 {isExtracting ? "Extracting…" : "Extract"}
               </button>
@@ -289,7 +289,7 @@ function SegmentPanel({
                 type="button"
                 onClick={handleMatch}
                 disabled={isMatching}
-                className="rounded border border-gray-300 px-2 py-0.5 text-[11px] hover:border-gray-400 disabled:opacity-50 dark:border-gray-700 dark:hover:border-gray-600"
+                className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-2 py-0.5 text-[11px] transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] disabled:opacity-50"
               >
                 {isMatching ? "Matching…" : "Match"}
               </button>
@@ -299,31 +299,31 @@ function SegmentPanel({
       </div>
 
       {segment.transcription_raw && (
-        <p className="mt-0.5 whitespace-pre-wrap text-gray-700 dark:text-gray-300">
+        <p className="mt-0.5 whitespace-pre-wrap text-[color:var(--color-text-secondary)]">
           {segment.transcription_raw}
         </p>
       )}
 
-      {error && <p className="mt-1 text-[11px] text-red-500">{error}</p>}
+      {error && <p className="mt-1 text-[11px] text-[color:var(--color-error)]">{error}</p>}
 
       {extraction && (
-        <div className="mt-2 flex flex-col gap-2 border-t border-gray-200 pt-2 text-[11px] dark:border-gray-800">
+        <div className="mt-2 flex flex-col gap-2 border-t border-[color:var(--color-border-subtle)] pt-2 text-[11px]">
           {people.length > 0 && (
             <div>
-              <p className="font-medium uppercase tracking-wide text-gray-500">People</p>
+              <p className="font-medium uppercase tracking-wide text-[color:var(--color-text-secondary)]">People</p>
               <ul className="mt-0.5 flex flex-col gap-0.5">
                 {people.map((p, i) => (
                   <li key={i}>
                     <span className="font-medium">{p.name}</span>
-                    {p.relation && <span className="text-gray-500"> · {p.relation}</span>}
+                    {p.relation && <span className="text-[color:var(--color-text-secondary)]"> · {p.relation}</span>}
                     {"matchStatus" in p && (
                       <span
                         className={
                           p.matchStatus === "high_confidence"
-                            ? "ml-1 text-green-700 dark:text-green-400"
+                            ? "ml-1 text-[color:var(--color-success-subtle-fg)]"
                             : p.matchStatus === "multiple_matches"
-                              ? "ml-1 text-amber-700 dark:text-amber-400"
-                              : "ml-1 text-gray-500"
+                              ? "ml-1 text-[color:var(--color-warning-subtle-fg)]"
+                              : "ml-1 text-[color:var(--color-text-secondary)]"
                         }
                       >
                         {p.matchStatus === "high_confidence" && p.matches[0]
@@ -341,14 +341,14 @@ function SegmentPanel({
 
           {facts.length > 0 && (
             <div>
-              <p className="font-medium uppercase tracking-wide text-gray-500">Facts</p>
+              <p className="font-medium uppercase tracking-wide text-[color:var(--color-text-secondary)]">Facts</p>
               <ul className="mt-0.5 flex flex-col gap-0.5">
                 {facts.map((f, i) => (
                   <li key={i}>
-                    <span className="text-gray-500">{aboutLabel(f.aboutRef, intervieweeName)}</span>
+                    <span className="text-[color:var(--color-text-secondary)]">{aboutLabel(f.aboutRef, intervieweeName)}</span>
                     {" — "}
                     <span className="font-medium">{f.field}:</span> {f.value}
-                    {f.confidence && <span className="text-gray-500"> ({f.confidence})</span>}
+                    {f.confidence && <span className="text-[color:var(--color-text-secondary)]"> ({f.confidence})</span>}
                   </li>
                 ))}
               </ul>
@@ -357,11 +357,11 @@ function SegmentPanel({
 
           {anecdotes.length > 0 && (
             <div>
-              <p className="font-medium uppercase tracking-wide text-gray-500">Anecdotes</p>
+              <p className="font-medium uppercase tracking-wide text-[color:var(--color-text-secondary)]">Anecdotes</p>
               <ul className="mt-0.5 flex flex-col gap-0.5">
                 {anecdotes.map((a, i) => (
                   <li key={i}>
-                    <span className="text-gray-500">{aboutLabel(a.aboutRef, intervieweeName)}</span>
+                    <span className="text-[color:var(--color-text-secondary)]">{aboutLabel(a.aboutRef, intervieweeName)}</span>
                     {" — "}
                     {a.storyText}
                   </li>

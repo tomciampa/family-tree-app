@@ -65,12 +65,18 @@ export default async function InterviewReviewPage({
   );
 
   return (
-    <main className="flex min-h-screen flex-col gap-4 p-6">
+    <main className="flex min-h-screen flex-col gap-4 p-6 font-[family-name:var(--font-family-base)] text-[color:var(--color-text-primary)]">
       <div className="flex items-center justify-between">
-        <Link href="/interviews" className="text-sm text-gray-500 underline">
+        <Link
+          href="/interviews"
+          className="text-sm text-[color:var(--color-text-secondary)] underline transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-text-primary)]"
+        >
           ← Interviews
         </Link>
-        <Link href="/" className="text-sm text-gray-500 underline">
+        <Link
+          href="/"
+          className="text-sm text-[color:var(--color-text-secondary)] underline transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-text-primary)]"
+        >
           Home
         </Link>
       </div>

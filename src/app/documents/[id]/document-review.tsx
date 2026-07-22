@@ -33,17 +33,17 @@ type ReviewDocument = {
 
 const statusStyles: Record<string, string> = {
   pending_match:
-    "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
-  matched: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
-  no_match: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
+    "bg-[color:var(--color-warning-subtle-bg)] text-[color:var(--color-warning-subtle-fg)]",
+  matched: "bg-[color:var(--color-success-subtle-bg)] text-[color:var(--color-success-subtle-fg)]",
+  no_match: "bg-[color:var(--color-bg-surface-alt)] text-[color:var(--color-text-secondary)]",
 };
 
 const matchStatusStyles: Record<string, string> = {
   high_confidence:
-    "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
+    "bg-[color:var(--color-success-subtle-bg)] text-[color:var(--color-success-subtle-fg)]",
   multiple_matches:
-    "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
-  no_match: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
+    "bg-[color:var(--color-warning-subtle-bg)] text-[color:var(--color-warning-subtle-fg)]",
+  no_match: "bg-[color:var(--color-bg-surface-alt)] text-[color:var(--color-text-secondary)]",
 };
 
 const matchStatusLabels: Record<string, string> = {
@@ -137,13 +137,13 @@ export function DocumentReview({
   const isPdf = doc.document_type === "application/pdf";
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded border border-gray-200 px-4 py-3 dark:border-gray-800">
+    <div className="flex flex-col gap-4 font-[family-name:var(--font-family-base)] text-[color:var(--color-text-primary)]">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-md)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] px-4 py-3 shadow-[var(--shadow-1)]">
         <div className="min-w-0">
           <h1 className="truncate text-sm font-medium">
             {doc.filename ?? doc.file_path}
           </h1>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-[color:var(--color-text-secondary)]">
             {doc.recorded_at
               ? new Date(doc.recorded_at).toLocaleDateString()
               : ""}
@@ -151,7 +151,7 @@ export function DocumentReview({
         </div>
         <div className="flex items-center gap-3">
           <span
-            className={`rounded px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
+            className={`rounded-[var(--radius-xs)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
               statusStyles[doc.status] ?? statusStyles.pending_match
             }`}
           >
@@ -161,7 +161,7 @@ export function DocumentReview({
             type="button"
             onClick={handleExtract}
             disabled={isExtracting}
-            className="rounded border border-gray-300 px-2 py-1 text-xs hover:border-gray-400 disabled:opacity-50 dark:border-gray-700 dark:hover:border-gray-600"
+            className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-2 py-1 text-xs transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] disabled:opacity-50"
           >
             {isExtracting ? "Extracting…" : candidates ? "Re-extract" : "Extract"}
           </button>
@@ -170,7 +170,7 @@ export function DocumentReview({
               type="button"
               onClick={handleMatch}
               disabled={isMatching}
-              className="rounded border border-gray-300 px-2 py-1 text-xs hover:border-gray-400 disabled:opacity-50 dark:border-gray-700 dark:hover:border-gray-600"
+              className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-2 py-1 text-xs transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] disabled:opacity-50"
             >
               {isMatching ? "Matching…" : "Match"}
             </button>
@@ -178,11 +178,11 @@ export function DocumentReview({
         </div>
       </div>
 
-      {error && <p className="text-sm text-red-500">{error}</p>}
+      {error && <p className="text-sm text-[color:var(--color-error)]">{error}</p>}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="flex flex-col gap-3 rounded border border-gray-200 p-4 dark:border-gray-800 lg:max-h-[78vh] lg:overflow-y-auto">
-          <h2 className="text-xs font-medium uppercase tracking-wide text-gray-500">
+        <div className="flex flex-col gap-3 rounded-[var(--radius-md)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-4 shadow-[var(--shadow-1)] lg:max-h-[78vh] lg:overflow-y-auto">
+          <h2 className="text-[length:var(--font-size-caption)] font-medium uppercase tracking-wide text-[color:var(--color-text-secondary)]">
             Document
           </h2>
           {doc.viewUrl && isImage && (
@@ -190,14 +190,14 @@ export function DocumentReview({
             <img
               src={doc.viewUrl}
               alt={doc.filename ?? "Document"}
-              className="w-full rounded border border-gray-200 dark:border-gray-800"
+              className="w-full rounded-[var(--radius-sm)] border border-[color:var(--color-border)]"
             />
           )}
           {doc.viewUrl && isPdf && (
             <embed
               src={doc.viewUrl}
               type="application/pdf"
-              className="h-[50vh] w-full rounded border border-gray-200 dark:border-gray-800"
+              className="h-[50vh] w-full rounded-[var(--radius-sm)] border border-[color:var(--color-border)]"
             />
           )}
           {doc.viewUrl && !isImage && !isPdf && (
@@ -205,22 +205,22 @@ export function DocumentReview({
               href={doc.viewUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-sm underline"
+              className="text-sm text-[color:var(--color-accent)] underline transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-accent-hover)]"
             >
               Open original file ↗
             </a>
           )}
           {doc.transcription_raw && (
             <div ref={transcriptionRef} className="flex flex-col gap-1">
-              <h3 className="text-xs font-medium uppercase tracking-wide text-gray-500">
+              <h3 className="text-[length:var(--font-size-caption)] font-medium uppercase tracking-wide text-[color:var(--color-text-secondary)]">
                 Transcription
               </h3>
-              <pre className="whitespace-pre-wrap font-sans text-xs text-gray-700 dark:text-gray-300">
+              <pre className="whitespace-pre-wrap font-sans text-xs text-[color:var(--color-text-secondary)]">
                 {transcriptionParts.map((part, i) =>
                   part.match ? (
                     <mark
                       key={i}
-                      className="rounded bg-amber-200 px-0.5 dark:bg-amber-700/60"
+                      className="rounded-[var(--radius-xs)] bg-[color:var(--color-accent-subtle)] px-0.5 text-[color:var(--color-text-primary)]"
                     >
                       {part.text}
                     </mark>
@@ -233,12 +233,12 @@ export function DocumentReview({
           )}
         </div>
 
-        <div className="flex flex-col gap-4 rounded border border-gray-200 p-4 dark:border-gray-800 lg:max-h-[78vh] lg:overflow-y-auto">
-          <h2 className="text-xs font-medium uppercase tracking-wide text-gray-500">
+        <div className="flex flex-col gap-4 rounded-[var(--radius-md)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-4 shadow-[var(--shadow-1)] lg:max-h-[78vh] lg:overflow-y-auto">
+          <h2 className="text-[length:var(--font-size-caption)] font-medium uppercase tracking-wide text-[color:var(--color-text-secondary)]">
             Candidates
           </h2>
           {(!candidates || candidates.length === 0) && (
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-[color:var(--color-text-secondary)]">
               No candidates extracted yet — click Extract above.
             </p>
           )}
@@ -260,16 +260,16 @@ export function DocumentReview({
           )}
           {adminEntries.length > 0 && (
             <div>
-              <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-600">
+              <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-[color:var(--color-text-tertiary)]">
                 Administrative (not matched as family)
               </p>
               <ul className="flex flex-col gap-1">
                 {adminEntries.map(({ c, index }) => (
                   <li
                     key={index}
-                    className="text-xs text-gray-400 dark:text-gray-600"
+                    className="text-xs text-[color:var(--color-text-tertiary)]"
                   >
-                    <span className="font-medium text-gray-500 dark:text-gray-500">
+                    <span className="font-medium text-[color:var(--color-text-secondary)]">
                       {c.name}
                     </span>
                     {c.relation && ` — ${c.relation}`}
@@ -282,8 +282,8 @@ export function DocumentReview({
           )}
         </div>
 
-        <div className="rounded border border-gray-200 p-2 dark:border-gray-800">
-          <h2 className="px-2 py-1 text-xs font-medium uppercase tracking-wide text-gray-500">
+        <div className="rounded-[var(--radius-md)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-2 shadow-[var(--shadow-1)]">
+          <h2 className="px-2 py-1 text-[length:var(--font-size-caption)] font-medium uppercase tracking-wide text-[color:var(--color-text-secondary)]">
             Tree — hover a candidate to preview
           </h2>
           <FamilyTree
@@ -382,8 +382,8 @@ function FamilyCandidateRow({
     : null;
 
   return (
-    <li className="text-xs text-gray-600 dark:text-gray-400">
-      <span className="font-medium text-gray-800 dark:text-gray-200">
+    <li className="text-xs text-[color:var(--color-text-secondary)]">
+      <span className="font-medium text-[color:var(--color-text-primary)]">
         {candidate.name}
       </span>
       {candidate.relation && ` — ${candidate.relation}`}
@@ -393,13 +393,13 @@ function FamilyCandidateRow({
       {candidate.matchStatus && (
         <div className="mt-1 ml-2">
           <span
-            className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${matchStatusStyles[candidate.matchStatus]}`}
+            className={`rounded-[var(--radius-xs)] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${matchStatusStyles[candidate.matchStatus]}`}
           >
             {matchStatusLabels[candidate.matchStatus]}
           </span>
 
           {candidate.resolution ? (
-            <p className="mt-1 text-[11px] text-gray-500">
+            <p className="mt-1 text-[11px] text-[color:var(--color-text-secondary)]">
               {candidate.resolution.action === "confirmed" &&
                 `Confirmed → linked to ${resolvedPerson}`}
               {candidate.resolution.action === "created" &&
@@ -407,7 +407,7 @@ function FamilyCandidateRow({
               {candidate.resolution.action === "skipped" && "Skipped"}
             </p>
           ) : (
-            <div className="mt-2 flex flex-col gap-1.5 rounded border border-gray-200 p-2 dark:border-gray-800">
+            <div className="mt-2 flex flex-col gap-1.5 rounded-[var(--radius-sm)] border border-[color:var(--color-border)] p-2">
               {visibleMatches.map((m) => {
                 const summary = personSummaries[m.personId];
                 const dates = [summary?.birthEstimate, summary?.deathEstimate]
@@ -417,7 +417,7 @@ function FamilyCandidateRow({
                   <label
                     key={m.personId}
                     onMouseEnter={() => onFocusMatch(m.personId, candidate.name)}
-                    className="flex items-start gap-1.5 rounded px-1 py-0.5 hover:bg-gray-50 dark:hover:bg-gray-800/60"
+                    className="flex items-start gap-1.5 rounded-[var(--radius-xs)] px-1 py-0.5 transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)]"
                   >
                     <input
                       type="radio"
@@ -438,14 +438,14 @@ function FamilyCandidateRow({
                       {/* This is exactly what tells apart e.g. three
                           different "Anthony Ciampa" records — bare name +
                           score alone can't. */}
-                      <span className="block text-gray-500 dark:text-gray-500">
+                      <span className="block text-[color:var(--color-text-secondary)]">
                         {dates && `${dates} · `}
                         {summary?.relationshipSummary ?? "not yet in the tree"}
                         {" · "}
                         <span className="italic">hover to preview in tree →</span>
                       </span>
                       {namesConflict(candidate.name, m.personName) && (
-                        <span className="block text-amber-600 dark:text-amber-400">
+                        <span className="block text-[color:var(--color-warning-subtle-fg)]">
                           Extracted as &quot;{candidate.name}&quot; — existing
                           record is &quot;{m.personName}&quot;. Confirming
                           won&apos;t change the stored name.
@@ -459,7 +459,7 @@ function FamilyCandidateRow({
                 <button
                   type="button"
                   onClick={() => setShowAll(true)}
-                  className="self-start text-[11px] text-gray-500 underline"
+                  className="self-start text-[11px] text-[color:var(--color-text-secondary)] underline"
                 >
                   Show all {matches.length}
                 </button>
@@ -482,7 +482,7 @@ function FamilyCandidateRow({
                     <input
                       value={newName}
                       onChange={(e) => setNewName(e.target.value)}
-                      className="rounded border border-gray-300 px-2 py-1 text-xs text-black dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                      className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-page)] px-2 py-1 text-xs text-[color:var(--color-text-primary)]"
                     />
                   )}
                 </span>
@@ -528,14 +528,14 @@ function FamilyCandidateRow({
                 </div>
               )}
 
-              {error && <p className="text-[11px] text-red-500">{error}</p>}
+              {error && <p className="text-[11px] text-[color:var(--color-error)]">{error}</p>}
 
               <div className="mt-1 flex gap-2">
                 <button
                   type="button"
                   onClick={handleConfirm}
                   disabled={isSaving || !selection || selection === "__search__"}
-                  className="rounded border border-gray-300 px-2 py-1 text-[11px] hover:border-gray-400 disabled:opacity-50 dark:border-gray-700 dark:hover:border-gray-600"
+                  className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-2 py-1 text-[11px] transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] disabled:opacity-50"
                 >
                   {isSaving ? "Saving…" : "Confirm"}
                 </button>
@@ -543,7 +543,7 @@ function FamilyCandidateRow({
                   type="button"
                   onClick={handleSkip}
                   disabled={isSaving}
-                  className="rounded px-2 py-1 text-[11px] text-gray-500 hover:text-gray-700 disabled:opacity-50 dark:hover:text-gray-300"
+                  className="rounded-[var(--radius-sm)] px-2 py-1 text-[11px] text-[color:var(--color-text-secondary)] transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-text-primary)] disabled:opacity-50"
                 >
                   Skip
                 </button>
