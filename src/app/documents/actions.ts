@@ -12,6 +12,11 @@ import {
   factFieldForRelation,
   type CandidatePerson,
 } from "./candidate-schema";
+import {
+  isVisionCapable,
+  hasTextExtractor,
+  extractPlainText,
+} from "@/lib/document-text-extraction";
 
 async function requireUser() {
   const supabase = await createClient();
@@ -71,6 +76,22 @@ export async function extractCandidatesFromDocument(
     return { error: fetchError?.message ?? "Document not found." };
   }
 
+  const canUseVision = isVisionCapable(document.document_type);
+  const canExtractText = hasTextExtractor(document.document_type);
+  // Checked before ever downloading the file — an unsupported type should
+  // fail fast and clearly, not silently reach the model with nothing
+  // usable to read (the bug this replaces: a .docx's raw bytes decoded as
+  // if they were plain text produced mostly null bytes, which the model
+  // "successfully" transcribed as nothing, leaving candidate_people at []
+  // with no error anywhere — see hasFamilyCandidates in documents-view.tsx
+  // for why that specific shape hides the whole review-matches UI rather
+  // than showing anything was wrong).
+  if (!canUseVision && !canExtractText) {
+    return {
+      error: `Unsupported file type (${document.document_type ?? "unknown"}) — text extraction isn't available for this kind of file yet.`,
+    };
+  }
+
   const { data: fileBlob, error: downloadError } = await supabase.storage
     .from("documents")
     .download(document.file_path);
@@ -79,9 +100,39 @@ export async function extractCandidatesFromDocument(
   }
   const bytes = new Uint8Array(await fileBlob.arrayBuffer());
 
-  const isImageOrPdf =
-    document.document_type === "application/pdf" ||
-    (document.document_type?.startsWith("image/") ?? false);
+  let content;
+  if (canUseVision) {
+    content = [
+      {
+        type: "text" as const,
+        text: "This is a genealogy source document (e.g. a certificate, letter, or record), possibly a scanned image. Transcribe its full text, then list every person it names — not just the main subject. Many documents (e.g. death certificates) also name a spouse or parent (family) as well as an informant, registrar, witness, or clergy member (administrative) — classify each person's roleCategory accordingly so administrative names aren't confused with family.",
+      },
+      {
+        type: "file" as const,
+        data: bytes,
+        mediaType: document.document_type ?? "application/octet-stream",
+        filename: document.filename ?? undefined,
+      },
+    ];
+  } else {
+    let plainText: string;
+    try {
+      // document.document_type is guaranteed non-null here: canExtractText
+      // (hasTextExtractor) already checked it above, and canUseVision is
+      // false in this branch.
+      plainText = await extractPlainText(document.document_type!, bytes);
+    } catch (err) {
+      return {
+        error: `Couldn't read this document's text: ${err instanceof Error ? err.message : "unknown error"}`,
+      };
+    }
+    content = [
+      {
+        type: "text" as const,
+        text: `This is a genealogy source document. Transcribe its full text, then list every person it names — not just the main subject. Classify each person's roleCategory as 'family' (related to or personally connected with the subject) or 'administrative' (an informant, registrar, witness, clergy member, etc. with no personal relation).\n\nDocument content:\n${plainText}`,
+      },
+    ];
+  }
 
   let result;
   try {
@@ -97,30 +148,7 @@ export async function extractCandidatesFromDocument(
             "Every person named in the document, not just its main subject",
           ),
       }),
-      messages: [
-        {
-          role: "user",
-          content: isImageOrPdf
-            ? [
-                {
-                  type: "text",
-                  text: "This is a genealogy source document (e.g. a certificate, letter, or record), possibly a scanned image. Transcribe its full text, then list every person it names — not just the main subject. Many documents (e.g. death certificates) also name a spouse or parent (family) as well as an informant, registrar, witness, or clergy member (administrative) — classify each person's roleCategory accordingly so administrative names aren't confused with family.",
-                },
-                {
-                  type: "file",
-                  data: bytes,
-                  mediaType: document.document_type ?? "application/octet-stream",
-                  filename: document.filename ?? undefined,
-                },
-              ]
-            : [
-                {
-                  type: "text",
-                  text: `This is a genealogy source document. Transcribe its full text, then list every person it names — not just the main subject. Classify each person's roleCategory as 'family' (related to or personally connected with the subject) or 'administrative' (an informant, registrar, witness, clergy member, etc. with no personal relation).\n\nDocument content:\n${new TextDecoder().decode(bytes)}`,
-                },
-              ],
-        },
-      ],
+      messages: [{ role: "user", content }],
     });
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Extraction failed." };
@@ -129,7 +157,13 @@ export async function extractCandidatesFromDocument(
   const { error: updateError } = await supabase
     .from("documents")
     .update({
-      transcription_raw: document.transcription_raw ?? result.object.rawText,
+      // A fresh non-empty transcript always wins — `??` previously only
+      // replaced a null/undefined value, which meant a stale "" from a
+      // once-broken extraction (e.g. a file type the model couldn't
+      // actually read) was treated as "already has a value worth
+      // keeping" and preserved forever, even after a later re-extract
+      // produced the real text.
+      transcription_raw: result.object.rawText || document.transcription_raw,
       candidate_people: result.object.candidates,
     })
     .eq("id", documentId);
