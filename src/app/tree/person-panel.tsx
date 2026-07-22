@@ -31,9 +31,15 @@ type UnionChild = Tables<"union_children">;
 type Marriage = { unionId: string; spouseName: string | null };
 
 const inputClassName =
-  "rounded border border-gray-300 px-3 py-2 text-sm text-black dark:border-gray-700 dark:bg-gray-800 dark:text-white";
+  "rounded-[var(--radius-sm)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-page)] px-3 py-2 text-sm text-[color:var(--color-text-primary)]";
 const actionButtonClassName =
-  "rounded border border-gray-300 px-3 py-1.5 text-sm hover:border-gray-400 dark:border-gray-700 dark:hover:border-gray-600";
+  "rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-3 py-1.5 text-sm transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)]";
+const saveButtonClassName =
+  "rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-3 py-2 text-sm transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] disabled:opacity-50";
+const cancelButtonClassName =
+  "rounded-[var(--radius-sm)] px-3 py-2 text-sm text-[color:var(--color-text-secondary)] transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-text-primary)]";
+const fieldLabelClassName = "flex flex-col gap-1 text-sm text-[color:var(--color-text-secondary)]";
+const errorClassName = "text-sm text-[color:var(--color-error)]";
 
 type ActiveForm =
   | null
@@ -79,7 +85,7 @@ function PersonFieldPicker({
   autoFocus?: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-1.5 text-sm text-gray-500">
+    <div className="flex flex-col gap-1.5 text-sm text-[color:var(--color-text-secondary)]">
       {label}
       <div className="flex gap-4 text-xs">
         <label className="flex items-center gap-1.5">
@@ -137,7 +143,7 @@ function SuggestedConnectionBanner({
   const names = suggestions.map((s) => s.personName).join(" & ");
   const label = suggestions.length > 1 ? `${relationLabel}s` : relationLabel;
   return (
-    <div className="rounded border border-blue-200 bg-blue-50 p-3 text-sm dark:border-blue-900 dark:bg-blue-950/30">
+    <div className="rounded-[var(--radius-sm)] border border-[color:var(--color-accent)] bg-[color:var(--color-accent-subtle)] p-3 text-sm">
       <p>
         <span className="font-medium">{names}</span> — connect as {label}?
       </p>
@@ -145,7 +151,7 @@ function SuggestedConnectionBanner({
         type="button"
         onClick={onConfirm}
         disabled={isPending}
-        className="mt-2 rounded bg-blue-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-800 disabled:opacity-50"
+        className="mt-2 rounded-[var(--radius-sm)] bg-[color:var(--color-accent)] px-3 py-1.5 text-sm font-medium text-[color:var(--color-text-on-accent)] transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-accent-hover)] disabled:opacity-50"
       >
         {isPending ? "Connecting…" : "Connect"}
       </button>
@@ -281,27 +287,29 @@ export function PersonPanel({
         if (e.target === e.currentTarget) handleClose();
       }}
     >
-      <div className="w-full max-w-md rounded border border-gray-300 bg-white p-6 dark:border-gray-700 dark:bg-gray-900">
+      <div className="w-full max-w-md rounded-[var(--radius-lg)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-6 font-[family-name:var(--font-family-base)] text-[color:var(--color-text-primary)] shadow-[var(--shadow-3)]">
         <div className="mb-4 flex items-start justify-between gap-4">
-          <h2 className="text-lg font-semibold">{person.name}</h2>
+          <h2 className="text-[length:var(--font-size-heading-3)] leading-[var(--line-height-heading-3)] font-semibold">
+            {person.name}
+          </h2>
           <button
             type="button"
             onClick={handleClose}
-            className="text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+            className="shrink-0 rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-2 py-1 text-sm text-[color:var(--color-text-secondary)] transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)]"
           >
             Close ✕
           </button>
         </div>
 
-        <FactList facts={facts} />
+        <FactList facts={facts} theme="neutral" />
 
-        <AnecdoteList anecdotes={anecdotes} />
+        <AnecdoteList anecdotes={anecdotes} theme="neutral" />
 
-        <DocumentList documents={documents} />
+        <DocumentList documents={documents} theme="neutral" />
 
         {activeForm === null && (
           <div className="flex flex-col gap-2">
-            <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+            <p className="text-[length:var(--font-size-caption)] font-medium uppercase tracking-wide text-[color:var(--color-text-secondary)]">
               Add to this person&apos;s record
             </p>
             <div className="flex flex-wrap gap-2">
@@ -425,20 +433,20 @@ export function PersonPanel({
               personSummaries={personSummaries}
             />
 
-            {error && <p className="text-sm text-red-500">{error}</p>}
+            {error && <p className={errorClassName}>{error}</p>}
 
             <div className="flex gap-2">
               <button
                 type="submit"
                 disabled={isPending}
-                className="rounded border border-gray-300 px-3 py-2 text-sm hover:border-gray-400 disabled:opacity-50 dark:border-gray-700 dark:hover:border-gray-600"
+                className={saveButtonClassName}
               >
                 {isPending ? "Saving…" : "Save"}
               </button>
               <button
                 type="button"
                 onClick={closeForm}
-                className="rounded px-3 py-2 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                className={cancelButtonClassName}
               >
                 Cancel
               </button>
@@ -509,20 +517,20 @@ export function PersonPanel({
               autoFocus
             />
 
-            {error && <p className="text-sm text-red-500">{error}</p>}
+            {error && <p className={errorClassName}>{error}</p>}
 
             <div className="flex gap-2">
               <button
                 type="submit"
                 disabled={isPending}
-                className="rounded border border-gray-300 px-3 py-2 text-sm hover:border-gray-400 disabled:opacity-50 dark:border-gray-700 dark:hover:border-gray-600"
+                className={saveButtonClassName}
               >
                 {isPending ? "Saving…" : "Save"}
               </button>
               <button
                 type="button"
                 onClick={closeForm}
-                className="rounded px-3 py-2 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                className={cancelButtonClassName}
               >
                 Cancel
               </button>
@@ -602,20 +610,20 @@ export function PersonPanel({
               personSummaries={personSummaries}
             />
 
-            {error && <p className="text-sm text-red-500">{error}</p>}
+            {error && <p className={errorClassName}>{error}</p>}
 
             <div className="flex gap-2">
               <button
                 type="submit"
                 disabled={isPending}
-                className="rounded border border-gray-300 px-3 py-2 text-sm hover:border-gray-400 disabled:opacity-50 dark:border-gray-700 dark:hover:border-gray-600"
+                className={saveButtonClassName}
               >
                 {isPending ? "Saving…" : "Save"}
               </button>
               <button
                 type="button"
                 onClick={closeForm}
-                className="rounded px-3 py-2 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                className={cancelButtonClassName}
               >
                 Cancel
               </button>
@@ -663,20 +671,20 @@ export function PersonPanel({
                 autoFocus
               />
 
-              {error && <p className="text-sm text-red-500">{error}</p>}
+              {error && <p className={errorClassName}>{error}</p>}
 
               <div className="flex gap-2">
                 <button
                   type="submit"
                   disabled={isPending}
-                  className="rounded border border-gray-300 px-3 py-2 text-sm hover:border-gray-400 disabled:opacity-50 dark:border-gray-700 dark:hover:border-gray-600"
+                  className={saveButtonClassName}
                 >
                   {isPending ? "Saving…" : "Save"}
                 </button>
                 <button
                   type="button"
                   onClick={closeForm}
-                  className="rounded px-3 py-2 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                  className={cancelButtonClassName}
                 >
                   Cancel
                 </button>
@@ -715,7 +723,7 @@ export function PersonPanel({
             }}
             className="flex flex-col gap-3"
           >
-            <label className="flex flex-col gap-1 text-sm text-gray-500">
+            <label className={fieldLabelClassName}>
               Upload a document (PDF) to auto-fill the fields below
               <input
                 type="file"
@@ -729,10 +737,10 @@ export function PersonPanel({
               />
             </label>
             {isExtracting && (
-              <p className="text-sm text-gray-500">Reading document…</p>
+              <p className="text-sm text-[color:var(--color-text-secondary)]">Reading document…</p>
             )}
             {factDocumentId && !isExtracting && (
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-[color:var(--color-text-secondary)]">
                 Extracted from document — review the fields below before saving.
               </p>
             )}
@@ -740,10 +748,10 @@ export function PersonPanel({
               {factRows.map((row, i) => (
                 <div
                   key={i}
-                  className="flex flex-col gap-2 rounded border border-gray-200 p-2 dark:border-gray-800"
+                  className="flex flex-col gap-2 rounded-[var(--radius-sm)] border border-[color:var(--color-border-subtle)] p-2"
                 >
                   <div className="flex items-start gap-2">
-                    <label className="flex flex-1 flex-col gap-1 text-sm text-gray-500">
+                    <label className="flex flex-1 flex-col gap-1 text-sm text-[color:var(--color-text-secondary)]">
                       Field (e.g. Birth Date, Occupation, Immigration)
                       <input
                         value={row.field}
@@ -764,14 +772,14 @@ export function PersonPanel({
                         onClick={() =>
                           setFactRows((rows) => rows.filter((_, idx) => idx !== i))
                         }
-                        className="mt-5 text-sm text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                        className="mt-5 text-sm text-[color:var(--color-text-tertiary)] transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-text-secondary)]"
                         aria-label="Remove this field"
                       >
                         ✕
                       </button>
                     )}
                   </div>
-                  <label className="flex flex-col gap-1 text-sm text-gray-500">
+                  <label className={fieldLabelClassName}>
                     Value
                     <input
                       value={row.value}
@@ -792,12 +800,12 @@ export function PersonPanel({
                 onClick={() =>
                   setFactRows((rows) => [...rows, { field: "", value: "" }])
                 }
-                className="self-start text-sm text-gray-500 underline hover:text-gray-700 dark:hover:text-gray-300"
+                className="self-start text-sm text-[color:var(--color-text-secondary)] underline transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-text-primary)]"
               >
                 + Add another field
               </button>
             </div>
-            <label className="flex flex-col gap-1 text-sm text-gray-500">
+            <label className={fieldLabelClassName}>
               Source type
               <select
                 value={factSourceType}
@@ -811,7 +819,7 @@ export function PersonPanel({
                 ))}
               </select>
             </label>
-            <label className="flex flex-col gap-1 text-sm text-gray-500">
+            <label className={fieldLabelClassName}>
               Source reference (who told you, or which document)
               <input
                 value={factSourceRef}
@@ -820,20 +828,20 @@ export function PersonPanel({
               />
             </label>
 
-            {error && <p className="text-sm text-red-500">{error}</p>}
+            {error && <p className={errorClassName}>{error}</p>}
 
             <div className="flex gap-2">
               <button
                 type="submit"
                 disabled={isPending}
-                className="rounded border border-gray-300 px-3 py-2 text-sm hover:border-gray-400 disabled:opacity-50 dark:border-gray-700 dark:hover:border-gray-600"
+                className={saveButtonClassName}
               >
                 {isPending ? "Saving…" : "Save"}
               </button>
               <button
                 type="button"
                 onClick={closeForm}
-                className="rounded px-3 py-2 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                className={cancelButtonClassName}
               >
                 Cancel
               </button>
@@ -856,7 +864,7 @@ export function PersonPanel({
             }}
             className="flex flex-col gap-3"
           >
-            <label className="flex flex-col gap-1 text-sm text-gray-500">
+            <label className={fieldLabelClassName}>
               Story or memory
               <textarea
                 value={storyText}
@@ -867,7 +875,7 @@ export function PersonPanel({
                 className={inputClassName}
               />
             </label>
-            <label className="flex flex-col gap-1 text-sm text-gray-500">
+            <label className={fieldLabelClassName}>
               Who told you this?
               <input
                 value={whoToldIt}
@@ -876,20 +884,20 @@ export function PersonPanel({
               />
             </label>
 
-            {error && <p className="text-sm text-red-500">{error}</p>}
+            {error && <p className={errorClassName}>{error}</p>}
 
             <div className="flex gap-2">
               <button
                 type="submit"
                 disabled={isPending}
-                className="rounded border border-gray-300 px-3 py-2 text-sm hover:border-gray-400 disabled:opacity-50 dark:border-gray-700 dark:hover:border-gray-600"
+                className={saveButtonClassName}
               >
                 {isPending ? "Saving…" : "Save"}
               </button>
               <button
                 type="button"
                 onClick={closeForm}
-                className="rounded px-3 py-2 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                className={cancelButtonClassName}
               >
                 Cancel
               </button>

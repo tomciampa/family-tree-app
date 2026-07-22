@@ -80,10 +80,10 @@ export function DocumentViewerModal({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-sm border border-[#c9b896] bg-[#f7f1e3] font-serif text-[#2b2015] shadow-2xl">
-        <div className="flex items-start justify-between gap-4 border-b border-[#c9b896] px-6 py-4">
+      <div className="flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] font-[family-name:var(--font-family-base)] text-[color:var(--color-text-primary)] shadow-[var(--shadow-4)]">
+        <div className="flex items-start justify-between gap-4 border-b border-[color:var(--color-border)] px-6 py-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-[#6b5c45]">
+            <p className="text-[length:var(--font-size-caption)] uppercase tracking-[0.2em] text-[color:var(--color-text-secondary)]">
               Source Document
             </p>
             {/* The one thing this header exists to make instantly
@@ -91,17 +91,17 @@ export function DocumentViewerModal({
                 account? Large, bold, bordered like a stamp — deliberately
                 heavier than any other text in the dossier, since reading
                 it shouldn't require reading closely. */}
-            <h2 className="mt-1 inline-block rounded border border-[#a97b52] bg-[#efe6d2] px-3 py-1 text-lg font-bold uppercase tracking-wide text-[#5c3d20]">
+            <h2 className="mt-1 inline-block rounded-[var(--radius-sm)] border border-[color:var(--color-accent)] bg-[color:var(--color-accent-subtle)] px-3 py-1 text-lg font-bold uppercase tracking-wide text-[color:var(--color-accent)]">
               {state.status === "ready" ? (state.kind ?? "Document") : "…"}
             </h2>
             {state.status === "ready" && state.filename && (
-              <p className="mt-1 text-xs text-[#6b5c45]">{state.filename}</p>
+              <p className="mt-1 text-[length:var(--font-size-caption)] text-[color:var(--color-text-secondary)]">{state.filename}</p>
             )}
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="shrink-0 rounded border border-[#c9b896] px-2 py-1 text-sm text-[#6b5c45] hover:bg-[#efe6d2]"
+            className="shrink-0 rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-2 py-1 text-sm text-[color:var(--color-text-secondary)] transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)]"
           >
             Close ✕
           </button>
@@ -109,10 +109,10 @@ export function DocumentViewerModal({
 
         <div className="flex-1 overflow-y-auto px-6 py-5">
           {state.status === "loading" && (
-            <p className="text-sm text-[#6b5c45]">Loading…</p>
+            <p className="text-sm text-[color:var(--color-text-secondary)]">Loading…</p>
           )}
           {state.status === "error" && (
-            <p className="text-sm text-red-600">{state.message}</p>
+            <p className="text-sm text-[color:var(--color-error)]">{state.message}</p>
           )}
           {state.status === "ready" && (
             <div className="flex flex-col gap-5">
@@ -121,14 +121,14 @@ export function DocumentViewerModal({
                 <img
                   src={state.viewUrl}
                   alt={state.filename ?? "Document"}
-                  className="w-full rounded border border-[#c9b896]"
+                  className="w-full rounded-[var(--radius-sm)] border border-[color:var(--color-border)]"
                 />
               )}
               {state.viewUrl && isPdf && (
                 <embed
                   src={state.viewUrl}
                   type="application/pdf"
-                  className="h-[50vh] w-full rounded border border-[#c9b896]"
+                  className="h-[50vh] w-full rounded-[var(--radius-sm)] border border-[color:var(--color-border)]"
                 />
               )}
               {state.viewUrl && !isImage && !isPdf && (
@@ -136,20 +136,20 @@ export function DocumentViewerModal({
                   href={state.viewUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-sm underline"
+                  className="text-sm text-[color:var(--color-accent)] underline transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-accent-hover)]"
                 >
                   Open original file ↗
                 </a>
               )}
               {state.transcriptionRaw && (
                 <div ref={transcriptionRef} className="flex flex-col gap-1">
-                  <h3 className="text-xs uppercase tracking-wide text-[#6b5c45]">
+                  <h3 className="text-[length:var(--font-size-caption)] uppercase tracking-wide text-[color:var(--color-text-secondary)]">
                     Transcription
                   </h3>
-                  <pre className="whitespace-pre-wrap font-sans text-sm text-[#2b2015]">
+                  <pre className="whitespace-pre-wrap font-sans text-sm text-[color:var(--color-text-primary)]">
                     {transcriptionParts.map((part, i) =>
                       part.match ? (
-                        <mark key={i} className="rounded bg-[#a97b52]/50 px-0.5">
+                        <mark key={i} className="rounded-[var(--radius-xs)] bg-[color:var(--color-accent-subtle)] px-0.5 text-[color:var(--color-text-primary)]">
                           {part.text}
                         </mark>
                       ) : (
