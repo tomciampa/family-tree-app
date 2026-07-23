@@ -203,6 +203,10 @@ const DOUBLE_CLICK_WINDOW_MS = 300;
 // extra clicks. Either direction can be extended to FULL_DEPTH per-view —
 // see expandedAncestry/expandedProgeny below — by clicking that person's
 // own mini-tree badge, without changing this default for anyone else.
+// These are the fallback values for the ancestryDepth/progenyDepth props
+// below (used as-is by the full-page /tree view); a smaller embedded pane
+// (e.g. the document-review three-pane workspace) can pass its own
+// tighter default without affecting the full page.
 const DEFAULT_ANCESTRY_DEPTH = 2;
 const DEFAULT_PROGENY_DEPTH = 2;
 // Effectively "as deep as recorded data goes" — used both for "view both
@@ -305,6 +309,9 @@ export function FamilyTree({
   highlightPersonId,
   heightClassName = "h-[75vh]",
   defaultMainPersonId,
+  ancestryDepth = DEFAULT_ANCESTRY_DEPTH,
+  progenyDepth = DEFAULT_PROGENY_DEPTH,
+  onMainPersonChange,
 }: {
   people: Person[];
   unions: UnionRow[];
@@ -330,6 +337,22 @@ export function FamilyTree({
   // why "actually placed" still falls back to pickDefaultMain rather than
   // breaking on a linked-but-unconnected person.
   defaultMainPersonId?: string | null;
+  // Shallow-default depth in each direction before a mini-tree badge
+  // click (or "view both families") bumps a view to FULL_DEPTH — see
+  // DEFAULT_ANCESTRY_DEPTH/DEFAULT_PROGENY_DEPTH's own comment. Exposed
+  // as props (rather than hardcoded) so a much smaller embedded pane can
+  // default tighter than the full /tree page without a second component.
+  ancestryDepth?: number;
+  progenyDepth?: number;
+  // Fires whenever the tree's centered ("main") person changes, for
+  // whatever reason — a card-body click, the person-search dropdown, or
+  // an external highlightPersonId recenter (see that effect below) — so a
+  // caller can offer its own action against "whoever the tree is
+  // currently centered on" without having to separately track every way
+  // main can change itself. Never fires for the internal "view both
+  // families" synthetic anchor (see SYNTHETIC_ANCHOR_ID) — it isn't a
+  // real person.
+  onMainPersonChange?: (person: Person) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<ReturnType<typeof f3.createChart> | null>(null);
@@ -347,6 +370,13 @@ export function FamilyTree({
   onPersonClickRef.current = onPersonClick;
   const onOpenDossierRef = useRef(onOpenDossier);
   onOpenDossierRef.current = onOpenDossier;
+  const onMainPersonChangeRef = useRef(onMainPersonChange);
+  onMainPersonChangeRef.current = onMainPersonChange;
+  // The last person id reported via onMainPersonChange — setAfterUpdate
+  // fires after every tree update, not just ones where main actually
+  // changed (e.g. a resize-triggered re-fit), so this dedupes to only
+  // notify the caller on a real change.
+  const lastReportedMainIdRef = useRef<string | null>(null);
   const peopleByIdRef = useRef(new Map<string, Person>());
   peopleByIdRef.current = new Map(people.map((p) => [p.id, p]));
   const unionsRef = useRef(unions);
@@ -462,8 +492,8 @@ export function FamilyTree({
       // person's own mini-tree badge — see the data-sync effect below,
       // which raises these dynamically based on coupleView/expandedAncestry/
       // expandedProgeny.
-      .setAncestryDepth(DEFAULT_ANCESTRY_DEPTH)
-      .setProgenyDepth(DEFAULT_PROGENY_DEPTH)
+      .setAncestryDepth(ancestryDepth)
+      .setProgenyDepth(progenyDepth)
       // family-chart's own documented option (calculateTree's
       // show_siblings_of_main) for exactly the "stable row" this app
       // needs: main's siblings, laid out alongside them, natively — no
@@ -742,6 +772,23 @@ export function FamilyTree({
     // the real transition instead of applying the pulse immediately —
     // applyMiniTreeTooltips needs the exact same wait, see its own comment.
     f3Chart.setAfterUpdate((props?: { transition_time?: number }) => {
+      // setAfterUpdate is the one place every way main can change funnels
+      // through — a card-body click, the search dropdown, and an external
+      // highlightPersonId recenter all end up here, so this is the single
+      // spot to detect "main actually changed" and notify the caller,
+      // rather than wiring a separate notification into each of those
+      // three call sites individually. Runs synchronously (no need to
+      // wait for the card transition like the pulse/tooltip work below —
+      // this only reads which id is main, it doesn't touch the DOM).
+      const mainId = f3Chart.getMainDatum()?.id;
+      if (mainId && mainId !== SYNTHETIC_ANCHOR_ID && mainId !== lastReportedMainIdRef.current) {
+        const person = peopleByIdRef.current.get(mainId);
+        if (person) {
+          lastReportedMainIdRef.current = mainId;
+          onMainPersonChangeRef.current?.(person);
+        }
+      }
+
       window.setTimeout(applyMiniTreeTooltips, (props?.transition_time ?? 0) + 50);
       const id = pendingHighlightRef.current;
       if (!id) return;
@@ -845,10 +892,10 @@ export function FamilyTree({
     const enteringCoupleView = !!coupleView && !prevCoupleViewRef.current;
     const data = buildTreeData(connected, unions, unionChildren, coupleView);
     chartRef.current.setAncestryDepth(
-      coupleView || expandedAncestry ? FULL_DEPTH : DEFAULT_ANCESTRY_DEPTH,
+      coupleView || expandedAncestry ? FULL_DEPTH : ancestryDepth,
     );
     chartRef.current.setProgenyDepth(
-      coupleView || expandedProgeny ? FULL_DEPTH : DEFAULT_PROGENY_DEPTH,
+      coupleView || expandedProgeny ? FULL_DEPTH : progenyDepth,
     );
     chartRef.current.updateData(data);
     if (enteringCoupleView) {
@@ -860,7 +907,16 @@ export function FamilyTree({
     });
     prevCoupleViewRef.current = coupleView;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [people, unions, unionChildren, coupleView, expandedAncestry, expandedProgeny]);
+  }, [
+    people,
+    unions,
+    unionChildren,
+    coupleView,
+    expandedAncestry,
+    expandedProgeny,
+    ancestryDepth,
+    progenyDepth,
+  ]);
 
   if (people.length === 0) return null;
 
