@@ -219,10 +219,25 @@ const RELATIONSHIP_MATCH_SCORE = 0.95;
 
 function classifyRelationType(
   relation: string | null,
-): "spouse" | "parent" | "child" | "sibling" | null {
+):
+  | "spouse"
+  | "parent"
+  | "grandparent"
+  | "child"
+  | "grandchild"
+  | "sibling"
+  | null {
   if (!relation) return null;
   const r = relation.toLowerCase();
   if (/spouse|wife|husband|married/.test(r)) return "spouse";
+  // Must run before the plain parent/child checks below — "grandmother"
+  // and "grandson" both contain the substrings "mother" and "son", so
+  // without this ordering a grandparent/grandchild relation would be
+  // silently misread as one generation closer than it actually is (the
+  // relationship-signal boost would then check the anchor's direct
+  // parents/children instead of grandparents/grandchildren).
+  if (/grand(father|mother|parent)/.test(r)) return "grandparent";
+  if (/grand(son|daughter|child)/.test(r)) return "grandchild";
   if (/father|mother|parent/.test(r)) return "parent";
   if (/son|daughter|child/.test(r)) return "child";
   if (/sister|brother|sibling/.test(r)) return "sibling";
@@ -320,6 +335,35 @@ async function getRealSiblingIds(
     .filter((id) => id !== personId);
 }
 
+// One more hop than getRealParentIds in the same direction — every parent
+// of every recorded parent. "paternal"/"maternal" in a relation string
+// narrows which side the document means, but no gender data exists to
+// filter by, so (as with getRealParentIds) both sides come back and only
+// an independent name match on the candidate's own side can safely boost.
+async function getRealGrandparentIds(
+  supabase: SupabaseClient,
+  personId: string,
+): Promise<string[]> {
+  const parentIds = await getRealParentIds(supabase, personId);
+  const grandparentIdSets = await Promise.all(
+    parentIds.map((id) => getRealParentIds(supabase, id)),
+  );
+  return grandparentIdSets.flat();
+}
+
+// Mirror of getRealGrandparentIds, one hop further through getRealChildIds
+// instead of getRealParentIds.
+async function getRealGrandchildIds(
+  supabase: SupabaseClient,
+  personId: string,
+): Promise<string[]> {
+  const childIds = await getRealChildIds(supabase, personId);
+  const grandchildIdSets = await Promise.all(
+    childIds.map((id) => getRealChildIds(supabase, id)),
+  );
+  return grandchildIdSets.flat();
+}
+
 function reclassify(matches: PersonMatch[]): CandidateWithMatch["matchStatus"] {
   matches.sort((a, b) => b.score - a.score);
   const [top, runnerUp] = matches;
@@ -328,6 +372,25 @@ function reclassify(matches: PersonMatch[]): CandidateWithMatch["matchStatus"] {
     top.score >= HIGH_CONFIDENCE_THRESHOLD &&
     (!runnerUp || top.score - runnerUp.score >= HIGH_CONFIDENCE_MARGIN);
   return isClearWinner ? "high_confidence" : "multiple_matches";
+}
+
+// A candidate someone has already resolved (search-override confirm, or a
+// "create new person" match) is a strictly stronger anchor signal than an
+// algorithmic name match — a human looked at it — so it must outrank any
+// matchStatus-based candidate when picking the anchor below. Returns
+// undefined for anything not yet resolvable at all.
+function anchorPersonId(candidate: CandidateWithMatch): string | undefined {
+  return (
+    candidate.resolution?.personId ??
+    (candidate.matchStatus === "high_confidence"
+      ? candidate.matches[0]?.personId
+      : undefined)
+  );
+}
+
+function anchorConfidence(candidate: CandidateWithMatch): number {
+  if (candidate.resolution?.personId) return Infinity;
+  return candidate.matches[0]?.score ?? -Infinity;
 }
 
 // Boosts (or adds) a match for anyone who is ALREADY recorded, in the tree,
@@ -354,17 +417,23 @@ async function applyRelationshipSignal(
   if (explicitAnchorId) {
     anchorId = explicitAnchorId;
   } else {
+    // Includes both already-confirmed candidates (e.g. a "Grandpa" that
+    // couldn't auto-match by name and needed a manual search-override
+    // confirm) and algorithmic high-confidence matches — a re-match after
+    // a manual confirmation should be able to use that confirmation as an
+    // anchor for the document's still-pending candidates, not just re-run
+    // name search from scratch against the same unmatchable text.
     const resolvedAnchors = familyCandidates.filter(
-      (r) => r.matchStatus === "high_confidence" && r.matches.length > 0,
+      (r) => anchorPersonId(r) !== undefined,
     );
     if (resolvedAnchors.length === 0) return;
 
     mainSubject =
       resolvedAnchors.find((r) => isMainSubjectRelation(r.relation)) ??
       [...resolvedAnchors].sort(
-        (a, b) => b.matches[0].score - a.matches[0].score,
+        (a, b) => anchorConfidence(b) - anchorConfidence(a),
       )[0];
-    anchorId = mainSubject.matches[0].personId;
+    anchorId = anchorPersonId(mainSubject)!;
   }
 
   for (const candidate of familyCandidates) {
@@ -372,14 +441,27 @@ async function applyRelationshipSignal(
     const relType = classifyRelationType(candidate.relation);
     if (!relType) continue;
 
-    const realRelatedIds =
-      relType === "spouse"
-        ? await getRealSpouseIds(supabase, anchorId)
-        : relType === "parent"
-          ? await getRealParentIds(supabase, anchorId)
-          : relType === "child"
-            ? await getRealChildIds(supabase, anchorId)
-            : await getRealSiblingIds(supabase, anchorId);
+    let realRelatedIds: string[];
+    switch (relType) {
+      case "spouse":
+        realRelatedIds = await getRealSpouseIds(supabase, anchorId);
+        break;
+      case "parent":
+        realRelatedIds = await getRealParentIds(supabase, anchorId);
+        break;
+      case "grandparent":
+        realRelatedIds = await getRealGrandparentIds(supabase, anchorId);
+        break;
+      case "child":
+        realRelatedIds = await getRealChildIds(supabase, anchorId);
+        break;
+      case "grandchild":
+        realRelatedIds = await getRealGrandchildIds(supabase, anchorId);
+        break;
+      case "sibling":
+        realRelatedIds = await getRealSiblingIds(supabase, anchorId);
+        break;
+    }
     if (realRelatedIds.length === 0) continue;
 
     // Only boost matches this candidate's own name search already turned
