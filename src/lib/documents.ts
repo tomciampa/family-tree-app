@@ -40,3 +40,40 @@ export function splitWithHighlight(text: string, needle: string | null) {
   const parts = text.split(new RegExp(`(${escaped})`, "gi"));
   return parts.map((part, i) => ({ text: part, match: i % 2 === 1 }));
 }
+
+// One entry per MIME type this app knows a friendly label for — mirrors
+// the TEXT_EXTRACTORS registry in document-text-extraction.ts: adding a
+// new supported type means adding one entry here, not a new special case
+// wherever a document's type is displayed. Image subtypes (image/jpeg,
+// image/png, image/heic, ...) are handled by the startsWith("image/")
+// check in documentTypeLabel below instead of being enumerated here,
+// matching the same convention isVisionCapable and the viewer modal
+// already use to recognize an image.
+const DOCUMENT_TYPE_LABELS: Record<string, string> = {
+  "application/pdf": "PDF",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+    "Word Document",
+  "text/plain": "Text File",
+  "text/markdown": "Markdown File",
+};
+
+// A raw MIME type (e.g.
+// "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+// means nothing to a non-technical user — never show one directly. Falls
+// back to the file extension (still concrete and readable) rather than
+// "Document" whenever one's available, so an unmapped type at least
+// reads as e.g. "XLS" instead of a generic label.
+export function documentTypeLabel(
+  documentType: string | null,
+  filename?: string | null,
+): string {
+  if (documentType) {
+    if (documentType in DOCUMENT_TYPE_LABELS) {
+      return DOCUMENT_TYPE_LABELS[documentType];
+    }
+    if (documentType.startsWith("image/")) return "Image";
+  }
+  const dotIndex = filename?.lastIndexOf(".") ?? -1;
+  const extension = dotIndex > 0 ? filename!.slice(dotIndex + 1) : null;
+  return extension ? extension.toUpperCase() : "Document";
+}

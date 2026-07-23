@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { sourceBadgeClassName } from "./fact-list";
 import { DocumentViewerModal } from "./document-viewer-modal";
+import { documentTypeLabel } from "@/lib/documents";
 
 export type PersonDocument = {
   personId: string;
@@ -73,7 +74,9 @@ export function DocumentList({
           <button type="button" onClick={() => setOpenDocId(doc.id)} className={t.link}>
             {doc.filename ?? "View document"}
           </button>
-          {doc.documentType && <span className={t.badge}>{doc.documentType}</span>}
+          <span className={t.badge}>
+            {documentTypeLabel(doc.documentType, doc.filename)}
+          </span>
         </div>
       ))}
 
