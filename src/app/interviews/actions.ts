@@ -194,6 +194,29 @@ export async function transcribeInterviewSession(
 // each answer's text), one for "word" timestamps (used only to figure out
 // which recorded [start, end) window a phrase belongs to, and to split the
 // rare phrase that straddles one of our boundaries).
+// Segment transcripts are stored (and shown) as "Q: <prompt>\nA: <answer>" —
+// Phase 1 already speaks this exact prompt text aloud at the segment
+// boundary, so persisting it alongside the answer makes a segment coherent
+// to read back on its own, even if the interviewee never repeated the
+// question themselves. No prompt lookup match (segment.kind not found in
+// INTERVIEW_PROMPTS, shouldn't normally happen) just falls back to the bare
+// answer rather than storing a broken "Q: undefined" line.
+function formatSegmentTranscript(kind: string | null, answer: string): string {
+  const promptText = INTERVIEW_PROMPTS.find((p) => p.label === kind)?.prompt;
+  return promptText ? `Q: ${promptText}\nA: ${answer}` : answer;
+}
+
+// Reverses formatSegmentTranscript — extraction (extractCandidatesFromSegment
+// below) must only ever see the interviewee's actual answer, never the
+// question text itself (which is generic prompt wording, not something to
+// mine for facts/anecdotes/people). Segments transcribed before this format
+// existed have no "Q: "/"A: " prefix at all, so the regex simply doesn't
+// match and the whole string passes through unchanged.
+function answerOnly(transcriptionRaw: string): string {
+  const match = transcriptionRaw.match(/^Q: .*\nA: ([\s\S]*)$/);
+  return match ? match[1] : transcriptionRaw;
+}
+
 export async function transcribeInterviewSegments(
   parentDocumentId: string,
 ): Promise<{ error: string } | { segments: { id: string; transcript: string }[] }> {
@@ -206,7 +229,7 @@ export async function transcribeInterviewSegments(
     supabase.from("documents").select("file_path").eq("id", parentDocumentId).single(),
     supabase
       .from("documents")
-      .select("id, audio_start_seconds, audio_end_seconds, transcription_raw")
+      .select("id, kind, audio_start_seconds, audio_end_seconds, transcription_raw")
       .eq("parent_document_id", parentDocumentId)
       .order("audio_start_seconds", { ascending: true }),
   ]);
@@ -295,7 +318,8 @@ export async function transcribeInterviewSegments(
 
   const updates = pending.map((s) => {
     const text = (textById.get(s.id) ?? []).join(" ").replace(/\s+/g, " ").trim();
-    return { id: s.id, transcript: text || "(no speech detected in this segment)" };
+    const answer = text || "(no speech detected in this segment)";
+    return { id: s.id, transcript: formatSegmentTranscript(s.kind, answer) };
   });
 
   for (const u of updates) {
@@ -495,7 +519,7 @@ export async function extractCandidatesFromSegment(
             `3. Narrative anecdotes — stories, characterizations, and color that don't reduce to a discrete factual claim (how people met, a memorable moment, a personality description). Attribute each to who the story centers on.`,
             "",
             "Transcript:",
-            segment.transcription_raw,
+            answerOnly(segment.transcription_raw),
           ]
             .filter(Boolean)
             .join("\n"),
