@@ -26,10 +26,10 @@ const THEME = {
   },
   archival: {
     container: "flex flex-col gap-3",
-    label: "text-xs uppercase tracking-wide text-[#6b5c45]",
+    label: "text-xs uppercase tracking-wide text-[color:var(--color-text-secondary)]",
     badge:
-      "rounded border border-[#c9b896] bg-[#efe6d2] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[#6b5c45]",
-    empty: "text-sm italic text-[#6b5c45]",
+      "rounded border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[color:var(--color-text-secondary)]",
+    empty: "text-sm italic text-[color:var(--color-text-secondary)]",
   },
   neutral: {
     container: "flex flex-col gap-3",

@@ -57,9 +57,19 @@ siblings; clicking a parent's card body does NOT recenter (only siblings do).
 The redesign to a clean, Apple-inspired light/neutral aesthetic — whites and light grays, dark
 neutral text, a blue accent for primary actions/links, soft layered shadows, generous rounded
 corners — is **complete**. It fully replaced the earlier "archival paper" direction (warm
-cream/parchment, sepia/ledger-green accents); no archival-theme surfaces remain anywhere in the
-app. Don't reintroduce cream/parchment/sepia tones thinking you're honoring a still-current
-preference — that palette is gone on purpose, not missed.
+cream/parchment, sepia/ledger-green accents). Don't reintroduce cream/parchment/sepia tones
+thinking you're honoring a still-current preference — that palette is gone on purpose, not
+missed.
+
+One exception found after this note was originally written (and since fixed, 2026-07-22):
+`FactList`/`DocumentList` (`fact-list.tsx`/`document-list.tsx`) keep an unused `archival` theme
+variant alongside `plain`/`neutral` — dead code, never selected by any caller, kept on purpose
+per its own comment in case the parchment look is wanted again — but it still had the old
+palette's literal hex values (`#efe6d2`, `#c9b896`, `#6b5c45`, `#a97b52`) hardcoded rather than
+referencing tokens. Converted to reference the same tokens `neutral` uses, so no raw archival
+hex remains anywhere in the app even though the (still-unused) `archival` variant name and
+structure are kept. If you find more of these, they're leftover pre-redesign literals, not an
+intentional exception — convert them the same way.
 
 `src/app/design-tokens.css` is the source of truth: a full token system (color, typography,
 spacing, radius, elevation, motion) as namespaced CSS custom properties (`--color-*`,
