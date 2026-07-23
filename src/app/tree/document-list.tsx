@@ -1,4 +1,8 @@
+"use client";
+
+import { useState } from "react";
 import { sourceBadgeClassName } from "./fact-list";
+import { DocumentViewerModal } from "./document-viewer-modal";
 
 export type PersonDocument = {
   personId: string;
@@ -48,6 +52,12 @@ export function DocumentList({
   showHeading?: boolean;
 }) {
   const t = THEME[theme];
+  // Which document (by id) is currently open in the viewer modal, if any
+  // — same DocumentViewerModal FactList's own source badges open (see
+  // fact-list.tsx), not a second modal. No highlight needle here: unlike
+  // a fact's source badge, a document name in this list isn't tied to any
+  // one fact's value to highlight in the transcription.
+  const [openDocId, setOpenDocId] = useState<string | null>(null);
 
   if (documents.length === 0) {
     return t.empty ? (
@@ -60,21 +70,20 @@ export function DocumentList({
       {showHeading && <p className={t.heading}>Documents</p>}
       {documents.map((doc) => (
         <div key={doc.id} className="flex items-center justify-between gap-2 text-sm">
-          {doc.viewUrl ? (
-            <a
-              href={doc.viewUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={t.link}
-            >
-              {doc.filename ?? "View document"}
-            </a>
-          ) : (
-            <span>{doc.filename ?? "Document"}</span>
-          )}
+          <button type="button" onClick={() => setOpenDocId(doc.id)} className={t.link}>
+            {doc.filename ?? "View document"}
+          </button>
           {doc.documentType && <span className={t.badge}>{doc.documentType}</span>}
         </div>
       ))}
+
+      {openDocId && (
+        <DocumentViewerModal
+          documentId={openDocId}
+          highlightText={null}
+          onClose={() => setOpenDocId(null)}
+        />
+      )}
     </div>
   );
 }
