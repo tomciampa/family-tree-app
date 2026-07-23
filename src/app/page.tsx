@@ -34,68 +34,124 @@ export default async function Home() {
     },
   ];
 
-  return (
-    <main className="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-10 p-8 font-[family-name:var(--font-family-base)] text-[color:var(--color-text-primary)] sm:p-12">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-[length:var(--font-size-heading-1)] leading-[var(--line-height-heading-1)] font-semibold">
-          Welcome back
-        </h1>
-        <p className="text-[color:var(--color-text-secondary)]">
-          Signed in as <strong>{user.email}</strong>
-        </p>
-        <p className="mt-2 text-[length:var(--font-size-body)] text-[color:var(--color-text-secondary)]">
-          New here? Start by recording a memory, or explore your family tree.
-        </p>
-      </div>
+  // Secondary/account-level links, shared between the always-expanded
+  // mobile list and the collapsed-by-default desktop sidebar below — one
+  // place to add a link, not two.
+  const secondaryLinks = [
+    { href: "/documents", icon: "📁", label: "Documents library" },
+    { href: "/familysearch", icon: "🔍", label: "FamilySearch" },
+    { href: "/settings", icon: "⚙️", label: "Settings" },
+  ];
 
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
-        {primaryLinks.map((link) => (
+  return (
+    <>
+      {/* Desktop/tablet: a Supabase-style icon rail, fixed to the
+          viewport edge and collapsed by default. Hover OR keyboard focus
+          (focus-within, for anyone tabbing through without a mouse)
+          expands it to show labels — as an overlay via z-10, not by
+          pushing page content, so the reserved sm:pl-24 on <main> below
+          only ever needs to account for the permanent collapsed width. */}
+      <nav
+        aria-label="Account"
+        className="group fixed inset-y-0 left-0 z-10 hidden w-16 flex-col overflow-hidden border-r border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] py-6 transition-[width] duration-[var(--duration-base)] ease-[var(--ease-standard)] hover:w-56 focus-within:w-56 sm:flex"
+      >
+        {secondaryLinks.map((link) => (
           <Link
             key={link.href}
             href={link.href}
-            className="flex min-h-[200px] flex-col items-center gap-3 rounded-[var(--radius-lg)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-6 text-center shadow-[var(--shadow-2)] transition-all duration-[var(--duration-base)] hover:-translate-y-0.5 hover:shadow-[var(--shadow-3)]"
+            className="flex items-center gap-3 px-3 py-3 text-sm text-[color:var(--color-text-secondary)] transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] hover:text-[color:var(--color-text-primary)]"
           >
-            <span className="text-4xl" aria-hidden="true">
+            <span
+              className="flex h-10 w-10 shrink-0 items-center justify-center text-xl"
+              aria-hidden="true"
+            >
               {link.icon}
             </span>
-            <span className="text-[length:var(--font-size-heading-3)] leading-[var(--line-height-heading-3)] font-semibold">
+            <span className="whitespace-nowrap opacity-0 transition-opacity duration-[var(--duration-base)] group-hover:opacity-100 group-focus-within:opacity-100">
               {link.label}
-            </span>
-            <span className="text-[length:var(--font-size-body-small)] text-[color:var(--color-text-secondary)]">
-              {link.description}
             </span>
           </Link>
         ))}
-      </div>
-
-      <div className="flex flex-col items-start gap-3 border-t border-[color:var(--color-border-subtle)] pt-6">
-        <Link
-          href="/documents"
-          className="text-sm text-[color:var(--color-accent)] underline transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-accent-hover)]"
-        >
-          Documents library
-        </Link>
-        <Link
-          href="/familysearch"
-          className="text-sm text-[color:var(--color-accent)] underline transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-accent-hover)]"
-        >
-          FamilySearch
-        </Link>
-        <Link
-          href="/settings"
-          className="text-sm text-[color:var(--color-accent)] underline transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-accent-hover)]"
-        >
-          Settings
-        </Link>
         <form action={signOut}>
           <button
             type="submit"
-            className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-3 py-2 text-sm transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)]"
+            className="flex w-full items-center gap-3 px-3 py-3 text-left text-sm text-[color:var(--color-text-secondary)] transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] hover:text-[color:var(--color-text-primary)]"
           >
-            Sign out
+            <span
+              className="flex h-10 w-10 shrink-0 items-center justify-center text-xl"
+              aria-hidden="true"
+            >
+              🚪
+            </span>
+            <span className="whitespace-nowrap opacity-0 transition-opacity duration-[var(--duration-base)] group-hover:opacity-100 group-focus-within:opacity-100">
+              Sign out
+            </span>
           </button>
         </form>
-      </div>
-    </main>
+      </nav>
+
+      <main className="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-10 p-8 font-[family-name:var(--font-family-base)] text-[color:var(--color-text-primary)] sm:p-12 sm:pl-24">
+        <div className="flex flex-col gap-2">
+          <h1 className="text-[length:var(--font-size-heading-1)] leading-[var(--line-height-heading-1)] font-semibold">
+            Welcome back
+          </h1>
+          <p className="text-[color:var(--color-text-secondary)]">
+            Signed in as <strong>{user.email}</strong>
+          </p>
+          <p className="mt-2 text-[length:var(--font-size-body)] text-[color:var(--color-text-secondary)]">
+            New here? Start by recording a memory, or explore your family tree.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+          {primaryLinks.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              className="flex min-h-[200px] flex-col items-center gap-3 rounded-[var(--radius-lg)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-6 text-center shadow-[var(--shadow-2)] transition-all duration-[var(--duration-base)] hover:-translate-y-0.5 hover:shadow-[var(--shadow-3)]"
+            >
+              <span className="text-4xl" aria-hidden="true">
+                {link.icon}
+              </span>
+              <span className="text-[length:var(--font-size-heading-3)] leading-[var(--line-height-heading-3)] font-semibold">
+                {link.label}
+              </span>
+              <span className="text-[length:var(--font-size-body-small)] text-[color:var(--color-text-secondary)]">
+                {link.description}
+              </span>
+            </Link>
+          ))}
+        </div>
+
+        {/* Mobile: hover doesn't exist on touch, so there's no way to
+            reveal a collapsed rail's labels — always-expanded as a plain
+            list instead, same links/icons/order as the desktop sidebar. */}
+        <div className="flex flex-col items-start gap-1 border-t border-[color:var(--color-border-subtle)] pt-6 sm:hidden">
+          {secondaryLinks.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              className="flex items-center gap-3 rounded-[var(--radius-sm)] px-2 py-2 text-sm text-[color:var(--color-text-secondary)] transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] hover:text-[color:var(--color-text-primary)]"
+            >
+              <span className="text-lg" aria-hidden="true">
+                {link.icon}
+              </span>
+              {link.label}
+            </Link>
+          ))}
+          <form action={signOut}>
+            <button
+              type="submit"
+              className="flex items-center gap-3 rounded-[var(--radius-sm)] px-2 py-2 text-sm text-[color:var(--color-text-secondary)] transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] hover:text-[color:var(--color-text-primary)]"
+            >
+              <span className="text-lg" aria-hidden="true">
+                🚪
+              </span>
+              Sign out
+            </button>
+          </form>
+        </div>
+      </main>
+    </>
   );
 }
