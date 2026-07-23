@@ -34,6 +34,32 @@ function formatElapsed(totalSeconds: number): string {
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
+// Speaks a prompt aloud via the browser's built-in Web Speech API, then
+// calls onDone once speech finishes — never before, so recording never
+// starts/resumes while the device's own voice is still playing (it would
+// otherwise bleed into the recording). Falls back to calling onDone
+// immediately if speech synthesis isn't available or errors out, so
+// narration failing never blocks the interview.
+function speakPromptText(text: string, onDone: () => void) {
+  if (
+    typeof window === "undefined" ||
+    typeof window.speechSynthesis === "undefined" ||
+    typeof SpeechSynthesisUtterance === "undefined"
+  ) {
+    onDone();
+    return;
+  }
+  try {
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.onend = () => onDone();
+    utterance.onerror = () => onDone();
+    window.speechSynthesis.speak(utterance);
+  } catch {
+    onDone();
+  }
+}
+
 // Step 1 (pick who's being interviewed) reuses PersonSearch — the same
 // search UI the document-matching review workspace uses — plus a "create
 // new person" option built the same way document-review.tsx builds one
@@ -73,25 +99,63 @@ export function RecordInterviewFlow({
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [recordError, setRecordError] = useState<string | null>(null);
   const [promptIndex, setPromptIndex] = useState(0);
+  // True whenever a prompt is being read aloud — before the very first
+  // recording start, or during the pause/resume window around advancing to
+  // a new question. Recording is never running while this is true.
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Mirrors of promptIndex/elapsedSeconds that recorder.onstop's closure
-  // (fixed at startRecording() time) and click handlers can read
-  // synchronously, plus the boundary list itself — segment start/end times
-  // come from whatever the on-screen timer reads at the moment of a "Next
-  // question" click or Stop, exactly as the state display shows.
+  // Mirrors of promptIndex that recorder.onstop's closure (fixed at
+  // startRecording() time) and click handlers can read synchronously, plus
+  // the boundary list itself.
   const promptIndexRef = useRef(0);
   const segmentStartRef = useRef(0);
   const segmentsRef = useRef<{ label: string; startSeconds: number; endSeconds: number }[]>([]);
+
+  // Sub-second-precision recording clock, tracked separately from the
+  // once-per-second elapsedSeconds display state — that display timer is
+  // fine for the on-screen "1:23" readout, but is too coarse to use as the
+  // actual stored segment boundary (a boundary can only be as precise as
+  // whatever produced it, and a 1Hz integer can be off by up to ~999ms from
+  // the true click instant — enough to misattribute a word at a segment
+  // edge even though pause()/resume() themselves fire right on time,
+  // verified separately). preciseElapsedRef holds accumulated *actively
+  // recording* seconds as of the last freeze; activeSinceRef holds the
+  // performance.now() timestamp recording last (re)started, or null while
+  // paused/not yet started — mirroring exactly when pause()/resume() are
+  // actually called, narration gaps included.
+  const preciseElapsedRef = useRef(0);
+  const activeSinceRef = useRef<number | null>(null);
+
+  function getPreciseElapsedSeconds(): number {
+    if (activeSinceRef.current === null) return preciseElapsedRef.current;
+    return preciseElapsedRef.current + (performance.now() - activeSinceRef.current) / 1000;
+  }
+
+  // Call immediately before every mediaRecorder.pause() (manual pause,
+  // narration-wait pause, or final stop) so the frozen total lines up with
+  // the instant capture actually halts.
+  function freezeElapsedTracking(): number {
+    const elapsed = getPreciseElapsedSeconds();
+    preciseElapsedRef.current = elapsed;
+    activeSinceRef.current = null;
+    return elapsed;
+  }
+
+  // Call immediately after every mediaRecorder.start()/resume().
+  function resumeElapsedTracking() {
+    activeSinceRef.current = performance.now();
+  }
 
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
       streamRef.current?.getTracks().forEach((t) => t.stop());
+      if (typeof window !== "undefined") window.speechSynthesis?.cancel();
     };
   }, []);
 
@@ -152,17 +216,28 @@ export function RecordInterviewFlow({
       recorder.onstop = () => {
         void saveRecording(mimeType || recorder.mimeType || "audio/webm");
       };
-      recorder.start();
       mediaRecorderRef.current = recorder;
       setElapsedSeconds(0);
       promptIndexRef.current = 0;
       segmentStartRef.current = 0;
       segmentsRef.current = [];
+      preciseElapsedRef.current = 0;
+      activeSinceRef.current = null;
       setPromptIndex(0);
-      timerRef.current = setInterval(() => {
-        setElapsedSeconds((s) => s + 1);
-      }, 1000);
-      setRecordingStatus("recording");
+
+      // Don't start capturing yet — read the first prompt aloud first, and
+      // only start the recorder once narration finishes, so the narration
+      // itself is never captured in the recording.
+      setIsSpeaking(true);
+      speakPromptText(INTERVIEW_PROMPTS[0].prompt, () => {
+        recorder.start();
+        resumeElapsedTracking();
+        timerRef.current = setInterval(() => {
+          setElapsedSeconds((s) => s + 1);
+        }, 1000);
+        setRecordingStatus("recording");
+        setIsSpeaking(false);
+      });
     } catch {
       setRecordError(
         "Microphone access was denied or unavailable — please allow microphone access and try again.",
@@ -173,25 +248,74 @@ export function RecordInterviewFlow({
 
   function handleNextQuestion() {
     if (promptIndexRef.current >= INTERVIEW_PROMPTS.length - 1) return;
+    // Freeze the precise clock right alongside the actual pause() call
+    // below (not the 1Hz display timer) so the stored boundary matches the
+    // true instant capture stops, down to sub-second precision.
+    const boundary = freezeElapsedTracking();
     segmentsRef.current.push({
       label: INTERVIEW_PROMPTS[promptIndexRef.current].label,
       startSeconds: segmentStartRef.current,
-      endSeconds: elapsedSeconds,
+      endSeconds: boundary,
     });
-    segmentStartRef.current = elapsedSeconds;
+    segmentStartRef.current = boundary;
     promptIndexRef.current += 1;
     setPromptIndex(promptIndexRef.current);
+
+    // Same pause()/resume() mechanism as the manual Pause/Resume controls
+    // below — pause while the new prompt is read aloud, then resume once
+    // narration finishes, so segment boundaries and the elapsed timer stay
+    // in lockstep with what's actually being encoded.
+    if (timerRef.current) clearInterval(timerRef.current);
+    mediaRecorderRef.current?.pause();
+    setIsSpeaking(true);
+    speakPromptText(INTERVIEW_PROMPTS[promptIndexRef.current].prompt, () => {
+      mediaRecorderRef.current?.resume();
+      resumeElapsedTracking();
+      timerRef.current = setInterval(() => {
+        setElapsedSeconds((s) => s + 1);
+      }, 1000);
+      setIsSpeaking(false);
+    });
+  }
+
+  // "Repeat question" doesn't advance the prompt or touch segment
+  // boundaries — it just re-reads whatever prompt is currently showing. If
+  // actively recording, pause/resume around it the same way advancing does;
+  // if the user had already paused manually, leave that pause alone (don't
+  // auto-resume just because narration finished) — and if recording hasn't
+  // started yet, there's nothing to pause.
+  function handleRepeatQuestion() {
+    const text = INTERVIEW_PROMPTS[promptIndexRef.current]?.prompt;
+    if (!text) return;
+    if (recordingStatus === "recording") {
+      freezeElapsedTracking();
+      if (timerRef.current) clearInterval(timerRef.current);
+      mediaRecorderRef.current?.pause();
+      setIsSpeaking(true);
+      speakPromptText(text, () => {
+        mediaRecorderRef.current?.resume();
+        resumeElapsedTracking();
+        timerRef.current = setInterval(() => {
+          setElapsedSeconds((s) => s + 1);
+        }, 1000);
+        setIsSpeaking(false);
+      });
+    } else {
+      setIsSpeaking(true);
+      speakPromptText(text, () => setIsSpeaking(false));
+    }
   }
 
   // MediaRecorder's own pause()/resume() excludes paused wall-clock time
   // from the encoded audio entirely (verified: a 3s-record / 5s-paused /
-  // 7s-record take produced a ~10s file, not ~15s) — stopping our own
-  // elapsedSeconds timer in lockstep keeps it in sync with the real
-  // recording position, so segment boundaries stay accurate across a
-  // pause with no extra math. For stepping away mid-session (a bathroom
-  // break, a phone call) — not for resuming a session days later, which
-  // is a bigger feature.
+  // 7s-record take produced a ~10s file, not ~15s) — freezing/resuming our
+  // own precise clock in lockstep keeps it in sync with the real recording
+  // position, so segment boundaries stay accurate across a pause with no
+  // extra math. For stepping away mid-session (a bathroom break, a phone
+  // call) — not for resuming a session days later, which is a bigger
+  // feature.
   function handlePause() {
+    freezeElapsedTracking();
     if (timerRef.current) clearInterval(timerRef.current);
     mediaRecorderRef.current?.pause();
     setRecordingStatus("paused");
@@ -199,6 +323,7 @@ export function RecordInterviewFlow({
 
   function handleResume() {
     mediaRecorderRef.current?.resume();
+    resumeElapsedTracking();
     timerRef.current = setInterval(() => {
       setElapsedSeconds((s) => s + 1);
     }, 1000);
@@ -214,18 +339,21 @@ export function RecordInterviewFlow({
   // attempt becomes invisible to transcription/extraction either way,
   // which is what actually matters.
   function handleRedoAnswer() {
-    segmentStartRef.current = elapsedSeconds;
+    segmentStartRef.current = getPreciseElapsedSeconds();
   }
 
   function stopRecording() {
+    if (typeof window !== "undefined") window.speechSynthesis?.cancel();
+    setIsSpeaking(false);
     if (timerRef.current) clearInterval(timerRef.current);
     // Close out whichever prompt was current when Stop was pressed — the
     // same boundary mechanism "Next question" uses, just triggered by Stop
     // instead.
+    const boundary = freezeElapsedTracking();
     segmentsRef.current.push({
       label: INTERVIEW_PROMPTS[promptIndexRef.current].label,
       startSeconds: segmentStartRef.current,
-      endSeconds: elapsedSeconds,
+      endSeconds: boundary,
     });
     mediaRecorderRef.current?.stop();
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -373,6 +501,14 @@ export function RecordInterviewFlow({
               <p className="mt-1 text-lg font-medium">
                 {INTERVIEW_PROMPTS[promptIndex].prompt}
               </p>
+              <button
+                type="button"
+                onClick={handleRepeatQuestion}
+                disabled={isSpeaking}
+                className="mt-2 text-sm text-[color:var(--color-text-secondary)] transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-text-primary)] disabled:opacity-50"
+              >
+                🔊 Repeat question
+              </button>
             </div>
           )}
 
@@ -382,9 +518,11 @@ export function RecordInterviewFlow({
                 <div className="flex items-center gap-3">
                   <span
                     className={`h-4 w-4 rounded-full ${
-                      recordingStatus === "recording"
-                        ? "animate-pulse bg-[color:var(--color-error)]"
-                        : "bg-[color:var(--color-warning)]"
+                      isSpeaking
+                        ? "bg-[color:var(--color-text-secondary)]"
+                        : recordingStatus === "recording"
+                          ? "animate-pulse bg-[color:var(--color-error)]"
+                          : "bg-[color:var(--color-warning)]"
                     }`}
                   />
                   <span className="text-2xl font-semibold tabular-nums">
@@ -392,14 +530,19 @@ export function RecordInterviewFlow({
                   </span>
                 </div>
                 <p className="text-sm text-[color:var(--color-text-secondary)]">
-                  {recordingStatus === "recording" ? "Recording…" : "Paused"}
+                  {isSpeaking
+                    ? "🔊 Speaking question…"
+                    : recordingStatus === "recording"
+                      ? "Recording…"
+                      : "Paused"}
                 </p>
                 <div className="flex flex-wrap justify-center gap-3">
                   {recordingStatus === "recording" ? (
                     <button
                       type="button"
                       onClick={handlePause}
-                      className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-4 py-3 text-base font-medium transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)]"
+                      disabled={isSpeaking}
+                      className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-4 py-3 text-base font-medium transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] disabled:opacity-50"
                     >
                       Pause
                     </button>
@@ -407,7 +550,8 @@ export function RecordInterviewFlow({
                     <button
                       type="button"
                       onClick={handleResume}
-                      className="rounded-[var(--radius-sm)] bg-[color:var(--color-success)] px-4 py-3 text-base font-medium text-[color:var(--color-text-on-accent)] transition-colors duration-[var(--duration-base)] hover:opacity-90"
+                      disabled={isSpeaking}
+                      className="rounded-[var(--radius-sm)] bg-[color:var(--color-success)] px-4 py-3 text-base font-medium text-[color:var(--color-text-on-accent)] transition-colors duration-[var(--duration-base)] hover:opacity-90 disabled:opacity-50"
                     >
                       Resume
                     </button>
@@ -415,7 +559,8 @@ export function RecordInterviewFlow({
                   <button
                     type="button"
                     onClick={handleRedoAnswer}
-                    className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-4 py-3 text-base font-medium transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)]"
+                    disabled={isSpeaking}
+                    className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-4 py-3 text-base font-medium transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] disabled:opacity-50"
                   >
                     Redo this answer
                   </button>
@@ -423,7 +568,8 @@ export function RecordInterviewFlow({
                     <button
                       type="button"
                       onClick={handleNextQuestion}
-                      className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-4 py-3 text-base font-medium transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)]"
+                      disabled={isSpeaking}
+                      className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-4 py-3 text-base font-medium transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] disabled:opacity-50"
                     >
                       Next question
                     </button>
@@ -439,6 +585,8 @@ export function RecordInterviewFlow({
               </>
             ) : recordingStatus === "saving" ? (
               <p className="text-base text-[color:var(--color-text-secondary)]">Saving recording…</p>
+            ) : isSpeaking ? (
+              <p className="text-base text-[color:var(--color-text-secondary)]">🔊 Speaking question…</p>
             ) : (
               <button
                 type="button"
@@ -458,7 +606,8 @@ export function RecordInterviewFlow({
             disabled={
               recordingStatus === "recording" ||
               recordingStatus === "paused" ||
-              recordingStatus === "saving"
+              recordingStatus === "saving" ||
+              isSpeaking
             }
             className="self-start text-sm text-[color:var(--color-text-secondary)] transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-text-primary)] disabled:opacity-50"
           >
