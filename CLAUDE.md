@@ -39,6 +39,40 @@ The relationship signal covers spouse/parent/child and siblings (shared-parent d
 `union_children`) — this matcher (`matchFamilyCandidates` in `documents/actions.ts`) is shared
 between document extraction and interview extraction, not duplicated per pipeline.
 
+Relationship-signal matching notes (`applyRelationshipSignal` in `documents/actions.ts`):
+- A manually-confirmed match (via the search override, for a candidate the matcher could never
+  resolve by name — e.g. a document that only ever calls its subject "Grandpa") now counts as a
+  valid anchor for boosting other candidates in the same document, and takes priority over an
+  algorithmic match when picking the main anchor. It didn't originally — re-matching after a
+  manual confirmation used to be a no-op for the document's remaining candidates, since the
+  anchor search only looked at algorithmic `high_confidence` matches.
+- `classifyRelationType` must correctly distinguish grandparent/grandchild relations from
+  parent/child, not lump them together. A past bug matched "grandmother"/"grandfather" as
+  "mother"/"father" via a careless substring check (`/father|mother|parent/` matches the
+  "mother" inside "grandmother"), silently checking one generation too shallow — the
+  grandparent-specific regex must run first.
+- A genuinely wrong fact was once written to real data from a bad manual match (a "Mother" fact
+  landed on the actual father, from a misclick during manual review) — manual confirmations
+  deserve the same scrutiny as automated ones, not more trust by default just because a human
+  clicked it.
+
+## File-type handling pattern
+A registry-based approach — one `Record<mimeType, ...>` map, one entry per supported type — is
+the established convention for handling different file types, now used in two places:
+`TEXT_EXTRACTORS` in `document-text-extraction.ts` (turns a non-image file's bytes into
+extractable text) and `documentTypeLabel` in `documents.ts` (a human-readable badge label for a
+document's MIME type). Adding a new supported type means adding one entry, not a new parallel
+special-case branch wherever that type needs handling.
+
+Unsupported/unmapped types should always fail *clearly* — a visible error message — rather than
+silently producing an empty or broken state. This was a real bug once: an uploaded `.docx`'s
+raw bytes, decoded as if they were plain text, produced mostly null bytes; the model
+"successfully" transcribed that as nothing, leaving `candidate_people` at `[]` with no error
+anywhere — which silently hid the entire review-matches UI (see `hasFamilyCandidates` in
+`documents-view.tsx`) rather than showing anything was wrong. `hasTextExtractor`/
+`isVisionCapable` are now checked *before* ever downloading the file, so an unsupported type
+fails fast with a real error instead.
+
 ## Tree rendering approach (settled after 3 rounds of real bugs — don't rebuild from scratch)
 `family-chart` natively renders only the "main" (focused) person's full blood-line ancestry,
 uncollapsible, plus their siblings (`setShowSiblingsOfMain(true)`, `setAncestryDepth(1)` so
@@ -70,6 +104,19 @@ referencing tokens. Converted to reference the same tokens `neutral` uses, so no
 hex remains anywhere in the app even though the (still-unused) `archival` variant name and
 structure are kept. If you find more of these, they're leftover pre-redesign literals, not an
 intentional exception — convert them the same way.
+
+As of 2026-07-23, the redesign covers every surface — including the home page (three primary
+action cards for View Family Tree / Record a Memory / Upload a Document, plus a Supabase-style
+collapsible icon sidebar for secondary links: hover or keyboard focus expands it on desktop,
+always-expanded as a plain list on mobile touch devices since hover doesn't exist there) and
+the dossier/PersonPanel/DocumentViewerModal noted below.
+
+The app also has full dark-mode support that follows system preference — built into
+`design-tokens.css` from Stage 1 (a complete separate palette: near-black page background,
+layered dark surfaces, brightened accent/system colors), not a stale leftover of the old
+archival theme. This is intentional, not a bug: if a page reads as "dark," check the viewer's
+OS/browser color-scheme setting before assuming a regression or a stale deployment — this
+already caused one real moment of confusion mid-session.
 
 `src/app/design-tokens.css` is the source of truth: a full token system (color, typography,
 spacing, radius, elevation, motion) as namespaced CSS custom properties (`--color-*`,
@@ -135,6 +182,19 @@ There is no gender data anywhere in this app (`people.gender` is never populated
 this resolver, like the relationship-signal matcher in the document pipeline above, relies
 entirely on the "Mother"/"Father" fact field convention instead.
 
+## Auth-to-person linking
+`family_members.linked_person_id` maps a logged-in account to their own real person record in
+the tree, set via `/settings` ("This is me"). `/tree` centers on this person by default when
+set (see `defaultMainPersonId` in `family-tree.tsx`), falling back to the existing "most
+descendants" heuristic (`pickDefaultMain`) otherwise — e.g. before the user has ever opened
+Settings, or if they explicitly chose "I'm not in the tree yet."
+
+`family_members` initially had RLS *enabled* but zero actual policies — meaning nothing could
+read or write it at all, not that it was open. Nothing had queried the table before this
+feature, so the gap stayed silent until this linking column actually needed real access. Worth
+double-checking a real policy exists (not just RLS being turned on) on any new table going
+forward, since this kind of gap fails silently rather than throwing something obviously wrong.
+
 ## Working conventions
 - **Always verify with a real browser test before committing**, not just typecheck/build —
   use a disposable test account/session, never real user data, for destructive or
@@ -157,3 +217,9 @@ entirely on the "Mother"/"Father" fact field convention instead.
   next.
 - Public GitHub repo — this holds real family data. Be careful about what gets committed
   (no service-role keys, no `.env.local` secrets); flag anything sensitive before committing.
+
+## Known follow-ups (already on the todo list — don't rebuild without checking first)
+- Splitting interviews out of the shared `documents` table into their own model — see "Audio
+  Interview architecture" above for why this keeps causing friction.
+- Linking a person's interviews to their dossier (currently only documents show there).
+- Including the actual question/prompt text in interview transcripts, not just the answers.
