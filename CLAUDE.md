@@ -39,6 +39,14 @@ The relationship signal covers spouse/parent/child and siblings (shared-parent d
 `union_children`) — this matcher (`matchFamilyCandidates` in `documents/actions.ts`) is shared
 between document extraction and interview extraction, not duplicated per pipeline.
 
+Document review workspace (`documents/[id]/document-review.tsx`): the embedded tree preview
+pane uses its own shallower ancestry depth (`ancestryDepth={1}`) than the main `/tree` page's
+default (`DEFAULT_ANCESTRY_DEPTH = 2` in `family-tree.tsx`) — enough to see immediate context
+around a candidate without the full page's deeper default rendering. It also supports directly
+confirming whoever the pane is currently centered on as the match ("Use [Name] as match for
+'[candidate]'"), calling the exact same `confirmCandidateMatch` action the resolution pane's own
+radio-button Confirm button uses — an alternate path to one write, not a second one.
+
 Relationship-signal matching notes (`applyRelationshipSignal` in `documents/actions.ts`):
 - A manually-confirmed match (via the search override, for a candidate the matcher could never
   resolve by name — e.g. a document that only ever calls its subject "Grandpa") now counts as a
@@ -55,14 +63,20 @@ Relationship-signal matching notes (`applyRelationshipSignal` in `documents/acti
   landed on the actual father, from a misclick during manual review) — manual confirmations
   deserve the same scrutiny as automated ones, not more trust by default just because a human
   clicked it.
+- This tree has real name collisions — e.g. 3 different people all named "Anthony Ciampa" (a
+  grandfather, and a grandson later named after him, plus an unrelated third). Always resolve a
+  specific person by relationship/`personId`, never by name string alone — this matters most for
+  anything that persists state per-person (e.g. gap-tracking, see Audio Interview architecture
+  below), where a name-based mixup would silently misattribute state to the wrong actual person.
 
 ## File-type handling pattern
 A registry-based approach — one `Record<mimeType, ...>` map, one entry per supported type — is
 the established convention for handling different file types, now used in two places:
 `TEXT_EXTRACTORS` in `document-text-extraction.ts` (turns a non-image file's bytes into
-extractable text) and `documentTypeLabel` in `documents.ts` (a human-readable badge label for a
-document's MIME type). Adding a new supported type means adding one entry, not a new parallel
-special-case branch wherever that type needs handling.
+extractable text — e.g. `.docx` via the `mammoth` package, which unzips the file and pulls the
+actual paragraph text out of its XML parts) and `documentTypeLabel` in `documents.ts` (a
+human-readable badge label for a document's MIME type). Adding a new supported type means
+adding one entry, not a new parallel special-case branch wherever that type needs handling.
 
 Unsupported/unmapped types should always fail *clearly* — a visible error message — rather than
 silently producing an empty or broken state. This was a real bug once: an uploaded `.docx`'s
@@ -145,7 +159,7 @@ Conventions established during the rollout, worth following for any new surface:
   account exists to safely trigger it live, verify via that same diff — that the handler itself
   is byte-for-byte untouched — rather than actually triggering the action against real data.
 
-## Audio Interview architecture
+## Audio Interview architecture (fully built: 3-phase UI refresh + 5-stage gap-aware prompting)
 Interview recordings and their per-question segments are stored as rows in the same
 `documents` table used for uploaded certificates/letters — not a separate table — tagged via
 `interviewee_person_id` (the parent recording) and `parent_document_id` (each segment). This
@@ -168,6 +182,81 @@ Batch confirmation (`confirmInterviewBatch`) is idempotent — already-resolved 
 already-written facts/anecdotes are tracked via `resolution`/`written` markers persisted back
 onto each segment's own `candidate_people`, so re-running it (e.g. after extracting a segment
 added later) never duplicates data.
+
+### Narration (Phase 1)
+Interview prompts are read aloud via the browser's built-in `SpeechSynthesis` API.
+`lib/speech-voices.ts` explicitly resolves and sets a voice every time — investigated real
+`getVoices()` output first (properly handling that the list loads asynchronously via the
+`voiceschanged` event) rather than guessing a name from memory or leaving `utterance.voice`
+unset and hoping the device's own default sounds good. Recording is deliberately deferred until
+narration finishes speaking — reuses one `pause()`/`resume()` mechanism everywhere a prompt gets
+(re)spoken (advancing to the next question, repeating the current one, and the manual Pause
+button all go through the same path, not separate ad hoc timing). Fully user-configurable: a
+Settings-level default (`family_members.narration_enabled`, `family_members.interview_voice_uri`)
+plus a visible session-local override checkbox right on the recording screen that deliberately
+does **not** write back to that saved default — the person actually being interviewed is often
+not the account holder, so a one-off in-session change shouldn't silently change their settings.
+
+### Segment boundary precision
+Segment boundaries are stored from a separate `performance.now()`-based precise clock — **not**
+the once-per-second integer state driving the on-screen `0:00` timer display. Conflating the two
+caused a real bug: a boundary could land up to ~999ms off from the true click instant, which was
+enough to misattribute a word to the wrong segment at a transition even though
+`pause()`/`resume()` themselves fire right on time (confirmed by directly measuring
+`MediaRecorder.pause()`/`resume()` latency against a known audio signal, not just reasoning about
+it). Never read the display timer's value as a boundary; always read the precise clock.
+
+### Transcripts (Phase 2)
+Each segment's transcript is stored as `Q: <prompt>\nA: <answer>` — the question text is always
+the actual known prompt (the fixed list in `prompts.ts`, or an AI-generated gap-based prompt —
+see below), never inferred from the audio itself. Extraction (`extractCandidatesFromSegment`)
+strips the `Q: ` prefix back off before analysis, so it only ever mines the answer for
+facts/anecdotes/people, never the question text.
+
+### /interviews list (Phase 3)
+Each recording is collapsed by default, showing a short AI-generated one-line summary (e.g.
+"Conversation with Jeff Ciampa about his family history...") instead of the full player up
+front — cached on `documents.interview_summary`, generated once and auto-backfilled the first
+time an already-fully-transcribed interview (old or new) renders with none yet. Expanding
+reveals the complete existing audio player + segment transcripts, unchanged.
+
+### Gap-aware prompting (`lib/gap-analysis.ts`, `lib/genealogical-distance.ts`, `lib/gap-prompts.ts`)
+Before generating a session's prompts, `findGaps(personId)` analyzes the interviewee and their
+close relatives (parents, grandparents, siblings, spouse, children) for what's genuinely
+missing, then `genealogicalDistance` ranks candidates by hop-count over the same
+relationship-graph helpers the relationship-signal matcher itself uses
+(`lib/relationship-graph.ts`, extracted out so both share one implementation rather than a
+second traversal). This is a **weighted** shortest path (parent/child/spouse = 1 hop,
+sibling/grandparent/grandchild = 2, since those are already two-edge compositions) via Dijkstra,
+not plain BFS — mixed edge weights need shortest-first expansion, not FIFO order, or a longer
+chain can get finalized before a shorter direct edge is even considered. Ranking sorts severity
+tier first, distance only as a tiebreaker within a tier — by construction, not a blended score,
+so a major gap two hops away always outranks a trivial gap one hop away regardless of how any
+blend constant might be tuned.
+
+Two categories of gap, with genuinely different closing rules:
+- **Structural/factual** (birth date, death date, occupation, birthplace) — one ground truth.
+  Closes for good the moment *anyone's* fact records it, regardless of who.
+- **Subjective/anecdotal** (personality, memories, stories — including the `anecdotes` table) —
+  multiple people's perspectives are all independently valuable. One person's account does
+  *not* close this the way one occupation fact does; severity only softens gradually as more
+  accounts accumulate (real but gradual diminishing returns), never a hard "resolved" flag.
+
+When an interviewee gives no real information about a specific gap-person — an AI-judged
+"I don't know", extending the exact same judgment already used for a literally-empty answer —
+that's recorded in `interview_gap_no_info`, narrowly scoped to **exactly** that
+(interviewee, gap-person) pair, by real `personId` rather than name (see the "Anthony Ciampa"
+name-collision note above — this is exactly the kind of per-person state a name mixup would
+corrupt). This must never suppress the gap globally or for a different relative's own future
+interview — verified live: marking one interviewee's "no info" about a grandmother correctly
+excluded that grandmother from their own next session, while a different, genealogically-close
+sibling's session still included her normally.
+
+Whenever there are no real (major/critical) gaps for an interviewee — a first interview with no
+data yet, or a genuinely well-documented family — session generation falls back to the original
+fixed 6 prompts, completely unchanged (verified byte-for-byte identical against the fixed list,
+not just "close enough"). The feature can only ever add value on top of today's interview,
+never produce a worse or emptier one.
 
 ## Suggested Connections
 `src/lib/suggested-connections.ts` resolves loose/unconnected people (most often someone
@@ -222,4 +311,8 @@ forward, since this kind of gap fails silently rather than throwing something ob
 - Splitting interviews out of the shared `documents` table into their own model — see "Audio
   Interview architecture" above for why this keeps causing friction.
 - Linking a person's interviews to their dossier (currently only documents show there).
-- Including the actual question/prompt text in interview transcripts, not just the answers.
+- Collapsing the document pipeline's Extract → Match → Review into one step, rather than three
+  separate manual actions per document.
+- A "tasks pending your review" dashboard — a single place surfacing everything across both
+  pipelines (documents, interviews) still waiting on a human decision, rather than needing to
+  check each list page separately.
