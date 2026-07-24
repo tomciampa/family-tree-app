@@ -157,11 +157,13 @@ export type Database = {
           family_id: string | null
           file_path: string
           filename: string | null
+          gap_person_id: string | null
           id: string
           interview_summary: string | null
           interviewee_person_id: string | null
           kind: string | null
           parent_document_id: string | null
+          prompt_text: string | null
           recorded_at: string | null
           status: string
           transcription_raw: string | null
@@ -175,11 +177,13 @@ export type Database = {
           family_id?: string | null
           file_path: string
           filename?: string | null
+          gap_person_id?: string | null
           id?: string
           interview_summary?: string | null
           interviewee_person_id?: string | null
           kind?: string | null
           parent_document_id?: string | null
+          prompt_text?: string | null
           recorded_at?: string | null
           status?: string
           transcription_raw?: string | null
@@ -193,11 +197,13 @@ export type Database = {
           family_id?: string | null
           file_path?: string
           filename?: string | null
+          gap_person_id?: string | null
           id?: string
           interview_summary?: string | null
           interviewee_person_id?: string | null
           kind?: string | null
           parent_document_id?: string | null
+          prompt_text?: string | null
           recorded_at?: string | null
           status?: string
           transcription_raw?: string | null
@@ -209,6 +215,13 @@ export type Database = {
             columns: ["family_id"]
             isOneToOne: false
             referencedRelation: "families"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "documents_gap_person_id_fkey"
+            columns: ["gap_person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
             referencedColumns: ["id"]
           },
           {
@@ -476,6 +489,62 @@ export type Database = {
             columns: ["family_id"]
             isOneToOne: true
             referencedRelation: "families"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      interview_gap_no_info: {
+        Row: {
+          created_at: string
+          family_id: string | null
+          gap_person_id: string
+          id: string
+          interviewee_person_id: string
+          segment_document_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          family_id?: string | null
+          gap_person_id: string
+          id?: string
+          interviewee_person_id: string
+          segment_document_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          family_id?: string | null
+          gap_person_id?: string
+          id?: string
+          interviewee_person_id?: string
+          segment_document_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "interview_gap_no_info_family_id_fkey"
+            columns: ["family_id"]
+            isOneToOne: false
+            referencedRelation: "families"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "interview_gap_no_info_gap_person_id_fkey"
+            columns: ["gap_person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "interview_gap_no_info_interviewee_person_id_fkey"
+            columns: ["interviewee_person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "interview_gap_no_info_segment_document_id_fkey"
+            columns: ["segment_document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
             referencedColumns: ["id"]
           },
         ]

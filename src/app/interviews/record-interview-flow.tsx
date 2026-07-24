@@ -6,8 +6,12 @@ import type { PersonSummary } from "@/lib/family";
 import { PersonSearch } from "@/components/person-search";
 import { createClient } from "@/lib/supabase/client";
 import { addFirstPerson } from "@/app/tree/actions";
-import { createInterviewSession, createInterviewSegments } from "./actions";
-import { INTERVIEW_PROMPTS } from "./prompts";
+import {
+  createInterviewSession,
+  createInterviewSegments,
+  generateSessionPrompts,
+} from "./actions";
+import { INTERVIEW_PROMPTS, type InterviewPrompt } from "./prompts";
 import { getVoicesAsync, pickPreferredVoice } from "@/lib/speech-voices";
 
 type Person = Tables<"people">;
@@ -91,7 +95,7 @@ export function RecordInterviewFlow({
   onCancel: () => void;
   onSaved: (documentId: string) => void;
 }) {
-  const [step, setStep] = useState<"pick" | "record">("pick");
+  const [step, setStep] = useState<"pick" | "preparing" | "record">("pick");
 
   // Step 1 state
   const [mode, setMode] = useState<"search" | "create">("search");
@@ -99,6 +103,18 @@ export function RecordInterviewFlow({
   const [newName, setNewName] = useState("");
   const [isCreatingPerson, setIsCreatingPerson] = useState(false);
   const [pickError, setPickError] = useState<string | null>(null);
+
+  // This session's actual prompt sequence — Stage 3's gap-aware questions
+  // for the chosen interviewee, or the unchanged fixed list when there's
+  // nothing major to ask about (see generateSessionPrompts). Null only
+  // during the brief "preparing" window between picking an interviewee and
+  // this resolving; the "record" step never renders until it's set, so
+  // JSX there can treat it as always present.
+  const [sessionPrompts, setSessionPrompts] = useState<InterviewPrompt[] | null>(null);
+  // Mirror of sessionPrompts for the same reason promptIndexRef mirrors
+  // promptIndex — event handlers need to read the current value
+  // synchronously, not whatever was captured in a stale render's closure.
+  const sessionPromptsRef = useRef<InterviewPrompt[]>(INTERVIEW_PROMPTS);
 
   // Step 2 state
   const [intervieweeId, setIntervieweeId] = useState<string | null>(null);
@@ -130,7 +146,15 @@ export function RecordInterviewFlow({
   // the boundary list itself.
   const promptIndexRef = useRef(0);
   const segmentStartRef = useRef(0);
-  const segmentsRef = useRef<{ label: string; startSeconds: number; endSeconds: number }[]>([]);
+  const segmentsRef = useRef<
+    {
+      label: string;
+      prompt: string;
+      gapPersonId?: string;
+      startSeconds: number;
+      endSeconds: number;
+    }[]
+  >([]);
 
   // Sub-second-precision recording clock, tracked separately from the
   // once-per-second elapsedSeconds display state — that display timer is
@@ -167,6 +191,21 @@ export function RecordInterviewFlow({
     activeSinceRef.current = performance.now();
   }
 
+  // Guards every narration-triggered resume() — MediaRecorder.resume() only
+  // accepts a "paused" recorder and throws otherwise. Found live: clicking
+  // Stop Recording while a prompt is still being read aloud (recorder
+  // legitimately paused for narration) cancels the in-flight speech, whose
+  // onerror handler then fires the pending resume() — but stopRecording's
+  // own mediaRecorder.stop() call had already made the recorder "inactive"
+  // by then, throwing. Checking state first makes this a no-op instead of
+  // an uncaught exception in that ordering, without changing behavior in
+  // the normal case (recorder genuinely still paused).
+  function resumeIfPaused() {
+    if (mediaRecorderRef.current?.state === "paused") {
+      mediaRecorderRef.current.resume();
+    }
+  }
+
   // Speaks a prompt if narration is on, otherwise calls onDone immediately
   // — the single place that decides whether there's anything to wait for.
   // Every call site (start/next-question/repeat) goes through this rather
@@ -190,10 +229,16 @@ export function RecordInterviewFlow({
 
   // Shared by handleNextQuestion's two branches (narration on/off) — the
   // boundary bookkeeping itself doesn't depend on whether anything gets
-  // spoken, only on what precise-elapsed value gets passed in.
+  // spoken, only on what precise-elapsed value gets passed in. Reads both
+  // the label and the actual prompt text from this session's real prompt
+  // sequence (fixed or gap-aware) so a gap-based segment's stored "Q: ..."
+  // transcript line and kind label are correct — see createInterviewSegments.
   function pushSegmentBoundary(boundary: number) {
+    const current = sessionPromptsRef.current[promptIndexRef.current];
     segmentsRef.current.push({
-      label: INTERVIEW_PROMPTS[promptIndexRef.current].label,
+      label: current.label,
+      prompt: current.prompt,
+      gapPersonId: current.gapPersonId,
       startSeconds: segmentStartRef.current,
       endSeconds: boundary,
     });
@@ -224,6 +269,21 @@ export function RecordInterviewFlow({
     };
   }, []);
 
+  // Loads this session's real prompt sequence for personId (Stage 3's
+  // gap-aware questions, or the unchanged fixed list — generateSessionPrompts
+  // decides which), showing the "preparing" step meanwhile since this is a
+  // real AI Gateway call and can take a few seconds. Falls back to the
+  // fixed prompts on any error rather than blocking the interview — same
+  // "never block on this failing" philosophy as narration's own fallback.
+  async function loadSessionPrompts(personId: string) {
+    setStep("preparing");
+    const result = await generateSessionPrompts(personId);
+    const prompts = "error" in result ? INTERVIEW_PROMPTS : result.prompts;
+    sessionPromptsRef.current = prompts;
+    setSessionPrompts(prompts);
+    setStep("record");
+  }
+
   async function handleContinueFromPick() {
     setPickError(null);
     if (mode === "search") {
@@ -234,7 +294,7 @@ export function RecordInterviewFlow({
       const person = people.find((p) => p.id === selectedPersonId);
       setIntervieweeId(selectedPersonId);
       setIntervieweeName(person?.name ?? "this person");
-      setStep("record");
+      await loadSessionPrompts(selectedPersonId);
       return;
     }
 
@@ -252,7 +312,7 @@ export function RecordInterviewFlow({
     }
     setIntervieweeId(result.personId);
     setIntervieweeName(trimmed);
-    setStep("record");
+    await loadSessionPrompts(result.personId);
   }
 
   async function startRecording() {
@@ -295,7 +355,7 @@ export function RecordInterviewFlow({
       // finishes, so the narration itself is never captured in the
       // recording. With narration off there's nothing to wait for, so
       // capture starts immediately.
-      narrateOrSkip(INTERVIEW_PROMPTS[0].prompt, () => {
+      narrateOrSkip(sessionPromptsRef.current[0].prompt, () => {
         recorder.start();
         resumeElapsedTracking();
         timerRef.current = setInterval(() => {
@@ -312,7 +372,7 @@ export function RecordInterviewFlow({
   }
 
   function handleNextQuestion() {
-    if (promptIndexRef.current >= INTERVIEW_PROMPTS.length - 1) return;
+    if (promptIndexRef.current >= sessionPromptsRef.current.length - 1) return;
 
     // With narration off there's nothing to pause the recorder for — the
     // boundary is just the live precise-clock reading (no freeze needed,
@@ -338,8 +398,8 @@ export function RecordInterviewFlow({
     // in lockstep with what's actually being encoded.
     if (timerRef.current) clearInterval(timerRef.current);
     mediaRecorderRef.current?.pause();
-    narrateOrSkip(INTERVIEW_PROMPTS[promptIndexRef.current].prompt, () => {
-      mediaRecorderRef.current?.resume();
+    narrateOrSkip(sessionPromptsRef.current[promptIndexRef.current].prompt, () => {
+      resumeIfPaused();
       resumeElapsedTracking();
       timerRef.current = setInterval(() => {
         setElapsedSeconds((s) => s + 1);
@@ -357,14 +417,14 @@ export function RecordInterviewFlow({
   // aloud), kept as a defensive guard rather than relied on.
   function handleRepeatQuestion() {
     if (!narrationEnabled) return;
-    const text = INTERVIEW_PROMPTS[promptIndexRef.current]?.prompt;
+    const text = sessionPromptsRef.current[promptIndexRef.current]?.prompt;
     if (!text) return;
     if (recordingStatus === "recording") {
       freezeElapsedTracking();
       if (timerRef.current) clearInterval(timerRef.current);
       mediaRecorderRef.current?.pause();
       narrateOrSkip(text, () => {
-        mediaRecorderRef.current?.resume();
+        resumeIfPaused();
         resumeElapsedTracking();
         timerRef.current = setInterval(() => {
           setElapsedSeconds((s) => s + 1);
@@ -419,8 +479,11 @@ export function RecordInterviewFlow({
     // same boundary mechanism "Next question" uses, just triggered by Stop
     // instead.
     const boundary = freezeElapsedTracking();
+    const current = sessionPromptsRef.current[promptIndexRef.current];
     segmentsRef.current.push({
-      label: INTERVIEW_PROMPTS[promptIndexRef.current].label,
+      label: current.label,
+      prompt: current.prompt,
+      gapPersonId: current.gapPersonId,
       startSeconds: segmentStartRef.current,
       endSeconds: boundary,
     });
@@ -555,7 +618,17 @@ export function RecordInterviewFlow({
         </>
       )}
 
-      {step === "record" && (
+      {step === "preparing" && (
+        <div className="flex flex-col items-center gap-3 py-10 text-center">
+          <p className="text-base font-medium">Preparing your questions…</p>
+          <p className="text-sm text-[color:var(--color-text-secondary)]">
+            Looking at what&apos;s already recorded about {intervieweeName}&apos;s family to
+            personalize this interview.
+          </p>
+        </div>
+      )}
+
+      {step === "record" && sessionPrompts && (
         <>
           <h2 className="text-[length:var(--font-size-heading-3)] leading-[var(--line-height-heading-3)] font-semibold">
             Recording an interview with {intervieweeName}
@@ -577,11 +650,11 @@ export function RecordInterviewFlow({
           {recordingStatus !== "saving" && (
             <div className="rounded-[var(--radius-md)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface-alt)] p-4 text-center">
               <p className="text-xs uppercase tracking-wide text-[color:var(--color-text-secondary)]">
-                Question {promptIndex + 1} of {INTERVIEW_PROMPTS.length} —{" "}
-                {INTERVIEW_PROMPTS[promptIndex].label}
+                Question {promptIndex + 1} of {sessionPrompts.length} —{" "}
+                {sessionPrompts[promptIndex].label}
               </p>
               <p className="mt-1 text-lg font-medium">
-                {INTERVIEW_PROMPTS[promptIndex].prompt}
+                {sessionPrompts[promptIndex].prompt}
               </p>
               {narrationEnabled && (
                 <button
@@ -648,7 +721,7 @@ export function RecordInterviewFlow({
                   >
                     Redo this answer
                   </button>
-                  {promptIndex < INTERVIEW_PROMPTS.length - 1 && (
+                  {promptIndex < sessionPrompts.length - 1 && (
                     <button
                       type="button"
                       onClick={handleNextQuestion}

@@ -1,6 +1,15 @@
 export type InterviewPrompt = {
   label: string;
   prompt: string;
+  // Set only for a gap-based prompt (see buildGapAwarePrompts) — the
+  // specific person this question is actually about, e.g. Hugo's own
+  // personId for "Hugo (Maternal Grandfather)". Threaded through to the
+  // recorded segment (documents.gap_person_id) so Stage 5's "no real
+  // information" detection knows exactly who to record against, rather
+  // than trying to re-derive it from the label text. undefined for every
+  // fixed/filler prompt, which isn't about one specific under-documented
+  // person.
+  gapPersonId?: string;
 };
 
 // First-draft wording, ordered oldest generation first — the interviewee's

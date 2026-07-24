@@ -15,7 +15,10 @@ type Fact = Tables<"facts">;
 // what this resolver reads.
 const RELATION_FACT_PATTERN = /^(.+?)'s\s+.+?,\s*per interview/i;
 
-function anchorNameFromFactValue(value: string | null): string | null {
+// Exported so other consumers of this same relation-fact convention (e.g.
+// lib/gap-analysis.ts) read it identically rather than re-deriving their
+// own copy of the pattern.
+export function anchorNameFromFactValue(value: string | null): string | null {
   if (!value) return null;
   const match = value.match(RELATION_FACT_PATTERN);
   return match ? match[1] : null;

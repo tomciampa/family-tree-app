@@ -13,7 +13,8 @@ import {
   type CandidatePerson,
 } from "@/app/documents/candidate-schema";
 import { addFirstPerson } from "@/app/tree/actions";
-import { INTERVIEW_PROMPTS } from "./prompts";
+import { INTERVIEW_PROMPTS, type InterviewPrompt } from "./prompts";
+import { buildGapAwarePrompts } from "@/lib/gap-prompts";
 
 async function requireUser() {
   const supabase = await createClient();
@@ -22,6 +23,26 @@ async function requireUser() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
   return supabase;
+}
+
+// Stage 4: called once an interviewee is picked, before recording starts
+// (see record-interview-flow.tsx's "preparing" step) — thin wrapper around
+// Stage 3's buildGapAwarePrompts so the client component (which can't call
+// server-only code directly) gets this session's actual prompt sequence,
+// gap-aware or the unchanged fixed list, whichever applies. Errors here
+// (e.g. a transient AI Gateway failure) are caught and reported rather
+// than thrown, so the client can fall back to the fixed prompts and never
+// block the interview on this failing.
+export async function generateSessionPrompts(
+  intervieweePersonId: string,
+): Promise<{ error: string } | { prompts: InterviewPrompt[] }> {
+  await requireUser();
+  try {
+    const prompts = await buildGapAwarePrompts(intervieweePersonId);
+    return { prompts };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Failed to prepare interview questions." };
+  }
 }
 
 // Called after the browser has already uploaded the recorded audio
@@ -85,7 +106,13 @@ export async function createInterviewSegments({
   parentDocumentId: string;
   filePath: string;
   mimeType: string;
-  segments: { label: string; startSeconds: number; endSeconds: number }[];
+  segments: {
+    label: string;
+    prompt: string;
+    gapPersonId?: string;
+    startSeconds: number;
+    endSeconds: number;
+  }[];
 }): Promise<{ error: string } | { count: number }> {
   const supabase = await requireUser();
   const familyId = await getFamilyId();
@@ -102,6 +129,18 @@ export async function createInterviewSegments({
       // document's kind uses (e.g. "Death Certificate") — here it's the
       // prompt this segment answers, rather than adding a parallel column.
       kind: s.label,
+      // The session's actual prompt text (fixed or gap-aware — see
+      // generateSessionPrompts) — stored directly rather than re-derived
+      // later by matching kind against the static INTERVIEW_PROMPTS list,
+      // since a gap-aware label like "Hugo (Maternal Grandfather)" has no
+      // static entry to match against. See formatSegmentTranscript.
+      prompt_text: s.prompt,
+      // Which specific under-documented relative this segment is actually
+      // about, for a gap-based prompt — read back after transcription to
+      // record a "no real information" result against the right person
+      // (see transcribeInterviewSegments). Undefined/null for a
+      // fixed/filler prompt, which isn't about one specific gap person.
+      gap_person_id: s.gapPersonId ?? null,
       family_id: familyId,
       parent_document_id: parentDocumentId,
       audio_start_seconds: s.startSeconds,
@@ -198,11 +237,19 @@ export async function transcribeInterviewSession(
 // Phase 1 already speaks this exact prompt text aloud at the segment
 // boundary, so persisting it alongside the answer makes a segment coherent
 // to read back on its own, even if the interviewee never repeated the
-// question themselves. No prompt lookup match (segment.kind not found in
-// INTERVIEW_PROMPTS, shouldn't normally happen) just falls back to the bare
-// answer rather than storing a broken "Q: undefined" line.
-function formatSegmentTranscript(kind: string | null, answer: string): string {
-  const promptText = INTERVIEW_PROMPTS.find((p) => p.label === kind)?.prompt;
+// question themselves.
+//
+// Stage 4: the session's prompts can now be gap-aware and generated
+// per-interviewee (see generateSessionPrompts), so a segment's own stored
+// prompt_text (set once at createInterviewSegments time) is the real
+// source of truth — not a lookup by kind/label against the static
+// INTERVIEW_PROMPTS list, which has no entry for a label like "Hugo
+// (Maternal Grandfather)". promptText being passed in as a fallback
+// (rather than looked up in here) keeps this function agnostic to where
+// it came from; segments created before this column existed simply have
+// no prompt_text, so the caller falls back to the old label lookup for
+// those specifically — no broken "Q: undefined" line either way.
+function formatSegmentTranscript(promptText: string | null, answer: string): string {
   return promptText ? `Q: ${promptText}\nA: ${answer}` : answer;
 }
 
@@ -217,6 +264,74 @@ function answerOnly(transcriptionRaw: string): string {
   return match ? match[1] : transcriptionRaw;
 }
 
+const NO_SPEECH_ANSWER = "(no speech detected in this segment)";
+
+const answerQualitySchema = z.object({
+  hasRealInformation: z
+    .boolean()
+    .describe(
+      "True if this answer gives genuine information about the person asked about — a name, date, place, occupation, memory, story, or description. False for a non-answer: \"I don't know\", \"not sure\", \"we never really talked about that\", or similar — even if real words were spoken.",
+    ),
+});
+
+// Stage 5: extends the exact same "no real information" judgment already
+// applied to the near-silent case above (an empty transcript is obviously
+// a non-answer) to the harder case of actual words that still don't
+// amount to an answer — "I don't know", "not sure", etc. Only meaningful
+// for gap-based segments (see recordNoInfoIfNeeded below); a fixed prompt
+// answer is never checked. Errs toward true (assume there IS real
+// information) on any failure — an unrelated AI Gateway hiccup should
+// never cause this exact person to be silently skipped for this gap in
+// future interviews.
+async function answerHasRealInformation(answer: string): Promise<boolean> {
+  if (answer === NO_SPEECH_ANSWER) return false;
+  try {
+    const result = await generateObject({
+      model: "anthropic/claude-sonnet-5",
+      schema: answerQualitySchema,
+      messages: [
+        {
+          role: "user",
+          content: `Interview answer: "${answer}"\n\nDoes this answer give real information about the person being asked about, or is it effectively "I don't know"?`,
+        },
+      ],
+    });
+    return result.object.hasRealInformation;
+  } catch {
+    return true;
+  }
+}
+
+// Records that this exact interviewee gave no real information when
+// specifically asked about this exact gap person — see the
+// interview_gap_no_info migration's comment for why this must stay scoped
+// to exactly this (interviewee, gap person) pair, never broader. Upserts
+// on the table's own unique (interviewee_person_id, gap_person_id)
+// constraint, so re-transcribing (or a later segment about the same
+// person, unlikely but not impossible) never duplicates the row —
+// whichever answer is checked most recently wins.
+async function recordNoInfoIfNeeded(
+  supabase: Awaited<ReturnType<typeof requireUser>>,
+  familyId: string,
+  intervieweePersonId: string,
+  gapPersonId: string,
+  segmentDocumentId: string,
+  answer: string,
+) {
+  const hasInfo = await answerHasRealInformation(answer);
+  if (hasInfo) return;
+
+  await supabase.from("interview_gap_no_info").upsert(
+    {
+      family_id: familyId,
+      interviewee_person_id: intervieweePersonId,
+      gap_person_id: gapPersonId,
+      segment_document_id: segmentDocumentId,
+    },
+    { onConflict: "interviewee_person_id,gap_person_id" },
+  );
+}
+
 export async function transcribeInterviewSegments(
   parentDocumentId: string,
 ): Promise<{ error: string } | { segments: { id: string; transcript: string }[] }> {
@@ -226,10 +341,16 @@ export async function transcribeInterviewSegments(
     { data: parent, error: parentError },
     { data: segments, error: segmentsError },
   ] = await Promise.all([
-    supabase.from("documents").select("file_path").eq("id", parentDocumentId).single(),
     supabase
       .from("documents")
-      .select("id, kind, audio_start_seconds, audio_end_seconds, transcription_raw")
+      .select("file_path, family_id, interviewee_person_id")
+      .eq("id", parentDocumentId)
+      .single(),
+    supabase
+      .from("documents")
+      .select(
+        "id, kind, prompt_text, gap_person_id, audio_start_seconds, audio_end_seconds, transcription_raw",
+      )
       .eq("parent_document_id", parentDocumentId)
       .order("audio_start_seconds", { ascending: true }),
   ]);
@@ -318,8 +439,16 @@ export async function transcribeInterviewSegments(
 
   const updates = pending.map((s) => {
     const text = (textById.get(s.id) ?? []).join(" ").replace(/\s+/g, " ").trim();
-    const answer = text || "(no speech detected in this segment)";
-    return { id: s.id, transcript: formatSegmentTranscript(s.kind, answer) };
+    const answer = text || NO_SPEECH_ANSWER;
+    // Segments created before prompt_text existed fall back to the old
+    // label lookup against the static fixed prompts.
+    const promptText = s.prompt_text ?? INTERVIEW_PROMPTS.find((p) => p.label === s.kind)?.prompt ?? null;
+    return {
+      id: s.id,
+      answer,
+      gapPersonId: s.gap_person_id,
+      transcript: formatSegmentTranscript(promptText, answer),
+    };
   });
 
   for (const u of updates) {
@@ -330,8 +459,32 @@ export async function transcribeInterviewSegments(
     if (updateError) return { error: updateError.message };
   }
 
+  // Stage 5: for gap-based segments only, determine whether the answer
+  // actually gave real information, recording a narrowly-scoped "no info"
+  // result if not (see recordNoInfoIfNeeded). Runs after every transcript
+  // is safely written, so a failure here never risks the transcript itself
+  // — the recording (the thing that can't be redone) stays safe either way.
+  if (parent.family_id && parent.interviewee_person_id) {
+    await Promise.all(
+      updates
+        .filter((u) => u.gapPersonId)
+        .map((u) =>
+          recordNoInfoIfNeeded(
+            supabase,
+            parent.family_id!,
+            parent.interviewee_person_id!,
+            u.gapPersonId!,
+            u.id,
+            u.answer,
+          ),
+        ),
+    );
+  }
+
   revalidatePath("/interviews");
-  return { segments: [...alreadyDone, ...updates] };
+  return {
+    segments: [...alreadyDone, ...updates.map(({ id, transcript }) => ({ id, transcript }))],
+  };
 }
 
 // Phase 3: a short, one-line summary of what an interview actually
@@ -571,7 +724,7 @@ export async function extractCandidatesFromSegment(
 
   const { data: segment, error: segmentError } = await supabase
     .from("documents")
-    .select("parent_document_id, kind, transcription_raw")
+    .select("parent_document_id, kind, prompt_text, transcription_raw")
     .eq("id", segmentDocumentId)
     .single();
   if (segmentError || !segment) {
@@ -593,7 +746,11 @@ export async function extractCandidatesFromSegment(
     return { error: intervieweeError?.message ?? "Interviewee not found." };
   }
 
-  const promptText = INTERVIEW_PROMPTS.find((p) => p.label === segment.kind)?.prompt;
+  // Same fallback as transcribeInterviewSegments: segments created before
+  // prompt_text existed fall back to the old label lookup against the
+  // static fixed prompts; anything gap-aware just reads its own stored text.
+  const promptText =
+    segment.prompt_text ?? INTERVIEW_PROMPTS.find((p) => p.label === segment.kind)?.prompt;
 
   let result;
   try {

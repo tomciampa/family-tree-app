@@ -17,6 +17,15 @@ import {
   hasTextExtractor,
   extractPlainText,
 } from "@/lib/document-text-extraction";
+import {
+  getRealSpouseIds,
+  getRealParentIds,
+  getRealChildIds,
+  getRealSiblingIds,
+  getRealGrandparentIds,
+  getRealGrandchildIds,
+} from "@/lib/relationship-graph";
+import { classifyRelationType } from "@/lib/relation-classification";
 
 async function requireUser() {
   const supabase = await createClient();
@@ -217,152 +226,12 @@ const DATE_CONFLICT_PENALTY = 0.2;
 // for an exact name match.
 const RELATIONSHIP_MATCH_SCORE = 0.95;
 
-function classifyRelationType(
-  relation: string | null,
-):
-  | "spouse"
-  | "parent"
-  | "grandparent"
-  | "child"
-  | "grandchild"
-  | "sibling"
-  | null {
-  if (!relation) return null;
-  const r = relation.toLowerCase();
-  if (/spouse|wife|husband|married/.test(r)) return "spouse";
-  // Must run before the plain parent/child checks below — "grandmother"
-  // and "grandson" both contain the substrings "mother" and "son", so
-  // without this ordering a grandparent/grandchild relation would be
-  // silently misread as one generation closer than it actually is (the
-  // relationship-signal boost would then check the anchor's direct
-  // parents/children instead of grandparents/grandchildren).
-  if (/grand(father|mother|parent)/.test(r)) return "grandparent";
-  if (/grand(son|daughter|child)/.test(r)) return "grandchild";
-  if (/father|mother|parent/.test(r)) return "parent";
-  if (/son|daughter|child/.test(r)) return "child";
-  if (/sister|brother|sibling/.test(r)) return "sibling";
-  return null;
-}
-
 function isMainSubjectRelation(relation: string | null): boolean {
   if (!relation) return false;
   return /deceased|self|subject|newborn/i.test(relation);
 }
 
 export type SupabaseClient = Awaited<ReturnType<typeof requireUser>>;
-
-async function getRealSpouseIds(
-  supabase: SupabaseClient,
-  personId: string,
-): Promise<string[]> {
-  const { data } = await supabase
-    .from("unions")
-    .select("parent1_id, parent2_id")
-    .or(`parent1_id.eq.${personId},parent2_id.eq.${personId}`);
-  return (data ?? [])
-    .map((u) => (u.parent1_id === personId ? u.parent2_id : u.parent1_id))
-    .filter((id): id is string => !!id);
-}
-
-async function getRealParentIds(
-  supabase: SupabaseClient,
-  personId: string,
-): Promise<string[]> {
-  const { data: links } = await supabase
-    .from("union_children")
-    .select("union_id")
-    .eq("child_id", personId);
-  if (!links || links.length === 0) return [];
-
-  const { data: unions } = await supabase
-    .from("unions")
-    .select("parent1_id, parent2_id")
-    .in(
-      "id",
-      links.map((l) => l.union_id),
-    );
-  const ids: string[] = [];
-  for (const u of unions ?? []) {
-    if (u.parent1_id) ids.push(u.parent1_id);
-    if (u.parent2_id) ids.push(u.parent2_id);
-  }
-  return ids;
-}
-
-async function getRealChildIds(
-  supabase: SupabaseClient,
-  personId: string,
-): Promise<string[]> {
-  const { data: unions } = await supabase
-    .from("unions")
-    .select("id")
-    .or(`parent1_id.eq.${personId},parent2_id.eq.${personId}`);
-  if (!unions || unions.length === 0) return [];
-
-  const { data: links } = await supabase
-    .from("union_children")
-    .select("child_id")
-    .in(
-      "union_id",
-      unions.map((u) => u.id),
-    );
-  return (links ?? []).map((l) => l.child_id);
-}
-
-// Siblings share a recorded parent union rather than having a direct edge
-// to each other — same two-hop shape as getRealParentIds (find the
-// union(s) personId is a child of), just followed by every OTHER child of
-// those same union(s) instead of the parents themselves.
-async function getRealSiblingIds(
-  supabase: SupabaseClient,
-  personId: string,
-): Promise<string[]> {
-  const { data: links } = await supabase
-    .from("union_children")
-    .select("union_id")
-    .eq("child_id", personId);
-  if (!links || links.length === 0) return [];
-
-  const { data: siblingLinks } = await supabase
-    .from("union_children")
-    .select("child_id")
-    .in(
-      "union_id",
-      links.map((l) => l.union_id),
-    );
-  return (siblingLinks ?? [])
-    .map((l) => l.child_id)
-    .filter((id) => id !== personId);
-}
-
-// One more hop than getRealParentIds in the same direction — every parent
-// of every recorded parent. "paternal"/"maternal" in a relation string
-// narrows which side the document means, but no gender data exists to
-// filter by, so (as with getRealParentIds) both sides come back and only
-// an independent name match on the candidate's own side can safely boost.
-async function getRealGrandparentIds(
-  supabase: SupabaseClient,
-  personId: string,
-): Promise<string[]> {
-  const parentIds = await getRealParentIds(supabase, personId);
-  const grandparentIdSets = await Promise.all(
-    parentIds.map((id) => getRealParentIds(supabase, id)),
-  );
-  return grandparentIdSets.flat();
-}
-
-// Mirror of getRealGrandparentIds, one hop further through getRealChildIds
-// instead of getRealParentIds.
-async function getRealGrandchildIds(
-  supabase: SupabaseClient,
-  personId: string,
-): Promise<string[]> {
-  const childIds = await getRealChildIds(supabase, personId);
-  const grandchildIdSets = await Promise.all(
-    childIds.map((id) => getRealChildIds(supabase, id)),
-  );
-  return grandchildIdSets.flat();
-}
 
 function reclassify(matches: PersonMatch[]): CandidateWithMatch["matchStatus"] {
   matches.sort((a, b) => b.score - a.score);
