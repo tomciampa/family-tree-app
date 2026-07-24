@@ -6,7 +6,11 @@ import { transcribe, generateObject, generateText } from "ai";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { getFamilyId } from "@/lib/family";
-import { matchFamilyCandidates, type CandidateWithMatch } from "@/app/documents/actions";
+import {
+  matchFamilyCandidates,
+  type CandidateWithMatch,
+  type DocumentDeleteImpact,
+} from "@/app/documents/actions";
 import {
   candidatePersonSchema,
   factFieldForRelation,
@@ -1061,4 +1065,139 @@ export async function confirmInterviewBatch(
   revalidatePath("/interviews");
   revalidatePath("/tree");
   return { summary };
+}
+
+// Checked before showing the delete confirmation dialog, mirroring
+// getDocumentDeleteImpact in app/documents/actions.ts exactly (same
+// DocumentDeleteImpact shape, reused rather than duplicated) — except
+// facts/anecdotes for an interview are sourced to a *segment's* document_id
+// (see confirmInterviewBatch above), never the parent session's, so this
+// has to look them up via every segment under this session, not the
+// session id itself.
+export async function getInterviewDeleteImpact(
+  parentDocumentId: string,
+): Promise<{ error: string } | { impact: DocumentDeleteImpact }> {
+  const supabase = await requireUser();
+
+  const { data: segments, error: segmentsError } = await supabase
+    .from("documents")
+    .select("id")
+    .eq("parent_document_id", parentDocumentId);
+  if (segmentsError) return { error: segmentsError.message };
+  const segmentIds = (segments ?? []).map((s) => s.id);
+  if (segmentIds.length === 0) {
+    return { impact: { factCount: 0, anecdoteCount: 0, personNames: [] } };
+  }
+
+  const [
+    { data: facts, error: factsError },
+    { data: anecdotes, error: anecdotesError },
+  ] = await Promise.all([
+    supabase
+      .from("facts")
+      .select("person_id, people(name)")
+      .in("document_id", segmentIds),
+    supabase
+      .from("anecdotes")
+      .select("person_id, people(name)")
+      .in("document_id", segmentIds),
+  ]);
+  if (factsError) return { error: factsError.message };
+  if (anecdotesError) return { error: anecdotesError.message };
+
+  const personNames = new Set<string>();
+  for (const row of facts ?? []) {
+    if (row.people?.name) personNames.add(row.people.name);
+  }
+  for (const row of anecdotes ?? []) {
+    if (row.people?.name) personNames.add(row.people.name);
+  }
+
+  return {
+    impact: {
+      factCount: facts?.length ?? 0,
+      anecdoteCount: anecdotes?.length ?? 0,
+      personNames: Array.from(personNames),
+    },
+  };
+}
+
+// Cascade order matches the actual dependency graph, not a guess:
+// facts/anecdotes and document_people are sourced to each *segment's* own
+// document_id (never the parent session's — see confirmInterviewBatch),
+// and interview_gap_no_info.segment_document_id also points at a segment,
+// not the session. So every child row keyed off a segment id has to be
+// deleted before the segments themselves, which in turn have to go before
+// the parent session row (its own FK is what they point back to via
+// parent_document_id). The session and every segment share one Storage
+// object (segments are just labeled time-ranges of the same recording —
+// see createInterviewSegments), so that's removed once at the end, not
+// once per segment.
+export async function deleteInterview(
+  parentDocumentId: string,
+): Promise<{ error: string } | { success: true }> {
+  const supabase = await requireUser();
+
+  const { data: parent, error: parentError } = await supabase
+    .from("documents")
+    .select("file_path")
+    .eq("id", parentDocumentId)
+    .single();
+  if (parentError || !parent) {
+    return { error: parentError?.message ?? "Interview not found." };
+  }
+
+  const { data: segments, error: segmentsError } = await supabase
+    .from("documents")
+    .select("id")
+    .eq("parent_document_id", parentDocumentId);
+  if (segmentsError) return { error: segmentsError.message };
+  const segmentIds = (segments ?? []).map((s) => s.id);
+
+  if (segmentIds.length > 0) {
+    const { error: factsError } = await supabase
+      .from("facts")
+      .delete()
+      .in("document_id", segmentIds);
+    if (factsError) return { error: factsError.message };
+
+    const { error: anecdotesError } = await supabase
+      .from("anecdotes")
+      .delete()
+      .in("document_id", segmentIds);
+    if (anecdotesError) return { error: anecdotesError.message };
+
+    const { error: linksError } = await supabase
+      .from("document_people")
+      .delete()
+      .in("document_id", segmentIds);
+    if (linksError) return { error: linksError.message };
+
+    const { error: gapError } = await supabase
+      .from("interview_gap_no_info")
+      .delete()
+      .in("segment_document_id", segmentIds);
+    if (gapError) return { error: gapError.message };
+
+    const { error: deleteSegmentsError } = await supabase
+      .from("documents")
+      .delete()
+      .in("id", segmentIds);
+    if (deleteSegmentsError) return { error: deleteSegmentsError.message };
+  }
+
+  const { error: deleteParentError } = await supabase
+    .from("documents")
+    .delete()
+    .eq("id", parentDocumentId);
+  if (deleteParentError) return { error: deleteParentError.message };
+
+  // Not treated as fatal: if this fails after every DB row is already
+  // gone, the result is a harmless orphaned blob, not a document row
+  // pointing at a file that no longer exists.
+  await supabase.storage.from("documents").remove([parent.file_path]);
+
+  revalidatePath("/interviews");
+  revalidatePath("/tree");
+  return { success: true };
 }

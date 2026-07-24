@@ -15,6 +15,7 @@ import {
   type PersonResolutionInput,
   type BatchConfirmSummary,
 } from "../actions";
+import { DeleteInterviewButton } from "../delete-interview-button";
 
 type Person = Tables<"people">;
 type UnionRow = Tables<"unions">;
@@ -191,14 +192,21 @@ export function InterviewReview({
             {includedCount} candidate{includedCount === 1 ? "" : "s"} checked for this batch
           </p>
         </div>
-        <button
-          type="button"
-          onClick={handleConfirmBatch}
-          disabled={isConfirming || includedCount === 0}
-          className="rounded-[var(--radius-sm)] bg-[color:var(--color-success)] px-4 py-2 text-sm font-medium text-[color:var(--color-text-on-accent)] transition-colors duration-[var(--duration-base)] hover:opacity-90 disabled:opacity-50"
-        >
-          {isConfirming ? "Confirming…" : `Confirm batch (${includedCount})`}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleConfirmBatch}
+            disabled={isConfirming || includedCount === 0}
+            className="rounded-[var(--radius-sm)] bg-[color:var(--color-success)] px-4 py-2 text-sm font-medium text-[color:var(--color-text-on-accent)] transition-colors duration-[var(--duration-base)] hover:opacity-90 disabled:opacity-50"
+          >
+            {isConfirming ? "Confirming…" : `Confirm batch (${includedCount})`}
+          </button>
+          <DeleteInterviewButton
+            parentDocumentId={parentId}
+            intervieweeName={intervieweeName}
+            redirectTo="/interviews"
+          />
+        </div>
       </div>
 
       {error && <p className="text-sm text-[color:var(--color-error)]">{error}</p>}

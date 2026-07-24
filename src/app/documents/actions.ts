@@ -36,7 +36,11 @@ async function requireUser() {
   return supabase;
 }
 
-export async function uploadDocument(formData: FormData) {
+type UploadDocumentResult = { error: string } | { id: string };
+
+export async function uploadDocument(
+  formData: FormData,
+): Promise<UploadDocumentResult> {
   const file = formData.get("file");
   if (!(file instanceof File)) return { error: "No file provided." };
 
@@ -51,20 +55,24 @@ export async function uploadDocument(formData: FormData) {
     .upload(storagePath, bytes, { contentType: file.type || undefined });
   if (uploadError) return { error: uploadError.message };
 
-  const { error: insertError } = await supabase.from("documents").insert({
-    file_path: storagePath,
-    filename: file.name,
-    document_type: file.type || null,
-    family_id: familyId,
-    status: "pending_match",
-  });
-  if (insertError) {
+  const { data: inserted, error: insertError } = await supabase
+    .from("documents")
+    .insert({
+      file_path: storagePath,
+      filename: file.name,
+      document_type: file.type || null,
+      family_id: familyId,
+      status: "pending_match",
+    })
+    .select("id")
+    .single();
+  if (insertError || !inserted) {
     await supabase.storage.from("documents").remove([storagePath]);
-    return { error: insertError.message };
+    return { error: insertError?.message ?? "Failed to save document." };
   }
 
   revalidatePath("/documents");
-  return {};
+  return { id: inserted.id };
 }
 
 type ExtractCandidatesResult =
@@ -677,4 +685,102 @@ export async function skipCandidateResolution(
   revalidatePath("/documents");
   revalidatePath(`/documents/${documentId}`);
   return { candidates };
+}
+
+export type DocumentDeleteImpact = {
+  factCount: number;
+  anecdoteCount: number;
+  personNames: string[];
+};
+
+// Checked before showing the delete confirmation dialog — a document with
+// nothing linked yet should only ever show the standard "cannot be undone"
+// warning, not the escalated one.
+export async function getDocumentDeleteImpact(
+  documentId: string,
+): Promise<{ error: string } | { impact: DocumentDeleteImpact }> {
+  const supabase = await requireUser();
+
+  const [{ data: facts, error: factsError }, { data: anecdotes, error: anecdotesError }] =
+    await Promise.all([
+      supabase
+        .from("facts")
+        .select("person_id, people(name)")
+        .eq("document_id", documentId),
+      supabase
+        .from("anecdotes")
+        .select("person_id, people(name)")
+        .eq("document_id", documentId),
+    ]);
+  if (factsError) return { error: factsError.message };
+  if (anecdotesError) return { error: anecdotesError.message };
+
+  const personNames = new Set<string>();
+  for (const row of facts ?? []) {
+    if (row.people?.name) personNames.add(row.people.name);
+  }
+  for (const row of anecdotes ?? []) {
+    if (row.people?.name) personNames.add(row.people.name);
+  }
+
+  return {
+    impact: {
+      factCount: facts?.length ?? 0,
+      anecdoteCount: anecdotes?.length ?? 0,
+      personNames: Array.from(personNames),
+    },
+  };
+}
+
+export async function deleteDocument(
+  documentId: string,
+): Promise<{ error: string } | { success: true }> {
+  const supabase = await requireUser();
+
+  const { data: document, error: fetchError } = await supabase
+    .from("documents")
+    .select("file_path")
+    .eq("id", documentId)
+    .single();
+  if (fetchError || !document) {
+    return { error: fetchError?.message ?? "Document not found." };
+  }
+
+  // Cascade-delete linked rows explicitly rather than relying on the
+  // facts/anecdotes document_id FK's `on delete set null` — that would
+  // silently orphan (unsource) those rows instead of actually removing
+  // them, which is what deleting a document is supposed to do to any data
+  // that came from it.
+  const { error: factsError } = await supabase
+    .from("facts")
+    .delete()
+    .eq("document_id", documentId);
+  if (factsError) return { error: factsError.message };
+
+  const { error: anecdotesError } = await supabase
+    .from("anecdotes")
+    .delete()
+    .eq("document_id", documentId);
+  if (anecdotesError) return { error: anecdotesError.message };
+
+  const { error: linksError } = await supabase
+    .from("document_people")
+    .delete()
+    .eq("document_id", documentId);
+  if (linksError) return { error: linksError.message };
+
+  const { error: deleteError } = await supabase
+    .from("documents")
+    .delete()
+    .eq("id", documentId);
+  if (deleteError) return { error: deleteError.message };
+
+  // Storage cleanup last, and not treated as fatal: if this fails after
+  // the DB rows are already gone, the result is a harmless orphaned blob,
+  // not a document row pointing at a file that no longer exists.
+  await supabase.storage.from("documents").remove([document.file_path]);
+
+  revalidatePath("/documents");
+  revalidatePath("/tree");
+  return { success: true };
 }

@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
-import { useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import {
   uploadDocument,
   extractCandidatesFromDocument,
   matchCandidatesForDocument,
 } from "./actions";
+import { DeleteDocumentButton } from "./delete-document-button";
 
 export type PersonMatch = {
   personId: string;
@@ -61,6 +61,13 @@ export function DocumentsView({ documents }: { documents: DocumentRow[] }) {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Documents uploaded this session, so their DocumentItem knows to
+  // auto-run extraction + matching on mount instead of waiting for a
+  // manual click. Not persisted — a page reload just falls back to the
+  // manual Extract/Match buttons for anything still unprocessed.
+  const [autoProcessIds, setAutoProcessIds] = useState<Set<string>>(
+    new Set(),
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function uploadFiles(files: FileList | File[]) {
@@ -75,8 +82,10 @@ export function DocumentsView({ documents }: { documents: DocumentRow[] }) {
         const formData = new FormData();
         formData.set("file", file);
         const result = await uploadDocument(formData);
-        if (result?.error) {
+        if ("error" in result) {
           setError(`${file.name}: ${result.error}`);
+        } else {
+          setAutoProcessIds((prev) => new Set(prev).add(result.id));
         }
       } catch (err) {
         // A Server Action whose request body gets rejected (e.g. Next's
@@ -149,16 +158,27 @@ export function DocumentsView({ documents }: { documents: DocumentRow[] }) {
           <p className="text-sm text-[color:var(--color-text-secondary)]">No documents uploaded yet.</p>
         )}
         {documents.map((doc) => (
-          <DocumentItem key={doc.id} doc={doc} />
+          <DocumentItem
+            key={doc.id}
+            doc={doc}
+            autoProcess={autoProcessIds.has(doc.id)}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function DocumentItem({ doc }: { doc: DocumentRow }) {
+function DocumentItem({
+  doc,
+  autoProcess,
+}: {
+  doc: DocumentRow;
+  autoProcess: boolean;
+}) {
   const [isExtracting, setIsExtracting] = useState(false);
   const [isMatching, setIsMatching] = useState(false);
+  const [isAutoProcessing, setIsAutoProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Resolving candidates now happens on the /documents/[id] review page,
   // which revalidates this list on confirm/skip/create — so doc.status
@@ -168,6 +188,45 @@ function DocumentItem({ doc }: { doc: DocumentRow }) {
   const [candidates, setCandidates] = useState<CandidatePerson[] | null>(
     doc.candidate_people,
   );
+  const autoTriggered = useRef(false);
+
+  async function runAutoProcess() {
+    setError(null);
+    setIsAutoProcessing(true);
+    const extracted = await extractCandidatesFromDocument(doc.id);
+    if ("error" in extracted) {
+      setError(extracted.error);
+      setIsAutoProcessing(false);
+      return;
+    }
+    setCandidates(extracted.candidates);
+
+    const hasFamily = extracted.candidates.some(
+      (c) => c.roleCategory === "family",
+    );
+    if (hasFamily) {
+      const matched = await matchCandidatesForDocument(doc.id);
+      if ("error" in matched) {
+        setError(matched.error);
+        setIsAutoProcessing(false);
+        return;
+      }
+      setCandidates(matched.candidates);
+    }
+    setIsAutoProcessing(false);
+  }
+
+  useEffect(() => {
+    // Guarded on candidate_people being null (never extracted) so this
+    // only fires for a genuinely fresh upload, not for older pending
+    // documents that happen to remount — those still rely on the manual
+    // buttons below.
+    if (autoProcess && !autoTriggered.current && doc.candidate_people === null) {
+      autoTriggered.current = true;
+      void runAutoProcess();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoProcess]);
 
   async function handleExtract() {
     setIsExtracting(true);
@@ -220,17 +279,27 @@ function DocumentItem({ doc }: { doc: DocumentRow }) {
               ? new Date(doc.recorded_at).toLocaleDateString()
               : ""}
           </span>
-          <span
-            className={`rounded-[var(--radius-xs)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
-              statusStyles[status] ?? statusStyles.pending_match
-            }`}
-          >
-            {status.replace("_", " ")}
-          </span>
+          {isAutoProcessing ? (
+            <span className="flex items-center gap-1.5 rounded-[var(--radius-xs)] bg-[color:var(--color-warning-subtle-bg)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[color:var(--color-warning-subtle-fg)]">
+              <span
+                aria-hidden
+                className="h-2.5 w-2.5 animate-spin rounded-full border-2 border-current border-t-transparent"
+              />
+              Processing…
+            </span>
+          ) : (
+            <span
+              className={`rounded-[var(--radius-xs)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
+                statusStyles[status] ?? statusStyles.pending_match
+              }`}
+            >
+              {status.replace("_", " ")}
+            </span>
+          )}
           <button
             type="button"
             onClick={handleExtract}
-            disabled={isExtracting}
+            disabled={isExtracting || isAutoProcessing}
             className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-2 py-1 text-xs transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] disabled:opacity-50"
           >
             {isExtracting ? "Extracting…" : candidates ? "Re-extract" : "Extract"}
@@ -239,12 +308,19 @@ function DocumentItem({ doc }: { doc: DocumentRow }) {
             <button
               type="button"
               onClick={handleMatch}
-              disabled={isMatching}
+              disabled={isMatching || isAutoProcessing}
               className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-2 py-1 text-xs transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] disabled:opacity-50"
             >
               {isMatching ? "Matching…" : "Match"}
             </button>
           )}
+          {/* On this list page, deleteDocument's own revalidatePath("/documents")
+              already refreshes the list — no client-side navigation needed. */}
+          <DeleteDocumentButton
+            documentId={doc.id}
+            filename={doc.filename}
+            onDeleted={() => {}}
+          />
         </span>
       </div>
 

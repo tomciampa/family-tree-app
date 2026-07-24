@@ -14,6 +14,7 @@ import {
   skipCandidateResolution,
 } from "../actions";
 import type { CandidatePerson } from "../documents-view";
+import { DeleteDocumentButton } from "../delete-document-button";
 
 type Person = Tables<"people">;
 type UnionRow = Tables<"unions">;
@@ -227,6 +228,11 @@ export function DocumentReview({
               {isMatching ? "Matching…" : "Match"}
             </button>
           )}
+          <DeleteDocumentButton
+            documentId={doc.id}
+            filename={doc.filename}
+            redirectTo="/documents"
+          />
         </div>
       </div>
 

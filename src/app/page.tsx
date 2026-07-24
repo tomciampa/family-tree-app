@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getPendingReview } from "@/lib/pending-review";
 import { signOut } from "./actions";
 
 export default async function Home() {
@@ -12,6 +13,9 @@ export default async function Home() {
   if (!user) {
     redirect("/login");
   }
+
+  const pending = await getPendingReview(supabase);
+  const totalPending = pending.documents.length + pending.interviews.length;
 
   const primaryLinks = [
     {
@@ -102,6 +106,52 @@ export default async function Home() {
             New here? Start by recording a memory, or explore your family tree.
           </p>
         </div>
+
+        <section className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-6 shadow-[var(--shadow-1)]">
+          <h2 className="text-[length:var(--font-size-heading-3)] leading-[var(--line-height-heading-3)] font-semibold">
+            Tasks pending your review
+          </h2>
+          {totalPending === 0 ? (
+            <p className="text-sm text-[color:var(--color-text-secondary)]">
+              You&apos;re all caught up — nothing waiting on a decision right
+              now.
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-1">
+              {pending.documents.map((d) => (
+                <li key={`doc-${d.id}`}>
+                  <Link
+                    href={`/documents/${d.id}`}
+                    className="flex items-center justify-between gap-3 rounded-[var(--radius-sm)] px-3 py-2 text-sm transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)]"
+                  >
+                    <span className="truncate">
+                      📄 {d.filename ?? "Untitled document"}
+                    </span>
+                    <span className="shrink-0 rounded-[var(--radius-xs)] bg-[color:var(--color-warning-subtle-bg)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[color:var(--color-warning-subtle-fg)]">
+                      {d.unresolvedCount} of {d.totalCount} to review
+                    </span>
+                  </Link>
+                </li>
+              ))}
+              {pending.interviews.map((i) => (
+                <li key={`interview-${i.id}`}>
+                  <Link
+                    href={`/interviews/${i.id}`}
+                    className="flex items-center justify-between gap-3 rounded-[var(--radius-sm)] px-3 py-2 text-sm transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)]"
+                  >
+                    <span className="truncate">
+                      🎙️ Interview with {i.intervieweeName}
+                    </span>
+                    <span className="shrink-0 rounded-[var(--radius-xs)] bg-[color:var(--color-warning-subtle-bg)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[color:var(--color-warning-subtle-fg)]">
+                      {i.unresolvedCount} item{i.unresolvedCount === 1 ? "" : "s"} to
+                      review
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
           {primaryLinks.map((link) => (
