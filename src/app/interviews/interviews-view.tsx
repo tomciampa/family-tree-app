@@ -52,11 +52,15 @@ export function InterviewsView({
   people,
   personSummaries,
   familyId,
+  preferredVoiceURI,
+  narrationEnabledDefault,
 }: {
   sessions: InterviewRow[];
   people: Person[];
   personSummaries: Record<string, PersonSummary>;
   familyId: string;
+  preferredVoiceURI?: string | null;
+  narrationEnabledDefault?: boolean;
 }) {
   const [isRecording, setIsRecording] = useState(false);
   const router = useRouter();
@@ -68,6 +72,8 @@ export function InterviewsView({
           people={people}
           personSummaries={personSummaries}
           familyId={familyId}
+          preferredVoiceURI={preferredVoiceURI}
+          narrationEnabledDefault={narrationEnabledDefault}
           onCancel={() => setIsRecording(false)}
           onSaved={() => {
             setIsRecording(false);

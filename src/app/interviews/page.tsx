@@ -24,6 +24,7 @@ export default async function InterviewsPage() {
     { data: people },
     { data: unions },
     { data: unionChildren },
+    { data: membership },
   ] = await Promise.all([
     supabase
       .from("documents")
@@ -42,6 +43,12 @@ export default async function InterviewsPage() {
     supabase.from("people").select("*"),
     supabase.from("unions").select("*"),
     supabase.from("union_children").select("*"),
+    supabase
+      .from("family_members")
+      .select("interview_voice_uri, narration_enabled")
+      .eq("family_id", familyId)
+      .eq("user_id", user.id)
+      .maybeSingle(),
   ]);
 
   const urlByPath = await getSignedDocumentUrls(
@@ -96,6 +103,8 @@ export default async function InterviewsPage() {
           people={people ?? []}
           personSummaries={personSummaries}
           familyId={familyId}
+          preferredVoiceURI={membership?.interview_voice_uri ?? null}
+          narrationEnabledDefault={membership?.narration_enabled ?? true}
         />
       )}
     </main>

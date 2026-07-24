@@ -400,22 +400,28 @@ export type Database = {
       family_members: {
         Row: {
           family_id: string
+          interview_voice_uri: string | null
           joined_at: string | null
           linked_person_id: string | null
+          narration_enabled: boolean
           role: string | null
           user_id: string
         }
         Insert: {
           family_id: string
+          interview_voice_uri?: string | null
           joined_at?: string | null
           linked_person_id?: string | null
+          narration_enabled?: boolean
           role?: string | null
           user_id: string
         }
         Update: {
           family_id?: string
+          interview_voice_uri?: string | null
           joined_at?: string | null
           linked_person_id?: string | null
+          narration_enabled?: boolean
           role?: string | null
           user_id?: string
         }

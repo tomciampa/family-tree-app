@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import { addFirstPerson } from "@/app/tree/actions";
 import { createInterviewSession, createInterviewSegments } from "./actions";
 import { INTERVIEW_PROMPTS } from "./prompts";
+import { getVoicesAsync, pickPreferredVoice } from "@/lib/speech-voices";
 
 type Person = Tables<"people">;
 
@@ -40,7 +41,11 @@ function formatElapsed(totalSeconds: number): string {
 // otherwise bleed into the recording). Falls back to calling onDone
 // immediately if speech synthesis isn't available or errors out, so
 // narration failing never blocks the interview.
-function speakPromptText(text: string, onDone: () => void) {
+function speakPromptText(
+  text: string,
+  onDone: () => void,
+  voice?: SpeechSynthesisVoice | null,
+) {
   if (
     typeof window === "undefined" ||
     typeof window.speechSynthesis === "undefined" ||
@@ -52,6 +57,7 @@ function speakPromptText(text: string, onDone: () => void) {
   try {
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
+    if (voice) utterance.voice = voice;
     utterance.onend = () => onDone();
     utterance.onerror = () => onDone();
     window.speechSynthesis.speak(utterance);
@@ -72,12 +78,16 @@ export function RecordInterviewFlow({
   people,
   personSummaries,
   familyId,
+  preferredVoiceURI,
+  narrationEnabledDefault,
   onCancel,
   onSaved,
 }: {
   people: Person[];
   personSummaries: Record<string, PersonSummary>;
   familyId: string;
+  preferredVoiceURI?: string | null;
+  narrationEnabledDefault?: boolean;
   onCancel: () => void;
   onSaved: (documentId: string) => void;
 }) {
@@ -103,6 +113,12 @@ export function RecordInterviewFlow({
   // recording start, or during the pause/resume window around advancing to
   // a new question. Recording is never running while this is true.
   const [isSpeaking, setIsSpeaking] = useState(false);
+  // Whether prompts get spoken at all. Initialized from the signed-in
+  // user's Settings preference, but changeable right here for this session
+  // only (see the toggle below the prompt box) — the person actually being
+  // interviewed is often not the account holder, so a one-off in-session
+  // change shouldn't silently overwrite their saved Settings choice.
+  const [narrationEnabled, setNarrationEnabled] = useState(narrationEnabledDefault ?? true);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -150,6 +166,55 @@ export function RecordInterviewFlow({
   function resumeElapsedTracking() {
     activeSinceRef.current = performance.now();
   }
+
+  // Speaks a prompt if narration is on, otherwise calls onDone immediately
+  // — the single place that decides whether there's anything to wait for.
+  // Every call site (start/next-question/repeat) goes through this rather
+  // than calling speakPromptText directly, so "narration off" only has to
+  // be handled once.
+  function narrateOrSkip(text: string, onDone: () => void) {
+    if (!narrationEnabled) {
+      onDone();
+      return;
+    }
+    setIsSpeaking(true);
+    speakPromptText(
+      text,
+      () => {
+        setIsSpeaking(false);
+        onDone();
+      },
+      voiceRef.current,
+    );
+  }
+
+  // Shared by handleNextQuestion's two branches (narration on/off) — the
+  // boundary bookkeeping itself doesn't depend on whether anything gets
+  // spoken, only on what precise-elapsed value gets passed in.
+  function pushSegmentBoundary(boundary: number) {
+    segmentsRef.current.push({
+      label: INTERVIEW_PROMPTS[promptIndexRef.current].label,
+      startSeconds: segmentStartRef.current,
+      endSeconds: boundary,
+    });
+    segmentStartRef.current = boundary;
+  }
+
+  // Resolved once up front (voices can take a moment to load — see
+  // getVoicesAsync) rather than re-fetched before every single prompt, so
+  // narration doesn't stall waiting on the voice list mid-interview.
+  const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getVoicesAsync().then((voices) => {
+      if (cancelled) return;
+      voiceRef.current = pickPreferredVoice(voices, preferredVoiceURI);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [preferredVoiceURI]);
 
   useEffect(() => {
     return () => {
@@ -225,18 +290,18 @@ export function RecordInterviewFlow({
       activeSinceRef.current = null;
       setPromptIndex(0);
 
-      // Don't start capturing yet — read the first prompt aloud first, and
-      // only start the recorder once narration finishes, so the narration
-      // itself is never captured in the recording.
-      setIsSpeaking(true);
-      speakPromptText(INTERVIEW_PROMPTS[0].prompt, () => {
+      // Don't start capturing yet if narration is on — read the first
+      // prompt aloud first, and only start the recorder once narration
+      // finishes, so the narration itself is never captured in the
+      // recording. With narration off there's nothing to wait for, so
+      // capture starts immediately.
+      narrateOrSkip(INTERVIEW_PROMPTS[0].prompt, () => {
         recorder.start();
         resumeElapsedTracking();
         timerRef.current = setInterval(() => {
           setElapsedSeconds((s) => s + 1);
         }, 1000);
         setRecordingStatus("recording");
-        setIsSpeaking(false);
       });
     } catch {
       setRecordError(
@@ -248,16 +313,22 @@ export function RecordInterviewFlow({
 
   function handleNextQuestion() {
     if (promptIndexRef.current >= INTERVIEW_PROMPTS.length - 1) return;
+
+    // With narration off there's nothing to pause the recorder for — the
+    // boundary is just the live precise-clock reading (no freeze needed,
+    // since recording never actually stops), and the next prompt's
+    // capture continues immediately with no gap at all.
+    if (!narrationEnabled) {
+      pushSegmentBoundary(getPreciseElapsedSeconds());
+      promptIndexRef.current += 1;
+      setPromptIndex(promptIndexRef.current);
+      return;
+    }
+
     // Freeze the precise clock right alongside the actual pause() call
     // below (not the 1Hz display timer) so the stored boundary matches the
     // true instant capture stops, down to sub-second precision.
-    const boundary = freezeElapsedTracking();
-    segmentsRef.current.push({
-      label: INTERVIEW_PROMPTS[promptIndexRef.current].label,
-      startSeconds: segmentStartRef.current,
-      endSeconds: boundary,
-    });
-    segmentStartRef.current = boundary;
+    pushSegmentBoundary(freezeElapsedTracking());
     promptIndexRef.current += 1;
     setPromptIndex(promptIndexRef.current);
 
@@ -267,14 +338,12 @@ export function RecordInterviewFlow({
     // in lockstep with what's actually being encoded.
     if (timerRef.current) clearInterval(timerRef.current);
     mediaRecorderRef.current?.pause();
-    setIsSpeaking(true);
-    speakPromptText(INTERVIEW_PROMPTS[promptIndexRef.current].prompt, () => {
+    narrateOrSkip(INTERVIEW_PROMPTS[promptIndexRef.current].prompt, () => {
       mediaRecorderRef.current?.resume();
       resumeElapsedTracking();
       timerRef.current = setInterval(() => {
         setElapsedSeconds((s) => s + 1);
       }, 1000);
-      setIsSpeaking(false);
     });
   }
 
@@ -283,26 +352,26 @@ export function RecordInterviewFlow({
   // actively recording, pause/resume around it the same way advancing does;
   // if the user had already paused manually, leave that pause alone (don't
   // auto-resume just because narration finished) — and if recording hasn't
-  // started yet, there's nothing to pause.
+  // started yet, there's nothing to pause. A no-op when narration is off
+  // (the button itself is hidden in that case — there's nothing to repeat
+  // aloud), kept as a defensive guard rather than relied on.
   function handleRepeatQuestion() {
+    if (!narrationEnabled) return;
     const text = INTERVIEW_PROMPTS[promptIndexRef.current]?.prompt;
     if (!text) return;
     if (recordingStatus === "recording") {
       freezeElapsedTracking();
       if (timerRef.current) clearInterval(timerRef.current);
       mediaRecorderRef.current?.pause();
-      setIsSpeaking(true);
-      speakPromptText(text, () => {
+      narrateOrSkip(text, () => {
         mediaRecorderRef.current?.resume();
         resumeElapsedTracking();
         timerRef.current = setInterval(() => {
           setElapsedSeconds((s) => s + 1);
         }, 1000);
-        setIsSpeaking(false);
       });
     } else {
-      setIsSpeaking(true);
-      speakPromptText(text, () => setIsSpeaking(false));
+      narrateOrSkip(text, () => {});
     }
   }
 
@@ -492,6 +561,19 @@ export function RecordInterviewFlow({
             Recording an interview with {intervieweeName}
           </h2>
 
+          {/* A visible override for whoever's actually being interviewed to
+              flip in the moment, without needing to leave for Settings —
+              this only changes narration for this recording session, it
+              never overwrites the signed-in user's saved preference. */}
+          <label className="flex items-center gap-2 self-start text-sm text-[color:var(--color-text-secondary)]">
+            <input
+              type="checkbox"
+              checked={narrationEnabled}
+              onChange={(e) => setNarrationEnabled(e.target.checked)}
+            />
+            🔊 Read questions aloud
+          </label>
+
           {recordingStatus !== "saving" && (
             <div className="rounded-[var(--radius-md)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface-alt)] p-4 text-center">
               <p className="text-xs uppercase tracking-wide text-[color:var(--color-text-secondary)]">
@@ -501,14 +583,16 @@ export function RecordInterviewFlow({
               <p className="mt-1 text-lg font-medium">
                 {INTERVIEW_PROMPTS[promptIndex].prompt}
               </p>
-              <button
-                type="button"
-                onClick={handleRepeatQuestion}
-                disabled={isSpeaking}
-                className="mt-2 text-sm text-[color:var(--color-text-secondary)] transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-text-primary)] disabled:opacity-50"
-              >
-                🔊 Repeat question
-              </button>
+              {narrationEnabled && (
+                <button
+                  type="button"
+                  onClick={handleRepeatQuestion}
+                  disabled={isSpeaking}
+                  className="mt-2 text-sm text-[color:var(--color-text-secondary)] transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-text-primary)] disabled:opacity-50"
+                >
+                  🔊 Repeat question
+                </button>
+              )}
             </div>
           )}
 

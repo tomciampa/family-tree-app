@@ -27,7 +27,7 @@ export default async function SettingsPage() {
     supabase.from("union_children").select("*"),
     supabase
       .from("family_members")
-      .select("linked_person_id")
+      .select("linked_person_id, interview_voice_uri, narration_enabled")
       .eq("family_id", familyId)
       .eq("user_id", user.id)
       .maybeSingle(),
@@ -60,6 +60,8 @@ export default async function SettingsPage() {
           people={people ?? []}
           personSummaries={personSummaries}
           linkedPersonId={membership?.linked_person_id ?? null}
+          interviewVoiceURI={membership?.interview_voice_uri ?? null}
+          narrationEnabled={membership?.narration_enabled ?? true}
         />
       )}
     </main>
