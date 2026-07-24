@@ -39,6 +39,17 @@ The relationship signal covers spouse/parent/child and siblings (shared-parent d
 `union_children`) — this matcher (`matchFamilyCandidates` in `documents/actions.ts`) is shared
 between document extraction and interview extraction, not duplicated per pipeline.
 
+As of 2026-07-24, Extract → Match auto-chains immediately after upload — no manual clicks
+needed for the normal flow. `documents-view.tsx` just calls the existing
+`extractCandidatesFromDocument` then (if any family candidates came back)
+`matchCandidatesForDocument` actions in sequence right after `uploadDocument` succeeds,
+showing a "Processing…" pill (with a spinner) for the few real seconds this takes — two
+sequential AI Gateway calls. Deliberately no new job/queue infrastructure, just chaining the
+same actions the manual buttons already called. Those buttons (Extract/Re-extract, Match)
+remain, now as fallback/retry only — e.g. if extraction fails on an unsupported file type,
+that same clear error state surfaces and the manual buttons are still there to retry. See
+"Deletion (documents & interviews)" below for the delete button added alongside them.
+
 Document review workspace (`documents/[id]/document-review.tsx`): the embedded tree preview
 pane uses its own shallower ancestry depth (`ancestryDepth={1}`) than the main `/tree` page's
 default (`DEFAULT_ANCESTRY_DEPTH = 2` in `family-tree.tsx`) — enough to see immediate context
@@ -172,6 +183,28 @@ crashing the page the moment an interview row reached it (fixed by filtering on
 that isn't interview-aware should filter these out explicitly. Flagged as a candidate for
 splitting into its own table/model if this keeps causing friction.
 
+Structural note worth remembering: it's the **segments** (child `documents` rows via
+`parent_document_id`), not the parent session row, that actually own `document_people`/
+`facts`/`anecdotes` links and `interview_gap_no_info` rows — `confirmInterviewBatch` always
+sources writes to `document_id: segment.id`, never the parent session's. Any code operating on
+"this interview's linked data" (deletion, impact-checking, dashboards, etc.) has to traverse
+via segment ids, not the parent session id, or it'll silently find nothing.
+
+As of 2026-07-24, Transcribe → Extract → Match auto-chains after Stop Recording — same pattern
+as the document pipeline above, no new job/queue infrastructure, just calling the existing
+`transcribeInterviewSegments` (session-level, batch) then per-segment
+`extractCandidatesFromSegment`/`matchCandidatesForSegment` in sequence. `interviews-view.tsx`
+auto-expands the freshly-recorded session so the person who just stopped recording can
+actually watch it happen, with a "Processing…" state shown at both the session level (still
+transcribing) and per-segment (that segment's own extract/match still running). Manual
+Transcribe/Extract/Match buttons remain as fallback/retry only. Fixed one real bug building
+this: the "Review & confirm →" link's `hasExtraction` check was derived from `InterviewItem`'s
+own `segments` state, but only each `SegmentPanel` child ever learned about its own new
+extraction result — that never flowed back up, so the link could stay hidden even after
+extraction genuinely finished. Segments now report extraction status upward via a callback
+(mirrors how per-segment "still processing" status is reported upward too) instead of the
+parent silently trusting stale local state.
+
 Transcription uses `openai/whisper-1` specifically, not `gpt-4o-transcribe` or
 `gpt-4o-mini-transcribe` — the newer models are more accurate but silently return no timestamps
 at all when timestamp granularities are requested, and word-level timestamps are what's needed
@@ -258,6 +291,52 @@ fixed 6 prompts, completely unchanged (verified byte-for-byte identical against 
 not just "close enough"). The feature can only ever add value on top of today's interview,
 never produce a worse or emptier one.
 
+## Deletion (documents & interviews)
+Both pipelines support deleting an item — `/documents`/`documents/[id]` and
+`/interviews`/`interviews/[id]` all have a Delete button. One shared dialog component,
+`DeleteWithImpactButton` (`src/components/delete-with-impact-button.tsx`), backs all of them;
+`DeleteDocumentButton`/`DeleteInterviewButton` are thin pipeline-specific wrappers that just
+supply their own impact-check/delete server actions and dialog title, not parallel copies of
+the dialog itself.
+
+Two-tier warning, always the same shape: a plain "This cannot be undone" shown every time, plus
+a visually distinct (bold text, red border, red-tinted background — not just longer text in the
+same style) escalated warning naming exact linked fact/anecdote counts and person names,
+rendered only when `getDocumentDeleteImpact`/`getInterviewDeleteImpact` finds real linked data.
+An empty/unprocessed item only ever shows the standard warning. Impact is fetched fresh every
+time the dialog opens rather than trusted from a stale prop, since resolving a candidate can
+create new facts/anecdotes right up until the moment of deletion.
+
+Deletes cascade in dependency order, investigated from the real schema rather than assumed —
+this differs between the two pipelines specifically because of the segment-ownership note
+above:
+- Documents: `facts` → `anecdotes` → `document_people` → the document row → the Storage file.
+- Interviews (`deleteInterview` in `interviews/actions.ts`): `facts` → `anecdotes` →
+  `document_people` → `interview_gap_no_info` → segment rows → the parent session row → the
+  Storage file — all of the first four keyed by segment ids, not the session id. The session
+  and every one of its segments share one Storage object (segments are just labeled
+  time-ranges of the same recording, see "Segment boundary precision" above), so it's removed
+  once at the end, not once per segment.
+
+In both pipelines the Storage file is removed *last*, after every DB row is gone — a failure
+there just leaves a harmless orphaned blob, not a document row pointing at a file that no
+longer exists. Deleting an interview never touches the interviewee's own `people` row (a
+person can have other interviews/documents/facts unrelated to the one being deleted) — if a
+test/placeholder person genuinely has nothing else linked after their interview is deleted,
+that's a separate manual step via the tree's own person-delete UI (`deletePerson` in
+`tree/actions.ts`, exposed on a loose person's card in the "Not yet connected to the tree"
+list), not something the interview delete cascades into automatically.
+
+## Home page dashboard
+`/` shows a "Tasks pending your review" section (`src/lib/pending-review.ts`) right after the
+welcome header — the first thing surfaced after signing in. It reuses the exact same
+`documents`/`people` queries and unresolved-candidate logic `/documents` and `/interviews`
+already compute per row (`documents-view.tsx`'s `unresolvedCount`, `confirmInterviewBatch`'s
+`resolution`/`written` markers) rather than a new tracking table or status column. Since both
+pipelines now auto-process up to the review step (see above), anything this surfaces is
+genuinely waiting on a human decision, never still mid-pipeline. Each item links straight to
+its review screen (`/documents/[id]` or `/interviews/[id]`).
+
 ## Suggested Connections
 `src/lib/suggested-connections.ts` resolves loose/unconnected people (most often someone
 extracted from an interview with no `unions`/`union_children` row yet) into one-click "Connect"
@@ -311,8 +390,3 @@ forward, since this kind of gap fails silently rather than throwing something ob
 - Splitting interviews out of the shared `documents` table into their own model — see "Audio
   Interview architecture" above for why this keeps causing friction.
 - Linking a person's interviews to their dossier (currently only documents show there).
-- Collapsing the document pipeline's Extract → Match → Review into one step, rather than three
-  separate manual actions per document.
-- A "tasks pending your review" dashboard — a single place surfacing everything across both
-  pipelines (documents, interviews) still waiting on a human decision, rather than needing to
-  check each list page separately.
