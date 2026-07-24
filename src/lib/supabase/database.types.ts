@@ -158,6 +158,7 @@ export type Database = {
           file_path: string
           filename: string | null
           id: string
+          interview_summary: string | null
           interviewee_person_id: string | null
           kind: string | null
           parent_document_id: string | null
@@ -175,6 +176,7 @@ export type Database = {
           file_path: string
           filename?: string | null
           id?: string
+          interview_summary?: string | null
           interviewee_person_id?: string | null
           kind?: string | null
           parent_document_id?: string | null
@@ -192,6 +194,7 @@ export type Database = {
           file_path?: string
           filename?: string | null
           id?: string
+          interview_summary?: string | null
           interviewee_person_id?: string | null
           kind?: string | null
           parent_document_id?: string | null

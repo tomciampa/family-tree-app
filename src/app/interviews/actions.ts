@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { transcribe, generateObject } from "ai";
+import { transcribe, generateObject, generateText } from "ai";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { getFamilyId } from "@/lib/family";
@@ -332,6 +332,100 @@ export async function transcribeInterviewSegments(
 
   revalidatePath("/interviews");
   return { segments: [...alreadyDone, ...updates] };
+}
+
+// Phase 3: a short, one-line summary of what an interview actually
+// covered, shown by default on /interviews so a recording doesn't have to
+// be expanded to see roughly what's in it (e.g. "Conversation with Jeff
+// Ciampa about his immediate family"). Generated once from the segments'
+// own "Q: <prompt>\nA: <answer>" transcripts (Phase 2) — an AI one-liner
+// reads far more naturally here than a templated list of segment labels
+// would (tried both; a list of prompt names is closer to a table of
+// contents than an actual summary, and barely differs between two
+// interviews with the same person since the prompts are fixed) — then
+// cached on the parent row's interview_summary column, same
+// generate-once pattern transcription_raw already uses. Idempotent: a
+// summary that already exists is returned as-is rather than regenerated.
+export async function generateInterviewSummary(
+  parentDocumentId: string,
+): Promise<{ error: string } | { summary: string }> {
+  const supabase = await requireUser();
+
+  const { data: parent, error: parentError } = await supabase
+    .from("documents")
+    .select("interviewee_person_id, interview_summary")
+    .eq("id", parentDocumentId)
+    .single();
+  if (parentError || !parent) {
+    return { error: parentError?.message ?? "Recording not found." };
+  }
+  if (parent.interview_summary) {
+    return { summary: parent.interview_summary };
+  }
+  if (!parent.interviewee_person_id) {
+    return { error: "This isn't an interview session." };
+  }
+
+  const { data: interviewee, error: intervieweeError } = await supabase
+    .from("people")
+    .select("name")
+    .eq("id", parent.interviewee_person_id)
+    .single();
+  if (intervieweeError || !interviewee) {
+    return { error: intervieweeError?.message ?? "Interviewee not found." };
+  }
+
+  const { data: segments, error: segmentsError } = await supabase
+    .from("documents")
+    .select("kind, audio_start_seconds, transcription_raw")
+    .eq("parent_document_id", parentDocumentId)
+    .order("audio_start_seconds", { ascending: true });
+  if (segmentsError) return { error: segmentsError.message };
+
+  const transcribed = (segments ?? []).filter((s) => s.transcription_raw);
+  if (transcribed.length === 0) {
+    return { error: "Transcribe at least one answer before generating a summary." };
+  }
+
+  const transcriptText = transcribed
+    .map((s) => `[${s.kind ?? "Segment"}]\n${s.transcription_raw}`)
+    .join("\n\n");
+
+  let result;
+  try {
+    result = await generateText({
+      model: "anthropic/claude-sonnet-5",
+      messages: [
+        {
+          role: "user",
+          content: [
+            `This is a guided oral-history interview with ${interviewee.name}, made up of several Q&A exchanges below, one per topic.`,
+            `Write ONE single sentence (under ~30 words) that summarizes the WHOLE conversation across ALL topics combined — never one sentence per topic. Even though multiple topics were covered below, you must compress them into one combined sentence (e.g. list the topics briefly, or name the throughline), not a separate sentence for each. It should be specific enough to read differently from a summary of a different conversation with ${interviewee.name}, not a generic description. Start with something like "Conversation with ${interviewee.name} about...". Output plain text only: exactly one sentence, no line breaks, no quotes, no markdown, no trailing period required.`,
+            "",
+            transcriptText,
+          ].join("\n"),
+        },
+      ],
+    });
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Summary generation failed." };
+  }
+
+  // Collapses to a single line regardless — belt-and-suspenders in case the
+  // model ever ignores the single-sentence instruction above and produces
+  // one line per topic, so the collapsed /interviews view never renders a
+  // multi-paragraph "summary" no matter what comes back.
+  const summary = result.text.replace(/\s+/g, " ").trim();
+  if (!summary) return { error: "Summary generation returned nothing." };
+
+  const { error: updateError } = await supabase
+    .from("documents")
+    .update({ interview_summary: summary })
+    .eq("id", parentDocumentId);
+  if (updateError) return { error: updateError.message };
+
+  revalidatePath("/interviews");
+  return { summary };
 }
 
 const interviewCandidateFactSchema = z.object({

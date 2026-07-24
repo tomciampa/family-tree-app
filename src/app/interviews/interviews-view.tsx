@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Tables } from "@/lib/supabase/database.types";
@@ -9,6 +9,7 @@ import { RecordInterviewFlow } from "./record-interview-flow";
 import {
   transcribeInterviewSession,
   transcribeInterviewSegments,
+  generateInterviewSummary,
   extractCandidatesFromSegment,
   matchCandidatesForSegment,
   type InterviewExtraction,
@@ -36,6 +37,7 @@ export type InterviewRow = {
   intervieweeName: string;
   playUrl: string | null;
   transcription_raw: string | null;
+  interview_summary: string | null;
   segments: SegmentRow[];
 };
 
@@ -100,6 +102,10 @@ function InterviewItem({ session }: { session: InterviewRow }) {
   const [error, setError] = useState<string | null>(null);
   const [segments, setSegments] = useState(session.segments);
   const [isTranscribingSegments, setIsTranscribingSegments] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [summary, setSummary] = useState(session.interview_summary);
+  const [isSummarizing, setIsSummarizing] = useState(false);
+  const summaryRequestedRef = useRef(false);
 
   async function handleTranscribe() {
     setIsTranscribing(true);
@@ -134,6 +140,25 @@ function InterviewItem({ session }: { session: InterviewRow }) {
   const hasUntranscribedSegments = segments.some((s) => !s.transcription_raw);
   const hasExtraction = segments.some((s) => s.candidate_people);
 
+  // Backfills the one-line summary the first time this recording is fully
+  // transcribed and rendered — covers both a freshly-transcribed interview
+  // and an older one transcribed before Phase 3 existed, with no separate
+  // manual "Generate summary" step needed either way. summaryRequestedRef
+  // guards against firing twice (e.g. a second render before the request
+  // resolves) — the DB-level idempotency in generateInterviewSummary itself
+  // is the real backstop, this just avoids a redundant in-flight request.
+  useEffect(() => {
+    if (summary || summaryRequestedRef.current) return;
+    if (segments.length === 0 || hasUntranscribedSegments) return;
+    summaryRequestedRef.current = true;
+    queueMicrotask(async () => {
+      setIsSummarizing(true);
+      const result = await generateInterviewSummary(session.id);
+      setIsSummarizing(false);
+      if (!("error" in result)) setSummary(result.summary);
+    });
+  }, [summary, segments.length, hasUntranscribedSegments, session.id]);
+
   return (
     <div className="flex flex-col gap-2 rounded-[var(--radius-md)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] px-4 py-3 text-sm shadow-[var(--shadow-1)]">
       <div className="flex items-center justify-between gap-4">
@@ -147,63 +172,81 @@ function InterviewItem({ session }: { session: InterviewRow }) {
         </span>
       </div>
 
-      {hasExtraction && (
-        <Link
-          href={`/interviews/${session.id}`}
-          className="self-start text-xs font-medium text-[color:var(--color-accent)] underline transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-accent-hover)]"
-        >
-          Review & confirm →
-        </Link>
-      )}
-      {session.playUrl ? (
-        <audio controls preload="none" src={session.playUrl} className="w-full">
-          Your browser doesn&apos;t support audio playback.
-        </audio>
-      ) : (
-        <p className="text-xs text-[color:var(--color-error)]">
-          Recording unavailable right now — try reloading the page.
-        </p>
-      )}
+      <button
+        type="button"
+        onClick={() => setIsExpanded((v) => !v)}
+        className="flex items-center justify-between gap-3 text-left text-[color:var(--color-text-secondary)] transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-text-primary)]"
+      >
+        <span className="flex-1">
+          {summary ??
+            (isSummarizing ? "Summarizing…" : "Recorded conversation — click to view")}
+        </span>
+        <span className="shrink-0 text-xs text-[color:var(--color-text-tertiary)]">
+          {isExpanded ? "▲ Hide" : "▼ Show"}
+        </span>
+      </button>
 
-      {transcript ? (
-        <p className="whitespace-pre-wrap border-t border-[color:var(--color-border-subtle)] pt-2 text-[color:var(--color-text-secondary)]">
-          {transcript}
-        </p>
-      ) : (
-        <button
-          type="button"
-          onClick={handleTranscribe}
-          disabled={isTranscribing}
-          className="self-start rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-2 py-1 text-xs transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] disabled:opacity-50"
-        >
-          {isTranscribing ? "Transcribing…" : "Transcribe"}
-        </button>
-      )}
+      {isExpanded && (
+        <>
+          {hasExtraction && (
+            <Link
+              href={`/interviews/${session.id}`}
+              className="self-start text-xs font-medium text-[color:var(--color-accent)] underline transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-accent-hover)]"
+            >
+              Review & confirm →
+            </Link>
+          )}
+          {session.playUrl ? (
+            <audio controls preload="none" src={session.playUrl} className="w-full">
+              Your browser doesn&apos;t support audio playback.
+            </audio>
+          ) : (
+            <p className="text-xs text-[color:var(--color-error)]">
+              Recording unavailable right now — try reloading the page.
+            </p>
+          )}
 
-      {segments.length > 0 && (
-        <div className="flex flex-col gap-2 border-t border-[color:var(--color-border-subtle)] pt-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-text-secondary)]">
-              Answers ({segments.length})
-            </span>
-            {hasUntranscribedSegments && (
-              <button
-                type="button"
-                onClick={handleTranscribeSegments}
-                disabled={isTranscribingSegments}
-                className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-2 py-1 text-xs transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] disabled:opacity-50"
-              >
-                {isTranscribingSegments ? "Transcribing…" : "Transcribe answers"}
-              </button>
-            )}
-          </div>
-          {segments.map((seg) => (
-            <SegmentPanel key={seg.id} segment={seg} intervieweeName={session.intervieweeName} />
-          ))}
-        </div>
-      )}
+          {transcript ? (
+            <p className="whitespace-pre-wrap border-t border-[color:var(--color-border-subtle)] pt-2 text-[color:var(--color-text-secondary)]">
+              {transcript}
+            </p>
+          ) : (
+            <button
+              type="button"
+              onClick={handleTranscribe}
+              disabled={isTranscribing}
+              className="self-start rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-2 py-1 text-xs transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] disabled:opacity-50"
+            >
+              {isTranscribing ? "Transcribing…" : "Transcribe"}
+            </button>
+          )}
 
-      {error && <p className="text-xs text-[color:var(--color-error)]">{error}</p>}
+          {segments.length > 0 && (
+            <div className="flex flex-col gap-2 border-t border-[color:var(--color-border-subtle)] pt-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-text-secondary)]">
+                  Answers ({segments.length})
+                </span>
+                {hasUntranscribedSegments && (
+                  <button
+                    type="button"
+                    onClick={handleTranscribeSegments}
+                    disabled={isTranscribingSegments}
+                    className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-2 py-1 text-xs transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] disabled:opacity-50"
+                  >
+                    {isTranscribingSegments ? "Transcribing…" : "Transcribe answers"}
+                  </button>
+                )}
+              </div>
+              {segments.map((seg) => (
+                <SegmentPanel key={seg.id} segment={seg} intervieweeName={session.intervieweeName} />
+              ))}
+            </div>
+          )}
+
+          {error && <p className="text-xs text-[color:var(--color-error)]">{error}</p>}
+        </>
+      )}
     </div>
   );
 }

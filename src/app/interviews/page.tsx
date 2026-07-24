@@ -28,7 +28,7 @@ export default async function InterviewsPage() {
     supabase
       .from("documents")
       .select(
-        "id, filename, file_path, recorded_at, interviewee_person_id, transcription_raw",
+        "id, filename, file_path, recorded_at, interviewee_person_id, transcription_raw, interview_summary",
       )
       .not("interviewee_person_id", "is", null)
       .order("recorded_at", { ascending: false }),
