@@ -1,5 +1,6 @@
 "use server";
 
+import { randomBytes } from "crypto";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
@@ -79,4 +80,31 @@ export async function setNarrationEnabled(
 
   revalidatePath("/settings");
   return { ok: true };
+}
+
+// The code itself is generated here, in application code, rather than in
+// SQL — same convention as other unguessable-identifier generation
+// elsewhere in the app (e.g. storage paths via crypto.randomUUID()).
+// base64url keeps it URL-safe with no encoding needed in the shareable
+// link; 24 random bytes is 192 bits, comfortably unguessable for a
+// single-use, 7-day-expiring token. The absolute URL is built client-side
+// (window.location.origin) by the caller, same as the login page already
+// does for its own emailRedirectTo — this action only returns the code.
+export async function createFamilyInvite(): Promise<
+  { error: string } | { code: string }
+> {
+  const { supabase, user } = await requireUser();
+  const familyId = await getFamilyId();
+
+  const code = randomBytes(24).toString("base64url");
+
+  const { error } = await supabase.from("family_invites").insert({
+    family_id: familyId,
+    code,
+    created_by: user.id,
+  });
+  if (error) return { error: error.message };
+
+  revalidatePath("/settings");
+  return { code };
 }

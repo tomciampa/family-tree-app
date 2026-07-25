@@ -413,6 +413,47 @@ export type Database = {
         }
         Relationships: []
       }
+      family_invites: {
+        Row: {
+          code: string
+          created_at: string
+          created_by: string
+          expires_at: string
+          family_id: string
+          id: string
+          used_at: string | null
+          used_by: string | null
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          created_by: string
+          expires_at?: string
+          family_id: string
+          id?: string
+          used_at?: string | null
+          used_by?: string | null
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          created_by?: string
+          expires_at?: string
+          family_id?: string
+          id?: string
+          used_at?: string | null
+          used_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "family_invites_family_id_fkey"
+            columns: ["family_id"]
+            isOneToOne: false
+            referencedRelation: "families"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       family_members: {
         Row: {
           family_id: string
@@ -783,6 +824,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_invite_preview: {
+        Args: { invite_code: string }
+        Returns: {
+          family_name: string
+          status: string
+        }[]
+      }
+      is_family_member: { Args: { target_family_id: string }; Returns: boolean }
       match_people_by_name: {
         Args: {
           min_similarity?: number
@@ -795,6 +844,14 @@ export type Database = {
           id: string
           name: string
           similarity: number
+        }[]
+      }
+      redeem_family_invite: {
+        Args: { invite_code: string }
+        Returns: {
+          family_id: string
+          family_name: string
+          status: string
         }[]
       }
       show_limit: { Args: never; Returns: number }

@@ -5,7 +5,12 @@ import type { Tables } from "@/lib/supabase/database.types";
 import type { PersonSummary } from "@/lib/family";
 import { PersonSearch } from "@/components/person-search";
 import { getVoicesAsync, pickPreferredVoice } from "@/lib/speech-voices";
-import { setLinkedPerson, setInterviewVoice, setNarrationEnabled } from "./actions";
+import {
+  setLinkedPerson,
+  setInterviewVoice,
+  setNarrationEnabled,
+  createFamilyInvite,
+} from "./actions";
 
 type Person = Tables<"people">;
 
@@ -31,7 +36,103 @@ export function SettingsView({
       />
       <NarrationToggleSettings narrationEnabled={narrationEnabled} />
       <VoiceSettings interviewVoiceURI={interviewVoiceURI} />
+      <InviteSettings />
     </>
+  );
+}
+
+// Available to any current family member, not just an "owner" role — the
+// invite itself is single-use and expires, and its RLS/RPC scoping (see
+// the family_invites migration) means it can only ever grant access to
+// this same family, so there's no meaningful extra risk in letting any
+// member generate one. Shows one link at a time rather than a running
+// list of past invites — generating a fresh one for each person you
+// invite is the expected flow, and this app doesn't yet have an
+// invite-management view (revoking, seeing who's pending, etc.) to pair
+// with a list.
+function InviteSettings() {
+  const [link, setLink] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  function handleGenerate() {
+    setError(null);
+    setCopied(false);
+    startTransition(async () => {
+      const result = await createFamilyInvite();
+      if ("error" in result) {
+        setError(result.error);
+        return;
+      }
+      // Built client-side, same as the login page's own emailRedirectTo —
+      // a server action has no reliable access to the request's own
+      // origin without trusting a forwarded host header.
+      setLink(`${window.location.origin}/join/${result.code}`);
+    });
+  }
+
+  async function handleCopy() {
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+    } catch {
+      // Clipboard access can be denied (permissions, non-HTTPS context,
+      // etc.) — the link is still shown and selectable by hand, so this
+      // failing isn't fatal, just skip the "Copied" confirmation.
+    }
+  }
+
+  return (
+    <section className="flex flex-col gap-4 rounded-[var(--radius-lg)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-6 shadow-[var(--shadow-2)]">
+      <div>
+        <h2 className="text-[length:var(--font-size-heading-3)] leading-[var(--line-height-heading-3)] font-semibold">
+          Invite someone
+        </h2>
+        <p className="mt-1 text-sm text-[color:var(--color-text-secondary)]">
+          Generate a link that lets someone join this family tree. Each link works once and
+          expires after 7 days.
+        </p>
+      </div>
+
+      {link && (
+        <div className="flex flex-col gap-2">
+          <input
+            type="text"
+            readOnly
+            value={link}
+            onFocus={(e) => e.currentTarget.select()}
+            className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-page)] px-3 py-2 text-sm text-[color:var(--color-text-primary)]"
+          />
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleCopy}
+              className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-4 py-2 text-sm transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)]"
+            >
+              Copy link
+            </button>
+            {copied && (
+              <span className="text-sm text-[color:var(--color-success-subtle-fg)]">Copied.</span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {error && <p className="text-sm text-[color:var(--color-error)]">{error}</p>}
+
+      <div>
+        <button
+          type="button"
+          onClick={handleGenerate}
+          disabled={isPending}
+          className="rounded-[var(--radius-sm)] bg-[color:var(--color-accent)] px-4 py-2 text-sm font-medium text-[color:var(--color-text-on-accent)] transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-accent-hover)] disabled:opacity-50"
+        >
+          {isPending ? "Generating…" : link ? "Generate a new link" : "Generate invite link"}
+        </button>
+      </div>
+    </section>
   );
 }
 

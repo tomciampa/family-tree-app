@@ -1,9 +1,29 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+// Split out so useSearchParams (which forces client-side rendering of
+// everything up to the nearest Suspense boundary) only affects this piece
+// rather than the whole page — per Next's own recommendation.
+function LoginForm() {
+  // ?next=/join/<code> — set when arriving here from the invite flow (see
+  // /join/[code]/join-view.tsx), so the magic link's own redirect can
+  // carry it through /auth/callback (which already reads `next`) back to
+  // the exact invite the visitor started from, rather than dropping them
+  // on the home page after login.
+  const searchParams = useSearchParams();
+  const next = searchParams.get("next");
+
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">(
     "idle",
@@ -15,11 +35,14 @@ export default function LoginPage() {
     setStatus("sending");
     setError(null);
 
+    const callbackUrl = new URL("/auth/callback", window.location.origin);
+    if (next) callbackUrl.searchParams.set("next", next);
+
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        emailRedirectTo: callbackUrl.toString(),
       },
     });
 
