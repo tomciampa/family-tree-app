@@ -17,6 +17,7 @@ import {
   type CandidatePerson,
 } from "@/app/documents/candidate-schema";
 import { addFirstPerson } from "@/app/tree/actions";
+import { STANDARD_FIELD_LABELS } from "@/app/tree/constants";
 import { INTERVIEW_PROMPTS, type InterviewPrompt } from "./prompts";
 import { buildGapAwarePrompts } from "@/lib/gap-prompts";
 
@@ -594,7 +595,15 @@ const interviewCandidateFactSchema = z.object({
   field: z
     .string()
     .describe(
-      "Short label for the kind of fact, e.g. 'Birthplace', 'Occupation', 'Birth', 'Death', 'Marriage'",
+      "Short label for the kind of fact. If this states one of the standard genealogy " +
+        `fields — ${STANDARD_FIELD_LABELS.join(", ")} — use that EXACT label, character for ` +
+        "character (e.g. 'Birth Date', never 'Birth' or 'Born'). If a single statement gives " +
+        "more than one of these (e.g. 'born in Portsmouth, New Hampshire on December 14, " +
+        "1987' states both a Birth Place and a Birth Date), emit a SEPARATE fact entry per " +
+        "standard field, each with only that one piece of information as its value — never " +
+        "merge multiple standard fields into one combined value. For anything that isn't one " +
+        "of those standard fields, use a short freeform label instead, e.g. 'Education', " +
+        "'Military Service', 'Marriage'.",
     ),
   value: z.string().describe("The factual claim itself, stated concisely"),
   confidence: z

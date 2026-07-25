@@ -9,13 +9,13 @@ import {
   addFact,
   type PersonIdentityFields,
 } from "./actions";
-import { STANDARD_FIELD_KEYS } from "./constants";
+import { STANDARD_FIELD_KEYS, STANDARD_FIELD_LABELS } from "./constants";
 
 type Person = Tables<"people">;
 type Fact = Tables<"facts">;
 
 const NOT_RECORDED = "not recorded";
-const STANDARD_LABELS = STANDARD_FIELD_KEYS.map(([, label]) => label);
+const STANDARD_LABELS = STANDARD_FIELD_LABELS;
 
 // Case-insensitive EXACT match on field name — deliberately not fuzzy.
 // A merged fact like Vincenzo Ciampa's single "Death" fact (see

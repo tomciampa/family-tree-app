@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { STANDARD_FIELD_LABEL } from "../tree/constants";
 
 // Split out from actions.ts (a "use server" file, which can only export
 // async functions — not this schema object) so both document extraction
@@ -35,10 +36,16 @@ export type CandidatePerson = z.infer<typeof candidatePersonSchema>;
 // batch confirmation (app/interviews/actions.ts) derives a fact's field
 // label the exact same way document confirmation does, for whichever
 // candidate person a fact/anecdote ends up attributed to.
+//
+// The deceased/birth cases return the canonical STANDARD_FIELD_LABEL
+// strings (e.g. "Death Date", not "Death") so this fact is recognized by
+// the Vital Details lookup (findFactValue in person-identity.tsx) without
+// requiring a manual "Parse into standardized fields" pass — previously
+// this returned "Death"/"Birth", a label that lookup never matched.
 export function factFieldForRelation(relation: string | null): string {
   if (!relation) return "Document";
   const r = relation.toLowerCase();
-  if (r.includes("deceas")) return "Death";
-  if (r.includes("birth") || r === "newborn") return "Birth";
+  if (r.includes("deceas")) return STANDARD_FIELD_LABEL.deathDate;
+  if (r.includes("birth") || r === "newborn") return STANDARD_FIELD_LABEL.birthDate;
   return relation.replace(/\b\w/g, (c) => c.toUpperCase());
 }
