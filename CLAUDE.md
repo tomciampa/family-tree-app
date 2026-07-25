@@ -98,6 +98,30 @@ anywhere — which silently hid the entire review-matches UI (see `hasFamilyCand
 `isVisionCapable` are now checked *before* ever downloading the file, so an unsupported type
 fails fast with a real error instead.
 
+## Standard field names (Vital Details)
+`STANDARD_FIELD_LABELS`/`STANDARD_FIELD_LABEL` (`tree/constants.ts`) is the single canonical
+source for the seven Vital Details fields (Birth Date, Birth Place, Death Date, Death Place,
+Cause of Death, Occupation, Places Lived) that `person-identity.tsx`'s `findFactValue` looks up
+by exact (case-insensitive) match. Before this existed, document extraction's
+`factFieldForRelation` and interview extraction's freeform fact schema each independently
+guessed at these label strings — they only agreed by coincidence (e.g. Matt Ciampa's
+"Occupation" fact matched by luck, but his interview-derived birth date was written as "Birth"
+rather than "Birth Date" and silently never appeared in Vital Details, even though the fact was
+real and fully confirmed). Both writers now import from this registry instead of hardcoding
+their own guess. Interview extraction's fact schema also now explicitly splits a single
+statement that bundles more than one standard field (e.g. "born in Portsmouth, New Hampshire on
+December 14, 1987") into separate fact entries — one Birth Date, one Birth Place — rather than
+merging them under one field. Any future extraction/writing code touching these seven fields
+must use this shared registry, not a new independent guess.
+
+A one-time backfill (2026-07-25) corrected 17 existing facts across 11 people that predated this
+fix, using the same AI-based standard-field extraction already used by the dossier's manual
+"Parse into standardized fields" tool. Deliberately conservative: it only ever adds a new
+canonical fact (never mutates/deletes the original, matching facts' append-only convention), and
+skips a person entirely for a given canonical field if they already have one from any source —
+this correctly left Vincenzo Ciampa untouched, since his birth/death/occupation facts had
+already been fixed by hand via the manual Parse tool before this backfill ran.
+
 ## Tree rendering approach (settled after 3 rounds of real bugs — don't rebuild from scratch)
 `family-chart` natively renders only the "main" (focused) person's full blood-line ancestry,
 uncollapsible, plus their siblings (`setShowSiblingsOfMain(true)`, `setAncestryDepth(1)` so
@@ -114,6 +138,19 @@ siblings. As of 2026-07-25, clicking any card's body recenters the tree on that 
 just siblings. (Siblings-only was a deliberate 2026-07-12 trade-off; later found to be an
 unwanted restriction rather than an intended limit, and removed. If you find another note
 elsewhere describing sibling-only recentering as current behavior, it's stale — update it too.)
+
+Double-clicking a card opens its dossier — a separate mechanism from the single-click recenter
+above, distinguished via a timed click handler rather than a native `dblclick` listener (see
+`pendingCardClickRef` in `family-tree.tsx`). As of 2026-07-25, this double-click no longer also
+zooms the tree: family-chart binds d3-zoom's full default listener set onto its canvas with no
+opt-out, including `dblclick.zoom` (zoom-in-on-double-click) — a completely separate mechanism
+from the click handler above, but the real browser `dblclick` event still bubbled to it
+regardless, so opening the dossier via double-click also zoomed the canvas in on top of it.
+There's no fluent Chart API to opt out of this, so it's blocked with a capture-phase `dblclick`
+listener on the app's own container that stops the event before it reaches d3's bubble-phase
+listener — applied everywhere on the canvas, not just cards, since double-click-to-zoom isn't a
+documented feature anything here relies on and the app already has a dedicated fit-to-screen
+button.
 
 ## Design
 The redesign to a clean, Apple-inspired light/neutral aesthetic — whites and light grays, dark
@@ -424,6 +461,13 @@ forward, since this kind of gap fails silently rather than throwing something ob
   affordance, not just a component-local error string.
 - Public GitHub repo — this holds real family data. Be careful about what gets committed
   (no service-role keys, no `.env.local` secrets); flag anything sensitive before committing.
+- **A one-time data backfill is a legitimate part of a root-cause fix, not scope creep** — e.g.
+  correcting existing facts written under an old, buggy field-naming convention once the writer
+  itself is fixed (see "Standard field names" above). Two rules make it safe: never create a
+  duplicate of a canonical value a person already has from another source (dedup before
+  inserting), and never fabricate a value to fit a near-miss pattern — if the source text
+  doesn't actually state the claimed standard field (e.g. a fact labeled "Death" that's actually
+  about signing a letter, not a real death date), leave it alone rather than forcing a match.
 
 ## Known follow-ups (already on the todo list — don't rebuild without checking first)
 - Splitting interviews out of the shared `documents` table into their own model — see "Audio
