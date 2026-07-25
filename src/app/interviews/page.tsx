@@ -36,7 +36,7 @@ export default async function InterviewsPage() {
     supabase
       .from("documents")
       .select(
-        "id, parent_document_id, kind, audio_start_seconds, audio_end_seconds, transcription_raw, candidate_people",
+        "id, parent_document_id, kind, audio_start_seconds, audio_end_seconds, transcription_raw, candidate_people, extraction_error",
       )
       .not("parent_document_id", "is", null)
       .order("audio_start_seconds", { ascending: true }),

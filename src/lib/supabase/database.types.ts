@@ -154,6 +154,7 @@ export type Database = {
           audio_start_seconds: number | null
           candidate_people: Json | null
           document_type: string | null
+          extraction_error: string | null
           family_id: string | null
           file_path: string
           filename: string | null
@@ -174,6 +175,7 @@ export type Database = {
           audio_start_seconds?: number | null
           candidate_people?: Json | null
           document_type?: string | null
+          extraction_error?: string | null
           family_id?: string | null
           file_path: string
           filename?: string | null
@@ -194,6 +196,7 @@ export type Database = {
           audio_start_seconds?: number | null
           candidate_people?: Json | null
           document_type?: string | null
+          extraction_error?: string | null
           family_id?: string | null
           file_path?: string
           filename?: string | null

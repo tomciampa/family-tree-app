@@ -27,6 +27,7 @@ export type SegmentRow = {
   audio_end_seconds: number | null;
   transcription_raw: string | null;
   candidate_people: InterviewExtraction | null;
+  extraction_error: string | null;
 };
 
 export type InterviewRow = {
@@ -141,6 +142,25 @@ function InterviewItem({
   const [isSummarizing, setIsSummarizing] = useState(false);
   const summaryRequestedRef = useRef(false);
   const autoTranscribeTriggered = useRef(false);
+  // Ordered ids of segments still waiting for their auto extract→match
+  // turn — only the front of this queue is ever told to run. Segments
+  // used to each fire their own auto-chain the instant their transcript
+  // showed up, which meant a batch transcription (writing every segment's
+  // transcript in one update) fired every segment's extraction
+  // concurrently. That thundering herd against the AI Gateway was the
+  // real cause of a 2026-07-24 incident where 5 of 6 segments in one
+  // interview silently never got extracted — only whichever segment's
+  // request happened to win the race succeeded. Processing the queue one
+  // id at a time, only advancing once the active segment reports settled
+  // (success or failure), makes every segment get a real, isolated turn.
+  const [autoQueue, setAutoQueue] = useState<string[]>([]);
+  const activeAutoSegmentId = autoQueue[0] ?? null;
+
+  const handleSegmentAutoSettled = useCallback((segmentId: string) => {
+    setAutoQueue((prev) =>
+      prev[0] === segmentId ? prev.slice(1) : prev.filter((id) => id !== segmentId),
+    );
+  }, []);
 
   const handleSegmentProcessingChange = useCallback(
     (segmentId: string, isProcessing: boolean) => {
@@ -193,6 +213,14 @@ function InterviewItem({
         ...seg,
         transcription_raw: transcriptById.get(seg.id) ?? seg.transcription_raw,
       })),
+    );
+    // Seed the serial auto-process queue in segment order (already sorted
+    // by audio_start_seconds from the initial fetch) — only segments that
+    // just got a transcript and don't already have extraction results.
+    setAutoQueue(
+      session.segments
+        .filter((seg) => transcriptById.has(seg.id) && !seg.candidate_people)
+        .map((seg) => seg.id),
     );
   }
 
@@ -366,9 +394,10 @@ function InterviewItem({
                   key={seg.id}
                   segment={seg}
                   intervieweeName={session.intervieweeName}
-                  autoProcess={autoProcess}
+                  shouldAutoRun={autoProcess && seg.id === activeAutoSegmentId}
                   onProcessingChange={handleSegmentProcessingChange}
                   onExtractionChange={handleSegmentExtractionChange}
+                  onAutoSettled={handleSegmentAutoSettled}
                 />
               ))}
             </div>
@@ -394,21 +423,27 @@ function aboutLabel(aboutRef: AboutRef, intervieweeName: string): string {
 function SegmentPanel({
   segment,
   intervieweeName,
-  autoProcess,
+  shouldAutoRun,
   onProcessingChange,
   onExtractionChange,
+  onAutoSettled,
 }: {
   segment: SegmentRow;
   intervieweeName: string;
-  autoProcess: boolean;
+  shouldAutoRun: boolean;
   onProcessingChange: (segmentId: string, isProcessing: boolean) => void;
   onExtractionChange: (segmentId: string, hasExtraction: boolean) => void;
+  onAutoSettled: (segmentId: string) => void;
 }) {
   const [extraction, setExtraction] = useState(segment.candidate_people);
   const [isExtracting, setIsExtracting] = useState(false);
   const [isMatching, setIsMatching] = useState(false);
   const [isAutoProcessing, setIsAutoProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Seeded from the DB column, not just local state — this is what makes a
+  // failed segment durably distinguishable from one that was never
+  // attempted: it survives a reload, unlike `error` above.
+  const [extractionError, setExtractionError] = useState(segment.extraction_error);
   const autoTriggered = useRef(false);
 
   useEffect(() => {
@@ -426,9 +461,11 @@ function SegmentPanel({
     setIsExtracting(false);
     if ("error" in result) {
       setError(result.error);
+      setExtractionError(result.error);
       return;
     }
     setExtraction(result.extraction);
+    setExtractionError(null);
   }
 
   async function handleMatch() {
@@ -438,21 +475,32 @@ function SegmentPanel({
     setIsMatching(false);
     if ("error" in result) {
       setError(result.error);
+      setExtractionError(result.error);
       return;
     }
     setExtraction(result.extraction);
+    setExtractionError(null);
   }
 
+  // Shared by the serialized auto-chain (triggered once this segment
+  // reaches the front of the parent's queue) and the manual Retry button
+  // for a previously-failed segment — same one-attempt extract→match
+  // sequence either way. Always reports back to the parent when it's done
+  // so the queue can advance; that's a harmless no-op if this segment
+  // isn't actually the queue's current entry (e.g. a manual retry).
   async function runAutoProcess() {
     setError(null);
     setIsAutoProcessing(true);
     const extracted = await extractCandidatesFromSegment(segment.id);
     if ("error" in extracted) {
       setError(extracted.error);
+      setExtractionError(extracted.error);
       setIsAutoProcessing(false);
+      onAutoSettled(segment.id);
       return;
     }
     setExtraction(extracted.extraction);
+    setExtractionError(null);
 
     const hasFamily = extracted.extraction.people.some(
       (p) => p.roleCategory === "family",
@@ -461,32 +509,38 @@ function SegmentPanel({
       const matched = await matchCandidatesForSegment(segment.id);
       if ("error" in matched) {
         setError(matched.error);
+        setExtractionError(matched.error);
         setIsAutoProcessing(false);
+        onAutoSettled(segment.id);
         return;
       }
       setExtraction(matched.extraction);
+      setExtractionError(null);
     }
     setIsAutoProcessing(false);
+    onAutoSettled(segment.id);
   }
 
   useEffect(() => {
-    // Fires once this segment's own transcript shows up (written by the
-    // parent InterviewItem's auto-transcribe step) — decoupled from that
-    // step's own timing, so each segment starts extracting the moment its
-    // transcript is ready rather than waiting for every other segment too.
-    // Guarded on candidate_people being null so an older segment that
-    // happens to remount never re-triggers.
-    if (
-      autoProcess &&
-      !autoTriggered.current &&
-      segment.transcription_raw &&
-      !segment.candidate_people
-    ) {
-      autoTriggered.current = true;
+    // Fires once this segment reaches the front of the parent's serial
+    // auto-process queue (see InterviewItem's autoQueue) — deliberately
+    // one segment at a time now, not the moment each segment's own
+    // transcript shows up, since firing on transcript alone is what let
+    // every segment in a batch-transcribed session start extracting
+    // concurrently (the actual cause of the 2026-07-24 silent-failure
+    // incident). Guarded on candidate_people being null so an older
+    // segment that happens to remount never re-triggers; the stale-entry
+    // branch below still reports settled so the queue can't get stuck
+    // behind a segment that (for whatever reason) doesn't need running.
+    if (!shouldAutoRun || autoTriggered.current) return;
+    autoTriggered.current = true;
+    if (segment.transcription_raw && !segment.candidate_people) {
       void runAutoProcess();
+    } else {
+      onAutoSettled(segment.id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoProcess, segment.transcription_raw]);
+  }, [shouldAutoRun, segment.transcription_raw]);
 
   const people = extraction?.people ?? [];
   const facts = extraction?.facts ?? [];
@@ -517,7 +571,7 @@ function SegmentPanel({
                 Processing…
               </span>
             )}
-            {!extraction && (
+            {!extraction && !extractionError && (
               <button
                 type="button"
                 onClick={handleExtract}
@@ -526,6 +580,21 @@ function SegmentPanel({
               >
                 {isExtracting ? "Extracting…" : "Extract"}
               </button>
+            )}
+            {!extraction && extractionError && (
+              <>
+                <span className="text-[11px] font-medium text-[color:var(--color-error-subtle-fg)]">
+                  Extraction failed
+                </span>
+                <button
+                  type="button"
+                  onClick={runAutoProcess}
+                  disabled={isExtracting || isAutoProcessing}
+                  className="rounded-[var(--radius-sm)] border border-[color:var(--color-error)] px-2 py-0.5 text-[11px] text-[color:var(--color-error)] transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-error-subtle-bg)] disabled:opacity-50"
+                >
+                  {isExtracting || isAutoProcessing ? "Retrying…" : "Retry"}
+                </button>
+              </>
             )}
             {extraction && !hasMatches && people.length > 0 && (
               <button
@@ -547,7 +616,9 @@ function SegmentPanel({
         </p>
       )}
 
-      {error && <p className="mt-1 text-[11px] text-[color:var(--color-error)]">{error}</p>}
+      {(error ?? extractionError) && (
+        <p className="mt-1 text-[11px] text-[color:var(--color-error)]">{error ?? extractionError}</p>
+      )}
 
       {extraction && (
         <div className="mt-2 flex flex-col gap-2 border-t border-[color:var(--color-border-subtle)] pt-2 text-[11px]">

@@ -782,7 +782,17 @@ export async function extractCandidatesFromSegment(
       ],
     });
   } catch (err) {
-    return { error: err instanceof Error ? err.message : "Extraction failed." };
+    const message = err instanceof Error ? err.message : "Extraction failed.";
+    // Persisted so a failed segment is durably distinguishable from one
+    // that was never attempted — this exact gap (an auto-chain failure
+    // that left no trace once the page reloaded and the ephemeral client
+    // error was gone) was a real, hard-to-diagnose incident. Best-effort:
+    // if this write itself fails there's nothing more to do here.
+    await supabase
+      .from("documents")
+      .update({ extraction_error: message })
+      .eq("id", segmentDocumentId);
+    return { error: message };
   }
 
   const people = result.object.people;
@@ -799,7 +809,7 @@ export async function extractCandidatesFromSegment(
 
   const { error: updateError } = await supabase
     .from("documents")
-    .update({ candidate_people: extraction })
+    .update({ candidate_people: extraction, extraction_error: null })
     .eq("id", segmentDocumentId);
   if (updateError) return { error: updateError.message };
 
@@ -839,13 +849,20 @@ export async function matchCandidatesForSegment(
     extraction.people as CandidatePerson[],
     intervieweePersonId,
   );
-  if ("error" in matched) return matched;
+  if ("error" in matched) {
+    // See the matching persisted-error comment in extractCandidatesFromSegment.
+    await supabase
+      .from("documents")
+      .update({ extraction_error: matched.error })
+      .eq("id", segmentDocumentId);
+    return matched;
+  }
 
   const updatedExtraction: InterviewExtraction = { ...extraction, people: matched.results };
 
   const { error: updateError } = await supabase
     .from("documents")
-    .update({ candidate_people: updatedExtraction })
+    .update({ candidate_people: updatedExtraction, extraction_error: null })
     .eq("id", segmentDocumentId);
   if (updateError) return { error: updateError.message };
 
