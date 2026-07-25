@@ -551,7 +551,13 @@ export function FamilyTree({
       .setMiniTree(true);
 
     // Clicking the card itself only re-centers the tree on that person —
-    // family-chart's own default click behavior, nothing more. Double-
+    // family-chart's own default click behavior, nothing more. Every card
+    // recenters, including is_ancestry ones (main's own ancestors, or the
+    // couple currently being viewed via "view both families") — an earlier
+    // version exempted those so exploring an ancestor's own context never
+    // "discarded" the current sibling row, but that's a trade-off, not a
+    // correctness issue, and it's been deliberately dropped: every card
+    // should behave the same way on click, ancestors included. Double-
     // clicking it opens the dossier instead: the single click's own
     // recenter is delayed by DOUBLE_CLICK_WINDOW_MS so a genuine second
     // click on the same person, arriving within that window, can cancel it
@@ -559,13 +565,6 @@ export function FamilyTree({
     // the dossier on every double-click. See pendingCardClickRef's own
     // comment for why this is tracked by person id + timing here rather
     // than as a native dblclick listener.
-    //
-    // Exception: is_ancestry cards (main's own ancestors, up to whatever
-    // depth is currently in effect — or, while viewing a couple, that
-    // couple itself, since they're the synthetic anchor's own immediate
-    // "parents"). Recentering onto one discards the stable row that was
-    // the point of being here — explored by clicking a sibling or the
-    // couple's own real children instead.
     f3Card.setOnCardClick((e: MouseEvent, d: TreeDatum) => {
       if (d.data.id === SYNTHETIC_ANCHOR_ID) return; // shouldn't be reachable — card is hidden, see setOnCardUpdate
 
@@ -580,7 +579,6 @@ export function FamilyTree({
 
       const timer = window.setTimeout(() => {
         pendingCardClickRef.current = null;
-        if (d.is_ancestry) return;
         if (coupleViewRef.current) setCoupleView(null);
         // A real recenter always lands back on the shallow default depth
         // in both directions, regardless of what a mini-tree badge had
@@ -673,13 +671,12 @@ export function FamilyTree({
       // one (multiple marriages), consistent with how the rest of this
       // component doesn't yet offer a way to choose between them.
       //
-      // Doubles as the exit: a couple with no OTHER real children (like
-      // Tom & Maxine) has nothing in the sibling row, so every visible
-      // card ends up is_ancestry — and is_ancestry cards deliberately
-      // don't recenter on click (see setOnCardClick), which would leave
-      // no way at all to leave couple view by clicking anything. Clicking
-      // this same button again on the couple that's currently being
-      // viewed exits instead of re-entering.
+      // Also doubles as an explicit exit (clicking this same button again
+      // on the couple currently being viewed exits instead of re-entering)
+      // — a quicker way out than recentering onto some other card, which
+      // now also exits couple view as a side effect (see the
+      // `setCoupleView(null)` in setOnCardClick's timeout), now that every
+      // card recenters on click, is_ancestry ones included.
       const spouseIds = getSpousesRef.current(d.data.id);
       if (spouseIds.length > 0) {
         const spouseId = spouseIds[0];
