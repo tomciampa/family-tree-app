@@ -110,7 +110,10 @@ whether that person is already natively rendered elsewhere in the current view (
 line, or another already-expanded overlay) — otherwise you get a duplicate card drawn on top
 of the real one. Also watch for two separately-expanded overlays sharing a common ancestor
 (same duplicate risk). The ▲/▼ toggle only appears on immediate-parent cards, not main or
-siblings; clicking a parent's card body does NOT recenter (only siblings do).
+siblings. As of 2026-07-25, clicking any card's body recenters the tree on that person — not
+just siblings. (Siblings-only was a deliberate 2026-07-12 trade-off; later found to be an
+unwanted restriction rather than an intended limit, and removed. If you find another note
+elsewhere describing sibling-only recentering as current behavior, it's stale — update it too.)
 
 ## Design
 The redesign to a clean, Apple-inspired light/neutral aesthetic — whites and light grays, dark
@@ -216,6 +219,19 @@ already-written facts/anecdotes are tracked via `resolution`/`written` markers p
 onto each segment's own `candidate_people`, so re-running it (e.g. after extracting a segment
 added later) never duplicates data.
 
+Real incident (found and fixed 2026-07-25): `transcribeInterviewSegments` writes every
+segment's transcript in one batch update, and each `SegmentPanel`'s auto-extract effect fired
+the moment its own transcript appeared — so a batch update fired every segment's
+`extractCandidatesFromSegment` concurrently, a thundering herd against the AI Gateway. Only
+the first request reliably succeeded; the rest silently never completed, with nothing to show
+for it since failures only ever lived in ephemeral React state — indistinguishable from "never
+attempted" the moment the page reloaded, which cost real time to diagnose (see "Working
+conventions" below for the general lesson). Fixed two ways: `InterviewItem` now owns a serial
+queue (`autoQueue`/`activeAutoSegmentId`) so only one segment's extract→match chain runs at a
+time, advancing only once the current one genuinely settles (success or failure); and
+`documents.extraction_error` persists a failure durably, surfaced as a visible "Extraction
+failed — Retry" state that survives a reload, instead of only `error` component state.
+
 ### Narration (Phase 1)
 Interview prompts are read aloud via the browser's built-in `SpeechSynthesis` API.
 `lib/speech-voices.ts` explicitly resolves and sets a voice every time — investigated real
@@ -290,6 +306,19 @@ data yet, or a genuinely well-documented family — session generation falls bac
 fixed 6 prompts, completely unchanged (verified byte-for-byte identical against the fixed list,
 not just "close enough"). The feature can only ever add value on top of today's interview,
 never produce a worse or emptier one.
+
+### Segment context in the document/source viewer modal
+As of 2026-07-25, `DocumentViewerModal` shows real interview context for a source that's an
+interview segment (has `parent_document_id`), instead of the raw internal `kind` label (e.g.
+"MATT CIAMPA (SIBLING)"). Built deterministically from data already on hand — the parent
+session's real `interviewee_person_id` → name and `recorded_at`, plus the segment's own `kind`
+— rather than a new AI call: `lib/interview-topic.ts` maps the 6 fixed prompt topics (Parents,
+Grandparents, Siblings, Spouse, Children, Closing thoughts) to natural phrases via a small
+registry (same pattern as `documentTypeLabel`), with a "about Name (relation)" fallback for
+gap-based segment labels, e.g. "7/24 interview with Thomas Ciampa — about Matt Ciampa (their
+sibling)". Uses "their" rather than "his"/"her" — consistent with there being no gender data
+anywhere in this app (see the Suggested Connections note below). Regular (non-interview)
+documents are unaffected: same AI-classified `kind` badge and filename caption as before.
 
 ## Deletion (documents & interviews)
 Both pipelines support deleting an item — `/documents`/`documents/[id]` and
@@ -383,6 +412,16 @@ forward, since this kind of gap fails silently rather than throwing something ob
   a structural limitation of family-chart's single-main-person ancestry model.)
 - Big or risky changes: stage the work, verify each stage, wait for confirmation before the
   next.
+- **Serialize concurrent AI Gateway calls fired from a batch update; persist failure state,
+  don't leave it only in component state.** A batch DB write (e.g. transcribing every segment
+  of an interview at once) that triggers per-item effects can fire all of them concurrently —
+  a thundering herd where only the first request reliably succeeds and the rest silently never
+  complete. If failures only live in ephemeral UI state, "never attempted" and "failed" become
+  indistinguishable the moment the page reloads, which is a real, costly-to-diagnose dead end
+  (see the 2026-07-25 interview auto-extraction incident under "Audio Interview architecture").
+  Any future feature firing multiple AI Gateway calls off a batch update should serialize them
+  (a queue, not concurrent effects) and persist failures to a DB column with a visible retry
+  affordance, not just a component-local error string.
 - Public GitHub repo — this holds real family data. Be careful about what gets committed
   (no service-role keys, no `.env.local` secrets); flag anything sensitive before committing.
 
