@@ -479,6 +479,33 @@ export function FamilyTree({
         ? defaultMainPersonId
         : pickDefaultMain(connected, unions, unionChildren);
 
+    // family-chart wires up d3-zoom on its canvas element with every
+    // default listener d3-zoom ships (setupZoom in the library calls
+    // `d3.zoom().on("zoom", ...)` then `d3.select(el).call(zoom)` with no
+    // options to opt out) — including "dblclick.zoom", d3's own built-in
+    // double-click-to-zoom-in-at-the-click-point behavior. That's a
+    // completely separate listener from setOnCardClick below (which only
+    // ever sees two synthetic "click" events we time ourselves — see
+    // pendingCardClickRef's comment for why it's deliberately NOT a native
+    // dblclick listener): a real double-click still fires a native
+    // browser "dblclick" event alongside our two clicks, which bubbles
+    // straight up to wherever d3 attached its own listener regardless of
+    // what our click handler does, so double-clicking a card to open the
+    // dossier also zoomed the canvas in on it. No fluent Chart API exists
+    // to opt out (confirmed via source — no setZoomPolite or equivalent),
+    // so it's blocked here instead: a capture-phase listener on our own
+    // container (an ancestor of whatever internal element d3 attaches
+    // to, regardless of family-chart's internal DOM structure) stops the
+    // event before it ever reaches d3's bubble-phase listener. Blocked
+    // everywhere on the canvas, not just on cards — double-click-to-zoom
+    // on empty canvas space isn't a feature anything here relies on or
+    // documents, and this app already has a dedicated fit-to-screen
+    // button, so there's no real behavior lost, and a single unconditional
+    // guard is one less subtle click-handling edge case in an area with a
+    // real history of them.
+    const blockZoomDblClick = (e: MouseEvent) => e.stopPropagation();
+    container.addEventListener("dblclick", blockZoomDblClick, true);
+
     const f3Chart = f3
       .createChart(container, data)
       .setCardXSpacing(250)
@@ -806,6 +833,7 @@ export function FamilyTree({
 
     return () => {
       chartRef.current = null;
+      container.removeEventListener("dblclick", blockZoomDblClick, true);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasConnected]);
