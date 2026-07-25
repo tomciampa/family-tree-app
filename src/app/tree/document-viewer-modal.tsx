@@ -14,6 +14,7 @@ type ViewerState =
       documentType: string | null;
       filename: string | null;
       kind: string | null;
+      interviewHeader: string | null;
     };
 
 // A true blocking modal, not another docked pane — this is a "stop and
@@ -90,11 +91,24 @@ export function DocumentViewerModal({
                 legible: is this an official record or a personal
                 account? Large, bold, bordered like a stamp — deliberately
                 heavier than any other text in the dossier, since reading
-                it shouldn't require reading closely. */}
-            <h2 className="mt-1 inline-block rounded-[var(--radius-sm)] border border-[color:var(--color-accent)] bg-[color:var(--color-accent-subtle)] px-3 py-1 text-lg font-bold uppercase tracking-wide text-[color:var(--color-accent)]">
-              {state.status === "ready" ? (state.kind ?? "Document") : "…"}
-            </h2>
-            {state.status === "ready" && state.filename && (
+                it shouldn't require reading closely. An interview
+                segment's header is a natural-language sentence instead of
+                a short category tag (see interviewHeader/
+                buildInterviewSourceHeader), so it drops the all-caps
+                stamp treatment — and its `filename` is just a duplicate
+                of the raw `kind` label (see getDocumentForViewer), not a
+                real file name, so it's skipped rather than shown
+                redundantly under the new sentence. */}
+            {state.status === "ready" && state.interviewHeader ? (
+              <h2 className="mt-1 text-lg font-bold text-[color:var(--color-accent)]">
+                {state.interviewHeader}
+              </h2>
+            ) : (
+              <h2 className="mt-1 inline-block rounded-[var(--radius-sm)] border border-[color:var(--color-accent)] bg-[color:var(--color-accent-subtle)] px-3 py-1 text-lg font-bold uppercase tracking-wide text-[color:var(--color-accent)]">
+                {state.status === "ready" ? (state.kind ?? "Document") : "…"}
+              </h2>
+            )}
+            {state.status === "ready" && state.filename && !state.interviewHeader && (
               <p className="mt-1 text-[length:var(--font-size-caption)] text-[color:var(--color-text-secondary)]">{state.filename}</p>
             )}
           </div>

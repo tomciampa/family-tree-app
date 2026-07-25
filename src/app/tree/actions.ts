@@ -7,6 +7,7 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { getFamilyId } from "@/lib/family";
 import { getSignedDocumentUrls } from "@/lib/documents";
+import { buildInterviewSourceHeader } from "@/lib/interview-topic";
 import { FACT_SOURCE_TYPES, STANDARD_FIELD_KEYS } from "./constants";
 
 async function requireUser() {
@@ -722,6 +723,11 @@ type DocumentForViewer = {
   documentType: string | null;
   filename: string | null;
   kind: string | null;
+  // Set only when this document is an interview segment (has a
+  // parent_document_id) — the viewer modal shows this in place of the raw
+  // `kind` label ("MATT CIAMPA (SIBLING)") for that case only; regular
+  // uploaded documents always get null here and render `kind` unchanged.
+  interviewHeader: string | null;
 };
 
 type GetDocumentForViewerResult = { error: string } | DocumentForViewer;
@@ -772,6 +778,38 @@ async function classifyDocumentKind(
   }
 }
 
+// Resolves the parent recording session's real interviewee and date for
+// an interview segment, then hands off to buildInterviewSourceHeader for
+// the deterministic phrasing — no AI call, same "fail soft, never block
+// the viewer" spirit as classifyDocumentKind above.
+async function buildSegmentInterviewHeader(
+  supabase: SupabaseClient,
+  parentDocumentId: string,
+  segmentKind: string | null,
+): Promise<string | null> {
+  if (!segmentKind) return null;
+
+  const { data: parent } = await supabase
+    .from("documents")
+    .select("recorded_at, interviewee_person_id")
+    .eq("id", parentDocumentId)
+    .single();
+  if (!parent?.interviewee_person_id) return null;
+
+  const { data: interviewee } = await supabase
+    .from("people")
+    .select("name")
+    .eq("id", parent.interviewee_person_id)
+    .single();
+  if (!interviewee) return null;
+
+  return buildInterviewSourceHeader({
+    intervieweeName: interviewee.name,
+    recordedAt: parent.recorded_at,
+    kind: segmentKind,
+  });
+}
+
 export async function getDocumentForViewer(
   documentId: string,
 ): Promise<GetDocumentForViewerResult> {
@@ -779,7 +817,7 @@ export async function getDocumentForViewer(
 
   const { data: document, error } = await supabase
     .from("documents")
-    .select("file_path, filename, document_type, transcription_raw, kind")
+    .select("file_path, filename, document_type, transcription_raw, kind, parent_document_id")
     .eq("id", documentId)
     .single();
   if (error || !document) {
@@ -788,6 +826,16 @@ export async function getDocumentForViewer(
 
   const urlByPath = await getSignedDocumentUrls(supabase, [document.file_path]);
   const viewUrl = urlByPath.get(document.file_path) ?? null;
+
+  // An interview segment always has parent_document_id set and its own
+  // kind already populated at creation time (the raw label, e.g. "Matt
+  // Ciampa (sibling)") — never a regular uploaded document, which starts
+  // with kind null and only gets AI-classified below. So this branch and
+  // classifyDocumentKind are naturally mutually exclusive; segments never
+  // pay for an AI call just to view them.
+  const interviewHeader = document.parent_document_id
+    ? await buildSegmentInterviewHeader(supabase, document.parent_document_id, document.kind)
+    : null;
 
   const kind =
     document.kind ??
@@ -799,6 +847,7 @@ export async function getDocumentForViewer(
     documentType: document.document_type,
     filename: document.filename,
     kind,
+    interviewHeader,
   };
 }
 
