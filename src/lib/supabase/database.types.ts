@@ -458,6 +458,7 @@ export type Database = {
         Row: {
           family_id: string
           interview_voice_uri: string | null
+          is_active: boolean
           joined_at: string | null
           linked_person_id: string | null
           narration_enabled: boolean
@@ -467,6 +468,7 @@ export type Database = {
         Insert: {
           family_id: string
           interview_voice_uri?: string | null
+          is_active?: boolean
           joined_at?: string | null
           linked_person_id?: string | null
           narration_enabled?: boolean
@@ -476,6 +478,7 @@ export type Database = {
         Update: {
           family_id?: string
           interview_voice_uri?: string | null
+          is_active?: boolean
           joined_at?: string | null
           linked_person_id?: string | null
           narration_enabled?: boolean
@@ -824,6 +827,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      create_family: {
+        Args: { new_name: string }
+        Returns: {
+          created_family_id: string
+          created_family_name: string
+        }[]
+      }
       get_invite_preview: {
         Args: { invite_code: string }
         Returns: {

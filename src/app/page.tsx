@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getPendingReview } from "@/lib/pending-review";
+import { CreateFamilyForm } from "@/components/create-family-form";
 import { signOut } from "./actions";
 
 export default async function Home() {
@@ -12,6 +13,45 @@ export default async function Home() {
 
   if (!user) {
     redirect("/login");
+  }
+
+  // The natural landing point for Stage 2's "reachable from the login/
+  // signup area" requirement: a brand-new signup with no invite code has
+  // no family_members row at all, and every other page (tree, documents,
+  // interviews, settings, familysearch) calls getFamilyId() unguarded and
+  // throws for exactly this case. Rather than widen that fix across every
+  // page, this is the one place — the actual post-login landing page —
+  // that checks first and offers a way forward instead of a dead end.
+  const { count: membershipCount } = await supabase
+    .from("family_members")
+    .select("family_id", { count: "exact", head: true })
+    .eq("user_id", user.id);
+
+  if (!membershipCount) {
+    return (
+      <main className="mx-auto flex min-h-screen w-full max-w-sm flex-col items-center justify-center gap-6 p-8 text-center font-[family-name:var(--font-family-base)] text-[color:var(--color-text-primary)]">
+        <div className="flex flex-col gap-2">
+          <h1 className="text-[length:var(--font-size-heading-2)] leading-[var(--line-height-heading-2)] font-semibold">
+            Welcome
+          </h1>
+          <p className="text-sm text-[color:var(--color-text-secondary)]">
+            You&apos;re not part of a family tree yet. If someone sent you an invite link,
+            open that instead — otherwise, start your own.
+          </p>
+        </div>
+        <div className="w-full rounded-[var(--radius-lg)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-6 text-left shadow-[var(--shadow-2)]">
+          <CreateFamilyForm submitLabel="Create my family tree" />
+        </div>
+        <form action={signOut}>
+          <button
+            type="submit"
+            className="text-sm text-[color:var(--color-text-secondary)] underline underline-offset-2"
+          >
+            Sign out
+          </button>
+        </form>
+      </main>
+    );
   }
 
   const pending = await getPendingReview(supabase);

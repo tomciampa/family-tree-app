@@ -89,17 +89,61 @@ export function buildPersonSummaries(
   return summaries;
 }
 
+// Stage 2: reads the caller's deliberately-marked active family_members
+// row, rather than the previous `select id from families limit 1` — with
+// no ordering and no real filtering beyond whatever RLS happened to let
+// through, that returned an arbitrary, implementation-dependent row for
+// anyone in more than one family (confirmed empirically before Stage 2:
+// consistently whichever row Postgres's default scan order favored, not
+// a guaranteed or user-controlled choice). is_active is enforced unique
+// per user at the DB level (see the Stage 2 migration), so this is a
+// stable, deliberate choice instead.
+//
+// Deliberately still a zero-argument function — this is called from ~25
+// places across the app, all of which already resolve their own `user`
+// via getUser() before or after this call. Re-resolving it here again
+// (one extra Supabase Auth round trip per call) is the cost of NOT
+// threading a user/userId parameter through every one of those call
+// sites — the right tradeoff for introducing active-family support
+// without a wider refactor across the whole app.
 export async function getFamilyId() {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("families")
-    .select("id")
-    .limit(1)
-    .single();
-
-  if (error || !data) {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
     throw new Error("No family configured for this account yet.");
   }
 
-  return data.id;
+  const { data: active } = await supabase
+    .from("family_members")
+    .select("family_id")
+    .eq("user_id", user.id)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (active) return active.family_id;
+
+  // No row is marked active — shouldn't happen for anything created
+  // through create_family/redeem_family_invite (both set it explicitly),
+  // but covers a family_members row from any other path. Picks any real
+  // membership and marks it active, so this becomes a stable, one-time
+  // fix rather than re-picking arbitrarily on every future call.
+  const { data: fallback } = await supabase
+    .from("family_members")
+    .select("family_id")
+    .eq("user_id", user.id)
+    .order("joined_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (!fallback) {
+    throw new Error("No family configured for this account yet.");
+  }
+
+  await supabase
+    .from("family_members")
+    .update({ is_active: true })
+    .eq("user_id", user.id)
+    .eq("family_id", fallback.family_id);
+
+  return fallback.family_id;
 }

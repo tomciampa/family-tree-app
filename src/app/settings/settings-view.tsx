@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import type { Tables } from "@/lib/supabase/database.types";
 import type { PersonSummary } from "@/lib/family";
 import { PersonSearch } from "@/components/person-search";
+import { CreateFamilyForm } from "@/components/create-family-form";
 import { getVoicesAsync, pickPreferredVoice } from "@/lib/speech-voices";
 import {
   setLinkedPerson,
@@ -37,6 +38,7 @@ export function SettingsView({
       <NarrationToggleSettings narrationEnabled={narrationEnabled} />
       <VoiceSettings interviewVoiceURI={interviewVoiceURI} />
       <InviteSettings />
+      <CreateFamilySettings />
     </>
   );
 }
@@ -457,6 +459,32 @@ function VoiceSettings({ interviewVoiceURI }: { interviewVoiceURI: string | null
           Use default instead
         </button>
       </div>
+    </section>
+  );
+}
+
+// Stage 2's second entry point (the first is the home page's zero-family
+// state, for a brand-new signup with no invite code) — this one is for
+// an already-logged-in user starting a genuinely separate, independent
+// second family, not adding anyone to their existing one (that's "Invite
+// someone" above). create_family() makes the new family active, so this
+// navigates away from Settings on success (see CreateFamilyForm) rather
+// than staying put showing a saved-message — Settings itself is now
+// showing the OLD family's data underneath, which would be misleading to
+// leave on screen once the active family has actually changed.
+function CreateFamilySettings() {
+  return (
+    <section className="flex flex-col gap-4 rounded-[var(--radius-lg)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-6 shadow-[var(--shadow-2)]">
+      <div>
+        <h2 className="text-[length:var(--font-size-heading-3)] leading-[var(--line-height-heading-3)] font-semibold">
+          Start a new family tree
+        </h2>
+        <p className="mt-1 text-sm text-[color:var(--color-text-secondary)]">
+          Create a separate, independent family tree — for example, to research a different
+          branch of your family. This doesn&apos;t affect your current family or its data.
+        </p>
+      </div>
+      <CreateFamilyForm />
     </section>
   );
 }
