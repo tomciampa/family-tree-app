@@ -23,9 +23,9 @@
   cards), linked to the people they mention. Has a `status` column
   (pending_match/matched/no_match).
 - `families` / `family_members` — multi-family seam added early, on purpose, while tables
-  were empty (cheap then, expensive to retrofit later). Currently single-family only — do
-  NOT build multi-family switching/invite UI unless explicitly asked; just make sure new
-  rows get the current family_id.
+  were empty (cheap then, expensive to retrofit later). No longer single-family only — see
+  "Multi-User / Multi-Family" below for the full invite/create/fork/switch system built on
+  top of this seam. Any new write still just needs the current family_id, via `getFamilyId()`.
 
 ## Document pipeline (all 4 stages built and verified on real data)
 Upload (`/documents`, decoupled from any person) → AI extraction via Vercel AI Gateway
@@ -429,6 +429,71 @@ feature, so the gap stayed silent until this linking column actually needed real
 double-checking a real policy exists (not just RLS being turned on) on any new table going
 forward, since this kind of gap fails silently rather than throwing something obviously wrong.
 
+## Multi-User / Multi-Family (all 5 stages complete)
+Building on the "Data model" note above: this app is no longer single-family only. An account
+can belong to any number of families — joined via invite, created fresh, or forked from an
+existing one — with exactly one marked "active" at a time.
+
+Every table's RLS now scopes to real family membership via `is_family_member()`, not just
+"authenticated" — this was a genuine security gap that got fixed, not just a feature added.
+Before this work, any logged-in user could read and write every row in every table in the
+database, regardless of which family it belonged to.
+
+Critical distinction, easy to get wrong again: `is_family_member()` means "has any membership
+row for this family," not "this is my active family." For the 13 real-data tables (`people`,
+`unions`, `union_children`, `facts`, `anecdotes`, `documents`, `document_people`, `events`,
+`event_people`, `photos`, `photo_tags`, `familysearch_connection`, `interview_gap_no_info`),
+RLS instead uses a separate, stricter `is_active_family_member()` — a user belonging to two
+families must only ever see their currently-active one, never both merged together in the same
+query. The 3 meta tables (`families`, `family_members`, `family_invites`) deliberately keep the
+broader `is_family_member()` check, since the switcher and `getFamilyId()`'s own fallback logic
+need to see a user's own *inactive* membership rows too — tightening those to active-only would
+make a user's other families invisible even to themselves.
+
+`family_members.is_active` (enforced unique per user via a partial index) is the single source
+of truth for which family is currently in view. `getFamilyId()` (`lib/family.ts`) reads it
+directly — any new feature that needs "which family is this for" must go through
+`getFamilyId()`, never assume a user has exactly one `family_members` row.
+
+Three bootstrap RPCs — `create_family`, `redeem_family_invite`, `fork_family` — are all
+`SECURITY DEFINER` for the same underlying reason: each has to insert a `families`/
+`family_members` row for a family the user isn't a member of *yet*, which ordinary
+`is_family_member()`-scoped RLS can never allow for a plain authenticated insert (the very row
+that would grant membership doesn't exist until the insert being attempted creates it). Any
+future "give this user access to a family they don't have yet" feature needs the same pattern,
+not a relaxed policy.
+
+Storage (`storage.objects`) is a *separate* access-control layer from the `public` schema — it
+was missed in the initial RLS pass and had to be fixed separately, scoped by the
+`${familyId}/...` path prefix upload code already used by convention but that nothing had ever
+actually enforced. Any future Storage-touching feature should not assume the public-schema RLS
+work automatically covers file access — check `storage.objects`'s own policies explicitly.
+
+`fork_family()` deep-copies an entire family (people/unions/facts/anecdotes/documents/
+interviews) into a fully independent new one — physically duplicated Storage files, not shared
+references, with every foreign key remapped to fresh ids. Deliberately does **not** remap the
+ids buried inside `documents.candidate_people` JSONB in PL/pgSQL — arbitrary nested JSON
+manipulation is the wrong job for that layer. It's handled in TypeScript instead
+(`lib/fork-family-remap.ts`), using old→new id maps the RPC returns. A dangling/unmappable
+reference found during a fork (e.g. a candidate resolution pointing at a person or fact that no
+longer exists) is dropped back to "needs review," never left half-remapped or silently corrupt.
+
+Fork's validation of `candidate_people` was the first code ever to check those references for
+staleness, and it surfaced 3 real pre-existing dangling references already sitting silently
+broken in production data (a person + fact deleted at some point after extraction, with nothing
+having ever re-checked the reference since) — worth remembering that this kind of defensive
+validation can surface genuinely pre-existing, unrelated data-quality issues, not just prove
+the new feature itself works.
+
+### Email infrastructure
+Real magic-link/OTP delivery now goes through custom SMTP via Mailtrap, on the real domain
+`talkthroughhistory.com` (DNS — SPF/DKIM/DMARC — managed via Cloudflare, configured in
+Supabase's Auth SMTP settings, verified end-to-end with a real login). This replaces Supabase's
+shared default sender, which has its own rate limits and a shared reputation pool with every
+other Supabase project using it — that shared-sender limit, not anything specific to this
+project, was most of why auth-flow testing was so rate-limit-constrained across this work (see
+"Working conventions" below for the rule that exists because of it).
+
 ## Working conventions
 - **Always verify with a real browser test before committing**, not just typecheck/build —
   use a disposable test account/session, never real user data, for destructive or
@@ -443,6 +508,20 @@ forward, since this kind of gap fails silently rather than throwing something ob
   or the saved one is actually rejected/expired. After a successful login, save it with
   `context.storageState({ path: ".auth/session.json" })` before closing the browser, so the
   next verification task can reuse it.
+- **Never attempt a real magic-link/OTP send to a fabricated or synthetic address during
+  testing — non-negotiable.** This actually happened twice (testing invite-join and
+  create-family flows) and contributed to a real Supabase bounce-rate warning that threatened
+  to restrict all email sending for the project — i.e. break login for every real user, not
+  just break a test. Always use SQL-role-simulation instead for testing auth-dependent flows
+  (impersonate the target user's JWT claims — `set role authenticated; set request.jwt.claims
+  = '{"sub":"<uuid>","role":"authenticated"}';` — then run real queries/RPCs against the real
+  RLS policies); this has been proven correct and sufficient for verifying RLS, invite/join,
+  and fork behavior without a single real auth flow. If a literal end-to-end email round trip
+  is ever genuinely necessary, it must go to a real, reachable `+alias` address on an inbox
+  actually controlled (e.g. `thomas.ciampa+test@gmail.com` — Gmail ignores the `+suffix`, so
+  it delivers to the real inbox) — never a made-up address — and only after explicitly asking
+  first. Deleting a synthetic `auth.users` row afterward does not undo an email that was
+  already sent to it.
 - When a bug report's stated cause might be wrong, investigate and report the *actual* root
   cause before fixing — don't build a fix for the wrong problem. (Real example: a reported
   "expand/collapse inconsistency" turned out not to be a data-fetching depth bug at all, but
