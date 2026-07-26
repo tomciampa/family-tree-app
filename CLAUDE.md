@@ -403,6 +403,18 @@ pipelines now auto-process up to the review step (see above), anything this surf
 genuinely waiting on a human decision, never still mid-pipeline. Each item links straight to
 its review screen (`/documents/[id]` or `/interviews/[id]`).
 
+As of 2026-07-26, this authenticated dashboard is only what a *logged-in* visitor to `/` sees.
+An anonymous visitor now gets a real public landing page instead of the old `redirect("/login")`
+— three options in plain language: start a new tree from scratch (deep-links into `/login`'s
+signup form via `?mode=signup`), join a family via a manually-entered invite code, or log in.
+The manual code-entry piece (`src/components/join-by-code-form.tsx`) is deliberately a thin
+wrapper: it extracts a code from either a bare code or a full pasted invite URL and hands off
+entirely to `/join/[code]`'s existing validation (`get_invite_preview`, error states for
+not-found/used/expired) — it doesn't duplicate any of that logic. That's the pattern to follow
+for any future new entry point into an existing flow: route into the flow's own page rather than
+reimplementing its checks. A direct `/join/[code]` link still bypasses this landing page
+entirely, as before.
+
 ## Suggested Connections
 `src/lib/suggested-connections.ts` resolves loose/unconnected people (most often someone
 extracted from an interview with no `unions`/`union_children` row yet) into one-click "Connect"
