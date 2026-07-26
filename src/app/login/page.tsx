@@ -51,7 +51,17 @@ function LoginForm() {
   const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">(
     "idle",
   );
-  const [error, setError] = useState<string | null>(null);
+  // Surfaces /auth/callback's own `?error=auth_failed` redirect (a link that
+  // was already used, expired, or otherwise failed to exchange) — previously
+  // silently dropped the visitor on a plain sign-in form with no indication
+  // anything had gone wrong, which was confusing now that this page's
+  // default view looks like a normal password form rather than "we'll email
+  // you a link".
+  const [error, setError] = useState<string | null>(
+    searchParams.get("error") === "auth_failed"
+      ? "That link didn't work — it may have expired or already been used. Please request a new one below."
+      : null,
+  );
 
   function switchMode(nextMode: Mode) {
     setMode(nextMode);
