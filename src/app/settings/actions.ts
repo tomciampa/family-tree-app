@@ -250,3 +250,50 @@ export async function forkFamily(newName: string): Promise<ForkFamilyResult> {
 
   return { familyId: newFamilyId, familyName: forked.forked_family_name, warnings };
 }
+
+// Stage 4: the one piece that genuinely didn't exist yet — create_family,
+// redeem_family_invite, and fork_family all set is_active as part of their
+// own bootstrap, but nothing let a user who already belongs to more than
+// one family switch which one is active. Deliberately NOT a new RPC:
+// switching between families you're ALREADY a member of never needs the
+// bootstrap privilege escalation those three needed (inserting a families
+// row nobody belongs to yet) — is_family_member(familyId) is trivially
+// true for every one of the caller's own rows, so a plain RLS-scoped
+// client call is sufficient. Reuses the exact same two-statement
+// clear-then-set pattern those RPCs use internally (clear every other
+// row, then set the target true) specifically so the one-active-per-user
+// unique index is never evaluated against a transiently-inconsistent
+// multi-active state.
+export async function setActiveFamily(familyId: string): Promise<{ error: string } | { ok: true }> {
+  const { supabase, user } = await requireUser();
+
+  const { data: membership, error: membershipError } = await supabase
+    .from("family_members")
+    .select("family_id")
+    .eq("user_id", user.id)
+    .eq("family_id", familyId)
+    .maybeSingle();
+  if (membershipError) return { error: membershipError.message };
+  if (!membership) return { error: "You are not a member of that family." };
+
+  const { error: clearError } = await supabase
+    .from("family_members")
+    .update({ is_active: false })
+    .eq("user_id", user.id)
+    .neq("family_id", familyId);
+  if (clearError) return { error: clearError.message };
+
+  const { error: setError } = await supabase
+    .from("family_members")
+    .update({ is_active: true })
+    .eq("user_id", user.id)
+    .eq("family_id", familyId);
+  if (setError) return { error: setError.message };
+
+  revalidatePath("/");
+  revalidatePath("/tree");
+  revalidatePath("/settings");
+  revalidatePath("/documents");
+  revalidatePath("/interviews");
+  return { ok: true };
+}

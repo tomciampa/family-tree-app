@@ -21,6 +21,7 @@ export default async function SettingsPage() {
     { data: unions, error: unionsError },
     { data: unionChildren, error: unionChildrenError },
     { data: membership, error: membershipError },
+    { data: memberships, error: membershipsError },
   ] = await Promise.all([
     supabase.from("people").select("*").order("created_at"),
     supabase.from("unions").select("*"),
@@ -31,13 +32,28 @@ export default async function SettingsPage() {
       .eq("family_id", familyId)
       .eq("user_id", user.id)
       .maybeSingle(),
+    // Every family this account belongs to, not just the active one — the
+    // switcher only renders when there's more than one, so a
+    // single-family user (still the common case) sees no change here.
+    supabase
+      .from("family_members")
+      .select("family_id, is_active, families(name)")
+      .eq("user_id", user.id)
+      .order("joined_at", { ascending: true }),
   ]);
 
-  const error = peopleError ?? unionsError ?? unionChildrenError ?? membershipError;
+  const error =
+    peopleError ?? unionsError ?? unionChildrenError ?? membershipError ?? membershipsError;
 
   const personSummaries = Object.fromEntries(
     buildPersonSummaries(people ?? [], unions ?? [], unionChildren ?? []),
   );
+
+  const families = (memberships ?? []).map((m) => ({
+    id: m.family_id,
+    name: m.families?.name ?? "Untitled family",
+    isActive: m.is_active,
+  }));
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-6 p-8 font-[family-name:var(--font-family-base)] text-[color:var(--color-text-primary)]">
@@ -62,6 +78,7 @@ export default async function SettingsPage() {
           linkedPersonId={membership?.linked_person_id ?? null}
           interviewVoiceURI={membership?.interview_voice_uri ?? null}
           narrationEnabled={membership?.narration_enabled ?? true}
+          families={families}
         />
       )}
     </main>

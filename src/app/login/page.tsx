@@ -4,6 +4,18 @@ import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
+// Same card shell as /join/[code] — one consistent frame for every
+// pre-authentication page in the app.
+function LoginCard({ children }: { children: React.ReactNode }) {
+  return (
+    <main className="flex min-h-screen flex-col items-center justify-center p-8 font-[family-name:var(--font-family-base)] text-[color:var(--color-text-primary)]">
+      <div className="flex w-full max-w-sm flex-col gap-4 rounded-[var(--radius-lg)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-8 text-center shadow-[var(--shadow-2)]">
+        {children}
+      </div>
+    </main>
+  );
+}
+
 export default function LoginPage() {
   return (
     <Suspense fallback={null}>
@@ -56,40 +68,50 @@ function LoginForm() {
 
   if (status === "sent") {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-8 text-center">
-        <h1 className="text-2xl font-semibold">Check your email</h1>
-        <p className="text-gray-500">
-          We sent a magic link to <strong>{email}</strong>. Click it to sign
-          in.
+      <LoginCard>
+        <h1 className="text-[length:var(--font-size-heading-3)] font-semibold">
+          Check your email
+        </h1>
+        <p className="text-sm text-[color:var(--color-text-secondary)]">
+          We sent a secure sign-in link to <strong>{email}</strong>. Open it on this device to
+          continue.
         </p>
-      </main>
+      </LoginCard>
     );
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-8">
-      <h1 className="text-2xl font-semibold">Sign in</h1>
-      <form
-        onSubmit={handleSubmit}
-        className="flex w-full max-w-sm flex-col gap-3"
-      >
+    <LoginCard>
+      <h1 className="text-[length:var(--font-size-heading-3)] font-semibold">Sign in</h1>
+      <p className="text-sm text-[color:var(--color-text-secondary)]">
+        Enter your email and we&apos;ll send you a secure sign-in link — no password needed.
+      </p>
+
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3 text-left">
         <input
           type="email"
           required
           placeholder="you@example.com"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="rounded border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
+          className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-page)] px-3 py-2 text-sm text-[color:var(--color-text-primary)]"
         />
         <button
           type="submit"
           disabled={status === "sending"}
-          className="rounded bg-black px-3 py-2 text-white disabled:opacity-50 dark:bg-white dark:text-black"
+          className="rounded-[var(--radius-sm)] bg-[color:var(--color-accent)] px-4 py-2 text-sm font-medium text-[color:var(--color-text-on-accent)] transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-accent-hover)] disabled:opacity-50"
         >
           {status === "sending" ? "Sending…" : "Send magic link"}
         </button>
-        {error && <p className="text-sm text-red-500">{error}</p>}
+        {error && <p className="text-sm text-[color:var(--color-error)]">{error}</p>}
       </form>
-    </main>
+
+      {!next && (
+        <p className="text-xs text-[color:var(--color-text-tertiary)]">
+          Got an invite link from a family member? Open that link directly instead of signing in
+          here — it&apos;ll bring you right back to sign in and land you in the right family tree.
+        </p>
+      )}
+    </LoginCard>
   );
 }

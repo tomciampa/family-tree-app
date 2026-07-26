@@ -12,9 +12,11 @@ import {
   setInterviewVoice,
   setNarrationEnabled,
   createFamilyInvite,
+  setActiveFamily,
 } from "./actions";
 
 type Person = Tables<"people">;
+type FamilyMembership = { id: string; name: string; isActive: boolean };
 
 export function SettingsView({
   people,
@@ -22,15 +24,18 @@ export function SettingsView({
   linkedPersonId,
   interviewVoiceURI,
   narrationEnabled,
+  families,
 }: {
   people: Person[];
   personSummaries: Record<string, PersonSummary>;
   linkedPersonId: string | null;
   interviewVoiceURI: string | null;
   narrationEnabled: boolean;
+  families: FamilyMembership[];
 }) {
   return (
     <>
+      {families.length > 1 && <FamilySwitcherSettings families={families} />}
       <ThisIsMeSettings
         people={people}
         personSummaries={personSummaries}
@@ -510,6 +515,76 @@ function ForkFamilySettings() {
         </p>
       </div>
       <ForkFamilyForm />
+    </section>
+  );
+}
+
+// Stage 4: only rendered when the account has more than one family
+// (SettingsView's families.length > 1 check) — a single-family user, the
+// common case, sees no change here. Reuses setActiveFamily rather than
+// any new mechanism; on success there's no client-side redirect because
+// Next.js already refreshes this page's own server data as part of the
+// action response (the same behavior that made get_invite_preview's
+// check order matter in Stage 1), so this list and every other
+// family-scoped section on the page pick up the new active family
+// automatically.
+function FamilySwitcherSettings({ families }: { families: FamilyMembership[] }) {
+  const [isPending, startTransition] = useTransition();
+  const [switchingId, setSwitchingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  function handleSwitch(familyId: string) {
+    setError(null);
+    setSwitchingId(familyId);
+    startTransition(async () => {
+      const result = await setActiveFamily(familyId);
+      setSwitchingId(null);
+      if ("error" in result) {
+        setError(result.error);
+      }
+    });
+  }
+
+  return (
+    <section className="flex flex-col gap-4 rounded-[var(--radius-lg)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-6 shadow-[var(--shadow-2)]">
+      <div>
+        <h2 className="text-[length:var(--font-size-heading-3)] leading-[var(--line-height-heading-3)] font-semibold">
+          Your family trees
+        </h2>
+        <p className="mt-1 text-sm text-[color:var(--color-text-secondary)]">
+          You belong to more than one family tree. Switch which one is active — the rest of the
+          app (tree, documents, interviews, and everything else here) always reflects whichever
+          one is active.
+        </p>
+      </div>
+      <ul className="flex flex-col gap-2">
+        {families.map((family) => (
+          <li
+            key={family.id}
+            className="flex items-center justify-between gap-3 rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-3 py-2"
+          >
+            <span className="text-sm text-[color:var(--color-text-primary)]">
+              {family.name}
+              {family.isActive && (
+                <span className="ml-2 rounded-[var(--radius-xs)] bg-[color:var(--color-success-subtle-bg)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[color:var(--color-success-subtle-fg)]">
+                  Active
+                </span>
+              )}
+            </span>
+            {!family.isActive && (
+              <button
+                type="button"
+                onClick={() => handleSwitch(family.id)}
+                disabled={isPending}
+                className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-3 py-1 text-xs transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] disabled:opacity-50"
+              >
+                {switchingId === family.id ? "Switching…" : "Switch"}
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+      {error && <p className="text-sm text-[color:var(--color-error)]">{error}</p>}
     </section>
   );
 }
