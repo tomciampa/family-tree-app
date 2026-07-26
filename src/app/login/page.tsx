@@ -24,6 +24,11 @@ export default function LoginPage() {
   );
 }
 
+// Password sign-in/sign-up are now the primary path; magic link remains as
+// a secondary option (toggled via `mode`), reusing the exact same
+// signInWithOtp call the app already relied on exclusively before this.
+type Mode = "signin" | "signup" | "magiclink";
+
 // Split out so useSearchParams (which forces client-side rendering of
 // everything up to the nearest Suspense boundary) only affects this piece
 // rather than the whole page — per Next's own recommendation.
@@ -32,30 +37,84 @@ function LoginForm() {
   // /join/[code]/join-view.tsx), so the magic link's own redirect can
   // carry it through /auth/callback (which already reads `next`) back to
   // the exact invite the visitor started from, rather than dropping them
-  // on the home page after login.
+  // on the home page after login. The password-signup confirmation email
+  // goes through the exact same /auth/callback `code` exchange as magic
+  // link, so it carries `next` the same way — see callbackUrl() below.
+  // Password sign-in has no email round trip, so `next` is applied with a
+  // direct client-side redirect instead once signInWithPassword succeeds.
   const searchParams = useSearchParams();
   const next = searchParams.get("next");
 
+  const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">(
     "idle",
   );
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
+  function switchMode(nextMode: Mode) {
+    setMode(nextMode);
+    setStatus("idle");
+    setError(null);
+  }
+
+  function callbackUrl() {
+    const url = new URL("/auth/callback", window.location.origin);
+    if (next) url.searchParams.set("next", next);
+    return url.toString();
+  }
+
+  async function handleSignIn(e: React.FormEvent) {
     e.preventDefault();
     setStatus("sending");
     setError(null);
 
-    const callbackUrl = new URL("/auth/callback", window.location.origin);
-    if (next) callbackUrl.searchParams.set("next", next);
+    const supabase = createClient();
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+
+    if (error) {
+      setError(error.message);
+      setStatus("error");
+      return;
+    }
+
+    // Full navigation (not router.push) so the fresh session cookie the
+    // browser client just wrote is what the server/middleware sees on the
+    // very next request — same reasoning as /auth/callback's own
+    // server-side redirect after exchanging a code.
+    window.location.assign(next ?? "/");
+  }
+
+  async function handleSignUp(e: React.FormEvent) {
+    e.preventDefault();
+    setStatus("sending");
+    setError(null);
+
+    const supabase = createClient();
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: callbackUrl() },
+    });
+
+    if (error) {
+      setError(error.message);
+      setStatus("error");
+    } else {
+      setStatus("sent");
+    }
+  }
+
+  async function handleMagicLink(e: React.FormEvent) {
+    e.preventDefault();
+    setStatus("sending");
+    setError(null);
 
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: {
-        emailRedirectTo: callbackUrl.toString(),
-      },
+      options: { emailRedirectTo: callbackUrl() },
     });
 
     if (error) {
@@ -73,21 +132,77 @@ function LoginForm() {
           Check your email
         </h1>
         <p className="text-sm text-[color:var(--color-text-secondary)]">
-          We sent a secure sign-in link to <strong>{email}</strong>. Open it on this device to
-          continue.
+          {mode === "signup" ? (
+            <>
+              We sent a confirmation link to <strong>{email}</strong>. Open it on this device to
+              finish creating your account.
+            </>
+          ) : (
+            <>
+              We sent a secure sign-in link to <strong>{email}</strong>. Open it on this device to
+              continue.
+            </>
+          )}
         </p>
       </LoginCard>
     );
   }
 
+  if (mode === "magiclink") {
+    return (
+      <LoginCard>
+        <h1 className="text-[length:var(--font-size-heading-3)] font-semibold">Sign in</h1>
+        <p className="text-sm text-[color:var(--color-text-secondary)]">
+          Enter your email and we&apos;ll send you a secure sign-in link — no password needed.
+        </p>
+
+        <form onSubmit={handleMagicLink} className="flex flex-col gap-3 text-left">
+          <input
+            type="email"
+            required
+            placeholder="you@example.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-page)] px-3 py-2 text-sm text-[color:var(--color-text-primary)]"
+          />
+          <button
+            type="submit"
+            disabled={status === "sending"}
+            className="rounded-[var(--radius-sm)] bg-[color:var(--color-accent)] px-4 py-2 text-sm font-medium text-[color:var(--color-text-on-accent)] transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-accent-hover)] disabled:opacity-50"
+          >
+            {status === "sending" ? "Sending…" : "Send magic link"}
+          </button>
+          {error && <p className="text-sm text-[color:var(--color-error)]">{error}</p>}
+        </form>
+
+        <button
+          type="button"
+          onClick={() => switchMode("signin")}
+          className="text-xs text-[color:var(--color-text-tertiary)] underline underline-offset-2"
+        >
+          or sign in with a password instead
+        </button>
+      </LoginCard>
+    );
+  }
+
+  const isSignup = mode === "signup";
+
   return (
     <LoginCard>
-      <h1 className="text-[length:var(--font-size-heading-3)] font-semibold">Sign in</h1>
+      <h1 className="text-[length:var(--font-size-heading-3)] font-semibold">
+        {isSignup ? "Create an account" : "Sign in"}
+      </h1>
       <p className="text-sm text-[color:var(--color-text-secondary)]">
-        Enter your email and we&apos;ll send you a secure sign-in link — no password needed.
+        {isSignup
+          ? "Enter your email and choose a password to get started."
+          : "Enter your email and password to sign in."}
       </p>
 
-      <form onSubmit={handleSubmit} className="flex flex-col gap-3 text-left">
+      <form
+        onSubmit={isSignup ? handleSignUp : handleSignIn}
+        className="flex flex-col gap-3 text-left"
+      >
         <input
           type="email"
           required
@@ -96,17 +211,51 @@ function LoginForm() {
           onChange={(e) => setEmail(e.target.value)}
           className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-page)] px-3 py-2 text-sm text-[color:var(--color-text-primary)]"
         />
+        <input
+          type="password"
+          required
+          minLength={6}
+          placeholder="Password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-page)] px-3 py-2 text-sm text-[color:var(--color-text-primary)]"
+        />
+        {isSignup && (
+          <p className="text-xs text-[color:var(--color-text-tertiary)]">At least 6 characters.</p>
+        )}
         <button
           type="submit"
           disabled={status === "sending"}
           className="rounded-[var(--radius-sm)] bg-[color:var(--color-accent)] px-4 py-2 text-sm font-medium text-[color:var(--color-text-on-accent)] transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-accent-hover)] disabled:opacity-50"
         >
-          {status === "sending" ? "Sending…" : "Send magic link"}
+          {status === "sending"
+            ? isSignup
+              ? "Creating account…"
+              : "Signing in…"
+            : isSignup
+              ? "Create account"
+              : "Sign in"}
         </button>
         {error && <p className="text-sm text-[color:var(--color-error)]">{error}</p>}
       </form>
 
-      {!next && (
+      <button
+        type="button"
+        onClick={() => switchMode(isSignup ? "signin" : "signup")}
+        className="text-xs text-[color:var(--color-text-tertiary)] underline underline-offset-2"
+      >
+        {isSignup ? "Already have an account? Sign in" : "New here? Create an account"}
+      </button>
+
+      <button
+        type="button"
+        onClick={() => switchMode("magiclink")}
+        className="text-xs text-[color:var(--color-text-tertiary)] underline underline-offset-2"
+      >
+        or email me a login link instead
+      </button>
+
+      {!next && !isSignup && (
         <p className="text-xs text-[color:var(--color-text-tertiary)]">
           Got an invite link from a family member? Open that link directly instead of signing in
           here — it&apos;ll bring you right back to sign in and land you in the right family tree.
