@@ -27,7 +27,7 @@ export default function LoginPage() {
 // Password sign-in/sign-up are now the primary path; magic link remains as
 // a secondary option (toggled via `mode`), reusing the exact same
 // signInWithOtp call the app already relied on exclusively before this.
-type Mode = "signin" | "signup" | "magiclink";
+type Mode = "signin" | "signup" | "magiclink" | "forgot";
 
 // Split out so useSearchParams (which forces client-side rendering of
 // everything up to the nearest Suspense boundary) only affects this piece
@@ -116,6 +116,23 @@ function LoginForm() {
     }
   }
 
+  async function handleForgotPassword(e: React.FormEvent) {
+    e.preventDefault();
+    setStatus("sending");
+    setError(null);
+
+    const supabase = createClient();
+    const url = new URL("/auth/callback", window.location.origin);
+    url.searchParams.set("next", "/reset-password");
+    await supabase.auth.resetPasswordForEmail(email, { redirectTo: url.toString() });
+
+    // Always the same message regardless of whether the email matched an
+    // account, or whether the call itself errored — never let this screen
+    // reveal which emails are registered (same anti-enumeration reasoning
+    // as signUp's own built-in behavior, investigated earlier this stage).
+    setStatus("sent");
+  }
+
   async function handleMagicLink(e: React.FormEvent) {
     e.preventDefault();
     setStatus("sending");
@@ -147,6 +164,8 @@ function LoginForm() {
               We sent a confirmation link to <strong>{email}</strong>. Open it on this device to
               finish creating your account.
             </>
+          ) : mode === "forgot" ? (
+            <>If an account exists for {email}, we&apos;ve sent a reset link. Open it on this device to continue.</>
           ) : (
             <>
               We sent a secure sign-in link to <strong>{email}</strong>. Open it on this device to
@@ -196,6 +215,43 @@ function LoginForm() {
     );
   }
 
+  if (mode === "forgot") {
+    return (
+      <LoginCard>
+        <h1 className="text-[length:var(--font-size-heading-3)] font-semibold">Reset your password</h1>
+        <p className="text-sm text-[color:var(--color-text-secondary)]">
+          Enter your email and we&apos;ll send you a link to set a new password.
+        </p>
+
+        <form onSubmit={handleForgotPassword} className="flex flex-col gap-3 text-left">
+          <input
+            type="email"
+            required
+            placeholder="you@example.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-page)] px-3 py-2 text-sm text-[color:var(--color-text-primary)]"
+          />
+          <button
+            type="submit"
+            disabled={status === "sending"}
+            className="rounded-[var(--radius-sm)] bg-[color:var(--color-accent)] px-4 py-2 text-sm font-medium text-[color:var(--color-text-on-accent)] transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-accent-hover)] disabled:opacity-50"
+          >
+            {status === "sending" ? "Sending…" : "Send reset link"}
+          </button>
+        </form>
+
+        <button
+          type="button"
+          onClick={() => switchMode("signin")}
+          className="text-xs text-[color:var(--color-text-tertiary)] underline underline-offset-2"
+        >
+          Back to sign in
+        </button>
+      </LoginCard>
+    );
+  }
+
   const isSignup = mode === "signup";
 
   return (
@@ -232,6 +288,15 @@ function LoginForm() {
         />
         {isSignup && (
           <p className="text-xs text-[color:var(--color-text-tertiary)]">At least 6 characters.</p>
+        )}
+        {!isSignup && (
+          <button
+            type="button"
+            onClick={() => switchMode("forgot")}
+            className="self-end text-xs text-[color:var(--color-text-tertiary)] underline underline-offset-2"
+          >
+            Forgot your password?
+          </button>
         )}
         <button
           type="submit"
