@@ -834,12 +834,31 @@ export type Database = {
           created_family_name: string
         }[]
       }
+      family_id_from_storage_path: {
+        Args: { object_name: string }
+        Returns: string
+      }
+      fork_family: {
+        Args: { new_name: string; source_family_id: string }
+        Returns: {
+          anecdote_id_map: Json
+          document_id_map: Json
+          fact_id_map: Json
+          forked_family_id: string
+          forked_family_name: string
+          person_id_map: Json
+        }[]
+      }
       get_invite_preview: {
         Args: { invite_code: string }
         Returns: {
           family_name: string
           status: string
         }[]
+      }
+      is_active_family_member: {
+        Args: { target_family_id: string }
+        Returns: boolean
       }
       is_family_member: { Args: { target_family_id: string }; Returns: boolean }
       match_people_by_name: {

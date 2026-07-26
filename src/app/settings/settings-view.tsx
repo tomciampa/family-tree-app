@@ -5,6 +5,7 @@ import type { Tables } from "@/lib/supabase/database.types";
 import type { PersonSummary } from "@/lib/family";
 import { PersonSearch } from "@/components/person-search";
 import { CreateFamilyForm } from "@/components/create-family-form";
+import { ForkFamilyForm } from "@/components/fork-family-form";
 import { getVoicesAsync, pickPreferredVoice } from "@/lib/speech-voices";
 import {
   setLinkedPerson,
@@ -39,6 +40,7 @@ export function SettingsView({
       <VoiceSettings interviewVoiceURI={interviewVoiceURI} />
       <InviteSettings />
       <CreateFamilySettings />
+      <ForkFamilySettings />
     </>
   );
 }
@@ -485,6 +487,29 @@ function CreateFamilySettings() {
         </p>
       </div>
       <CreateFamilyForm />
+    </section>
+  );
+}
+
+// Distinct from "Start a new family tree" above (an empty new family) —
+// this copies everything already in the current family. See
+// ForkFamilyForm for the confirmation flow itself; this section just
+// supplies the surrounding heading/description, matching every other
+// section's shell.
+function ForkFamilySettings() {
+  return (
+    <section className="flex flex-col gap-4 rounded-[var(--radius-lg)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-6 shadow-[var(--shadow-2)]">
+      <div>
+        <h2 className="text-[length:var(--font-size-heading-3)] leading-[var(--line-height-heading-3)] font-semibold">
+          Fork this family
+        </h2>
+        <p className="mt-1 text-sm text-[color:var(--color-text-secondary)]">
+          Make a complete, independent copy of everything in this family tree — people,
+          documents, interviews, facts, and stories — under a new name, so you can branch off
+          and edit freely without affecting the original.
+        </p>
+      </div>
+      <ForkFamilyForm />
     </section>
   );
 }
