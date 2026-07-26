@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getPendingReview } from "@/lib/pending-review";
 import { CreateFamilyForm } from "@/components/create-family-form";
+import { JoinByCodeForm } from "@/components/join-by-code-form";
 import { signOut } from "./actions";
 
 export default async function Home() {
@@ -11,8 +11,68 @@ export default async function Home() {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Public landing page for anonymous visitors — someone arriving with no
+  // context (not a specific /join/[code] link, which bypasses this
+  // entirely since that route never redirects here).
   if (!user) {
-    redirect("/login");
+    return (
+      <main className="mx-auto flex min-h-screen w-full max-w-4xl flex-col items-center justify-center gap-10 p-8 text-center font-[family-name:var(--font-family-base)] text-[color:var(--color-text-primary)]">
+        <div className="flex flex-col gap-3">
+          <h1 className="text-[length:var(--font-size-heading-1)] leading-[var(--line-height-heading-1)] font-semibold">
+            Your family&apos;s story, all in one place
+          </h1>
+          <p className="text-[color:var(--color-text-secondary)]">
+            Build a family tree, record memories, and keep the documents and stories that
+            matter — together.
+          </p>
+        </div>
+
+        <div className="grid w-full grid-cols-1 gap-6 sm:grid-cols-3">
+          <Link
+            href="/login?mode=signup"
+            className="flex min-h-[220px] flex-col items-center gap-3 rounded-[var(--radius-lg)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-6 text-center shadow-[var(--shadow-2)] transition-all duration-[var(--duration-base)] hover:-translate-y-0.5 hover:shadow-[var(--shadow-3)]"
+          >
+            <span className="text-4xl" aria-hidden="true">
+              🌱
+            </span>
+            <span className="text-[length:var(--font-size-heading-3)] leading-[var(--line-height-heading-3)] font-semibold">
+              Start your own family tree
+            </span>
+            <span className="text-[length:var(--font-size-body-small)] text-[color:var(--color-text-secondary)]">
+              Create a free account and begin adding the people you know.
+            </span>
+          </Link>
+
+          <div className="flex min-h-[220px] flex-col items-center gap-3 rounded-[var(--radius-lg)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-6 text-center shadow-[var(--shadow-2)]">
+            <span className="text-4xl" aria-hidden="true">
+              ✉️
+            </span>
+            <span className="text-[length:var(--font-size-heading-3)] leading-[var(--line-height-heading-3)] font-semibold">
+              Join a family you&apos;ve been invited to
+            </span>
+            <span className="text-[length:var(--font-size-body-small)] text-[color:var(--color-text-secondary)]">
+              Enter the invite code someone sent you.
+            </span>
+            <JoinByCodeForm />
+          </div>
+
+          <Link
+            href="/login"
+            className="flex min-h-[220px] flex-col items-center gap-3 rounded-[var(--radius-lg)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-6 text-center shadow-[var(--shadow-2)] transition-all duration-[var(--duration-base)] hover:-translate-y-0.5 hover:shadow-[var(--shadow-3)]"
+          >
+            <span className="text-4xl" aria-hidden="true">
+              🔑
+            </span>
+            <span className="text-[length:var(--font-size-heading-3)] leading-[var(--line-height-heading-3)] font-semibold">
+              Log in
+            </span>
+            <span className="text-[length:var(--font-size-body-small)] text-[color:var(--color-text-secondary)]">
+              Already have an account? Sign back in here.
+            </span>
+          </Link>
+        </div>
+      </main>
+    );
   }
 
   // The natural landing point for Stage 2's "reachable from the login/

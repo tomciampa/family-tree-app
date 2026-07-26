@@ -45,7 +45,11 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const next = searchParams.get("next");
 
-  const [mode, setMode] = useState<Mode>("signin");
+  // ?mode=signup — set by the landing page's "Start your own family tree"
+  // card, so that click lands directly on the signup form instead of the
+  // default sign-in form plus one extra click.
+  const initialMode = searchParams.get("mode") === "signup" ? "signup" : "signin";
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">(
