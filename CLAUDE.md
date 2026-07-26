@@ -494,6 +494,31 @@ other Supabase project using it — that shared-sender limit, not anything speci
 project, was most of why auth-flow testing was so rate-limit-constrained across this work (see
 "Working conventions" below for the rule that exists because of it).
 
+### Email+password login (plus password reset — the auth chapter is now complete)
+Email+password is now the primary form on `/login`, alongside the original magic link (kept as
+an "email me a login link instead" toggle, not removed). Both auth methods thread through the
+exact same invite-code redirect logic (`?next=` → `/auth/callback`) — verified working for both
+paths into an invited family, not just magic link as it was before this work.
+
+Password reset (`resetPasswordForEmail`) reuses that same `/auth/callback` PKCE mechanism as
+everything else — no new callback logic needed. The only real requirement was pointing the
+recovery email's redirect at a dedicated `/reset-password` page instead of the app root, forcing
+a new password to actually be set before landing back in the app (otherwise a clicked recovery
+link would just sign someone in without ever changing anything, defeating the point of "reset").
+Always shows an identical message whether or not the email matches a real account — anti-
+enumeration, consistent with signup's own existing behavior investigated as part of this work.
+
+Working convention reinforced by this work: GoTrue (Supabase's auth server) writes a placeholder
+password hash to every account regardless of auth method — seeing a non-empty
+`encrypted_password` on a magic-link-only account is expected and not evidence of a real
+credential existing. If this ever looks alarming again, verify by attempting an actual login
+with the suspected password (not just inspecting the column) before treating it as a real issue.
+
+`/login?error=auth_failed` now shows a clear "that link didn't work" message — previously
+silently dropped visitors on a blank-looking form, which read as broken/confusing once the
+page's default view became a real password form rather than an obvious "we'll email you a link"
+placeholder.
+
 ## Working conventions
 - **Always verify with a real browser test before committing**, not just typecheck/build —
   use a disposable test account/session, never real user data, for destructive or
