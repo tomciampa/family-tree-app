@@ -106,7 +106,7 @@ function LoginForm() {
     setError(null);
 
     const supabase = createClient();
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: { emailRedirectTo: callbackUrl() },
@@ -115,9 +115,26 @@ function LoginForm() {
     if (error) {
       setError(error.message);
       setStatus("error");
-    } else {
-      setStatus("sent");
+      return;
     }
+
+    // Supabase's signUp() deliberately doesn't error for an email that's
+    // already registered and confirmed — it silently no-ops (no new account,
+    // no email sent) to avoid leaking which emails exist, returning a
+    // same-shaped but fake user with an empty `identities` array as the only
+    // signal. A genuinely new signup always has at least one real identity
+    // here. Surfacing that distinction is safe specifically in this
+    // already-trying-to-sign-up context (the visitor already knows and typed
+    // this exact email), unlike forgotPassword's anti-enumeration message
+    // below, which must stay generic since a visitor there could be probing
+    // an email that isn't theirs.
+    if (data.user && data.user.identities && data.user.identities.length === 0) {
+      setError("You already have an account with this email — try signing in instead.");
+      setStatus("error");
+      return;
+    }
+
+    setStatus("sent");
   }
 
   async function handleForgotPassword(e: React.FormEvent) {
