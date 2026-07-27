@@ -584,6 +584,17 @@ placeholder.
   inserting), and never fabricate a value to fit a near-miss pattern — if the source text
   doesn't actually state the claimed standard field (e.g. a fact labeled "Death" that's actually
   about signing a letter, not a real death date), leave it alone rather than forcing a match.
+- A signup attempt against an already-registered, confirmed email silently no-ops via Supabase's
+  `signUp()` — anti-enumeration behavior, not a bug — returning a same-shaped but fake success
+  response instead of an error. The reliable way to detect this case is checking for an empty
+  `identities: []` array on the response (a genuinely new signup always has at least one real
+  identity); confirmed directly against the raw GoTrue endpoint for both an existing and a
+  genuinely new account before trusting it, rather than assuming the heuristic from memory.
+  `/login`'s signup form now surfaces a clear "you already have an account" message based on this
+  signal (2026-07-27). The separate forgot-password path deliberately stays fully generic
+  regardless of whether the email exists — anti-enumeration only matters where a visitor could be
+  probing an email that isn't theirs, not where they already typed and know the exact email
+  they're claiming.
 
 ## Known follow-ups (already on the todo list — don't rebuild without checking first)
 - Splitting interviews out of the shared `documents` table into their own model — see "Audio
