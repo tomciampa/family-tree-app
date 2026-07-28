@@ -84,6 +84,7 @@ export function RecordInterviewFlow({
   familyId,
   preferredVoiceURI,
   narrationEnabledDefault,
+  defaultPersonId,
   onCancel,
   onSaved,
 }: {
@@ -92,6 +93,7 @@ export function RecordInterviewFlow({
   familyId: string;
   preferredVoiceURI?: string | null;
   narrationEnabledDefault?: boolean;
+  defaultPersonId?: string | null;
   onCancel: () => void;
   onSaved: (documentId: string) => void;
 }) {
@@ -99,7 +101,20 @@ export function RecordInterviewFlow({
 
   // Step 1 state
   const [mode, setMode] = useState<"search" | "create">("search");
-  const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
+  // Defaults to the signed-in user's own linked person (set via /settings
+  // "This is me" — same family_members.linked_person_id /tree already
+  // reads), but only if that id still resolves in this family's actual
+  // people list. Computed once at mount (this component only ever mounts
+  // fresh — it's conditionally rendered by InterviewsView's isRecording
+  // state, never kept alive across a stale prop update), so a lazy
+  // initializer is enough rather than an effect. Never trust the id blindly:
+  // ON DELETE SET NULL only clears family_members.linked_person_id itself,
+  // not any copy of it already in flight to a client, so a deleted person
+  // must still fall back to the same blank-search state as never having set
+  // "This is me" at all — no error, no skipped screen.
+  const [selectedPersonId, setSelectedPersonId] = useState<string | null>(() =>
+    defaultPersonId && people.some((p) => p.id === defaultPersonId) ? defaultPersonId : null,
+  );
   const [newName, setNewName] = useState("");
   const [isCreatingPerson, setIsCreatingPerson] = useState(false);
   const [pickError, setPickError] = useState<string | null>(null);

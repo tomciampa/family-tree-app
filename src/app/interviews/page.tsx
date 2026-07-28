@@ -45,7 +45,7 @@ export default async function InterviewsPage() {
     supabase.from("union_children").select("*"),
     supabase
       .from("family_members")
-      .select("interview_voice_uri, narration_enabled")
+      .select("interview_voice_uri, narration_enabled, linked_person_id")
       .eq("family_id", familyId)
       .eq("user_id", user.id)
       .maybeSingle(),
@@ -105,6 +105,7 @@ export default async function InterviewsPage() {
           familyId={familyId}
           preferredVoiceURI={membership?.interview_voice_uri ?? null}
           narrationEnabledDefault={membership?.narration_enabled ?? true}
+          defaultPersonId={membership?.linked_person_id ?? null}
         />
       )}
     </main>

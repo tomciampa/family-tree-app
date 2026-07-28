@@ -56,6 +56,7 @@ export function InterviewsView({
   familyId,
   preferredVoiceURI,
   narrationEnabledDefault,
+  defaultPersonId,
 }: {
   sessions: InterviewRow[];
   people: Person[];
@@ -63,6 +64,7 @@ export function InterviewsView({
   familyId: string;
   preferredVoiceURI?: string | null;
   narrationEnabledDefault?: boolean;
+  defaultPersonId?: string | null;
 }) {
   const [isRecording, setIsRecording] = useState(false);
   // The session that just finished recording, so its InterviewItem knows
@@ -81,6 +83,7 @@ export function InterviewsView({
           familyId={familyId}
           preferredVoiceURI={preferredVoiceURI}
           narrationEnabledDefault={narrationEnabledDefault}
+          defaultPersonId={defaultPersonId}
           onCancel={() => setIsRecording(false)}
           onSaved={(documentId) => {
             setIsRecording(false);
