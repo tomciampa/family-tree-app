@@ -311,6 +311,15 @@ function ThisIsMeSettings({
 // read in — the full getVoices() list can run into the hundreds once every
 // language variant is counted (verified: 190 on a real Mac), and showing
 // all of them here would bury the handful that are actually relevant.
+// Further filtered to Google-named voices only — the non-Google entries on
+// this platform (Trinoids, Whisper, Wobble, Zarvox, etc.) are either
+// novelty voices or dated/robotic-sounding standard ones, same complaint
+// PREFERRED_VOICE_NAMES's own comment already made about the equivalent
+// non-Apple/non-Google options. Matched by substring on the voice name
+// rather than an exact list of today's known Google voice names (Google US
+// English, Google UK English Female/Male) — the exact set can vary by
+// browser/OS, and a substring match keeps working on someone else's
+// machine without needing to enumerate every variant.
 function VoiceSettings({ interviewVoiceURI }: { interviewVoiceURI: string | null }) {
   const [voices, setVoices] = useState<SpeechSynthesisVoice[] | null>(null);
   const [selectedURI, setSelectedURI] = useState<string | null>(interviewVoiceURI);
@@ -323,7 +332,11 @@ function VoiceSettings({ interviewVoiceURI }: { interviewVoiceURI: string | null
     let cancelled = false;
     getVoicesAsync().then((all) => {
       if (cancelled) return;
-      setVoices(all.filter((v) => v.lang.toLowerCase().startsWith("en")));
+      setVoices(
+        all.filter(
+          (v) => v.lang.toLowerCase().startsWith("en") && v.name.toLowerCase().includes("google"),
+        ),
+      );
     });
     return () => {
       cancelled = true;
