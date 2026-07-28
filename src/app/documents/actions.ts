@@ -86,7 +86,7 @@ export async function extractCandidatesFromDocument(
 
   const { data: document, error: fetchError } = await supabase
     .from("documents")
-    .select("file_path, filename, document_type, transcription_raw")
+    .select("file_path, filename, document_type, transcription_raw, status")
     .eq("id", documentId)
     .single();
   if (fetchError || !document) {
@@ -171,6 +171,33 @@ export async function extractCandidatesFromDocument(
     return { error: err instanceof Error ? err.message : "Extraction failed." };
   }
 
+  // A document with zero family candidates has nothing for matchCandidatesForDocument
+  // to ever act on — hasFamilyCandidates in documents-view.tsx stays false forever,
+  // which hides the Match button and the review link alike. Before this, nothing
+  // ever moved status off "pending_match" in that case (maybeMarkDocumentMatched
+  // only fires once every family candidate is resolved, which can't happen with
+  // zero of them), leaving a correct, completed extraction stuck showing "pending
+  // match" with only a Re-extract loop forever. Routes to the "no_match" status the
+  // UI already has styling for (documents-view.tsx's statusStyles) but never
+  // assigned anywhere. Deliberately narrow: only ever sets status here, never
+  // touches it when family candidates ARE found — that path's behavior (stays
+  // whatever it already was, only maybeMarkDocumentMatched moves it to "matched")
+  // is unchanged.
+  //
+  // Also guarded on the document's *prior* status being "pending_match" — the
+  // Extract/Re-extract button (documents-view.tsx) is never gated by status, so
+  // it's reachable on an already-"matched" document too. Re-extracting one fully
+  // overwrites candidate_people with a fresh, unresolved list either way (a
+  // pre-existing behavior, not new here), but this fix must not compound that by
+  // also downgrading a real "matched" document back to "no_match" just because
+  // this particular re-run happened to find zero family candidates — only a
+  // document that was still waiting (pending_match) should ever be moved to
+  // no_match by this.
+  const hasFamilyCandidates = result.object.candidates.some(
+    (c) => c.roleCategory === "family",
+  );
+  const shouldMarkNoMatch = !hasFamilyCandidates && document.status === "pending_match";
+
   const { error: updateError } = await supabase
     .from("documents")
     .update({
@@ -182,6 +209,7 @@ export async function extractCandidatesFromDocument(
       // produced the real text.
       transcription_raw: result.object.rawText || document.transcription_raw,
       candidate_people: result.object.candidates,
+      status: shouldMarkNoMatch ? "no_match" : undefined,
     })
     .eq("id", documentId);
   if (updateError) return { error: updateError.message };
