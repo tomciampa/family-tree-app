@@ -2,7 +2,6 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getPendingReview } from "@/lib/pending-review";
 import { CreateFamilyForm } from "@/components/create-family-form";
-import { JoinByCodeForm } from "@/components/join-by-code-form";
 import { signOut } from "./actions";
 
 export default async function Home() {
@@ -13,62 +12,37 @@ export default async function Home() {
 
   // Public landing page for anonymous visitors — someone arriving with no
   // context (not a specific /join/[code] link, which bypasses this
-  // entirely since that route never redirects here).
+  // entirely since that route never redirects here). Two equal-weight
+  // CTAs: Log In (the existing /login flow, which already handles both
+  // sign-in and signup via its own mode toggle) and Explore a Demo (a
+  // stubbed-out /demo route — no real content yet, that's a separate next
+  // step). Copy is placeholder-simple by design, reusing the same
+  // headline/subtext this page already had, pending real marketing copy.
   if (!user) {
     return (
-      <main className="mx-auto flex min-h-screen w-full max-w-4xl flex-col items-center justify-center gap-10 p-8 text-center font-[family-name:var(--font-family-base)] text-[color:var(--color-text-primary)]">
+      <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col items-center justify-center gap-10 p-8 text-center font-[family-name:var(--font-family-base)] text-[color:var(--color-text-primary)]">
         <div className="flex flex-col gap-3">
-          <h1 className="text-[length:var(--font-size-heading-1)] leading-[var(--line-height-heading-1)] font-semibold">
+          <h1 className="text-[length:var(--font-size-display)] leading-[var(--line-height-display)] font-semibold">
             Your family&apos;s story, all in one place
           </h1>
-          <p className="text-[color:var(--color-text-secondary)]">
+          <p className="text-[length:var(--font-size-body)] text-[color:var(--color-text-secondary)]">
             Build a family tree, record memories, and keep the documents and stories that
             matter — together.
           </p>
         </div>
 
-        <div className="grid w-full grid-cols-1 gap-6 sm:grid-cols-3">
-          <Link
-            href="/login?mode=signup"
-            className="flex min-h-[220px] flex-col items-center gap-3 rounded-[var(--radius-lg)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-6 text-center shadow-[var(--shadow-2)] transition-all duration-[var(--duration-base)] hover:-translate-y-0.5 hover:shadow-[var(--shadow-3)]"
-          >
-            <span className="text-4xl" aria-hidden="true">
-              🌱
-            </span>
-            <span className="text-[length:var(--font-size-heading-3)] leading-[var(--line-height-heading-3)] font-semibold">
-              Start your own family tree
-            </span>
-            <span className="text-[length:var(--font-size-body-small)] text-[color:var(--color-text-secondary)]">
-              Create a free account and begin adding the people you know.
-            </span>
-          </Link>
-
-          <div className="flex min-h-[220px] flex-col items-center gap-3 rounded-[var(--radius-lg)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-6 text-center shadow-[var(--shadow-2)]">
-            <span className="text-4xl" aria-hidden="true">
-              ✉️
-            </span>
-            <span className="text-[length:var(--font-size-heading-3)] leading-[var(--line-height-heading-3)] font-semibold">
-              Join a family you&apos;ve been invited to
-            </span>
-            <span className="text-[length:var(--font-size-body-small)] text-[color:var(--color-text-secondary)]">
-              Enter the invite code someone sent you.
-            </span>
-            <JoinByCodeForm />
-          </div>
-
+        <div className="flex w-full flex-col gap-4 sm:w-auto sm:flex-row sm:justify-center">
           <Link
             href="/login"
-            className="flex min-h-[220px] flex-col items-center gap-3 rounded-[var(--radius-lg)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-6 text-center shadow-[var(--shadow-2)] transition-all duration-[var(--duration-base)] hover:-translate-y-0.5 hover:shadow-[var(--shadow-3)]"
+            className="rounded-[var(--radius-full)] bg-[color:var(--color-accent)] px-8 py-4 text-[length:var(--font-size-body)] font-semibold text-[color:var(--color-text-on-accent)] transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-accent-hover)]"
           >
-            <span className="text-4xl" aria-hidden="true">
-              🔑
-            </span>
-            <span className="text-[length:var(--font-size-heading-3)] leading-[var(--line-height-heading-3)] font-semibold">
-              Log in
-            </span>
-            <span className="text-[length:var(--font-size-body-small)] text-[color:var(--color-text-secondary)]">
-              Already have an account? Sign back in here.
-            </span>
+            Log In
+          </Link>
+          <Link
+            href="/demo"
+            className="rounded-[var(--radius-full)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] px-8 py-4 text-[length:var(--font-size-body)] font-semibold text-[color:var(--color-text-primary)] transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)]"
+          >
+            Explore a Demo
           </Link>
         </div>
       </main>
