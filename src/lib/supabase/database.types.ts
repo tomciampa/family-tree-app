@@ -743,6 +743,24 @@ export type Database = {
           },
         ]
       }
+      profiles: {
+        Row: {
+          created_at: string
+          id: string
+          is_platform_admin: boolean
+        }
+        Insert: {
+          created_at?: string
+          id: string
+          is_platform_admin?: boolean
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_platform_admin?: boolean
+        }
+        Relationships: []
+      }
       union_children: {
         Row: {
           child_id: string
