@@ -110,6 +110,12 @@ export default async function Home() {
       label: "Upload a Document",
       description: "Add certificates, letters, and photos to build the family record.",
     },
+    {
+      href: "/photos",
+      icon: "🖼️",
+      label: "View Photos",
+      description: "Browse, tag, and caption the family photo gallery.",
+    },
   ];
 
   // Secondary/account-level links, shared between the always-expanded
@@ -117,6 +123,7 @@ export default async function Home() {
   // place to add a link, not two.
   const secondaryLinks = [
     { href: "/documents", icon: "📁", label: "Documents library" },
+    { href: "/photos", icon: "🖼️", label: "Photos" },
     { href: "/familysearch", icon: "🔍", label: "FamilySearch" },
     { href: "/settings", icon: "⚙️", label: "Settings" },
   ];
@@ -227,7 +234,7 @@ export default async function Home() {
           )}
         </section>
 
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {primaryLinks.map((link) => (
             <Link
               key={link.href}
