@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Tables } from "@/lib/supabase/database.types";
+import type { PersonSummary } from "@/lib/family";
 import { PersonSearch } from "@/components/person-search";
 import { DeletePhotoButton } from "./delete-photo-button";
 import { addPhotoTag, removePhotoTag, updatePhotoCaption, updatePhotoTakenAt } from "./actions";
@@ -24,6 +25,7 @@ type PendingPin = { x: number; y: number } | null;
 export function PhotoLightbox({
   photo,
   people,
+  personSummaries,
   onClose,
   onTagsChanged,
   onPhotoUpdated,
@@ -31,6 +33,7 @@ export function PhotoLightbox({
 }: {
   photo: PhotoRow;
   people: Person[];
+  personSummaries: Record<string, PersonSummary>;
   onClose: () => void;
   onTagsChanged: (photoId: string, tags: PhotoTag[]) => void;
   onPhotoUpdated: (photoId: string, updates: { caption?: string | null; taken_at?: string | null }) => void;
@@ -253,6 +256,7 @@ export function PhotoLightbox({
               <p className="text-sm font-medium">Who is this?</p>
               <PersonSearch
                 people={people}
+                personSummaries={personSummaries}
                 selectedId={selectedPersonId}
                 onSelect={setSelectedPersonId}
                 placeholder="Search for a name…"

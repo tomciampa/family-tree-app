@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import type { Tables } from "@/lib/supabase/database.types";
+import type { PersonSummary } from "@/lib/family";
 import { uploadPhoto } from "./actions";
 import { PhotoLightbox } from "./photo-lightbox";
 
@@ -35,7 +36,15 @@ const TOO_LARGE_MESSAGE = "File too large — please keep uploads under 10MB.";
 // Stage 3: delete/caption/taken_at management, plus sort-by-date on top
 // of Stage 2's tagging and person filter. Still no real gallery grid —
 // same unstyled list, just now sortable/groupable.
-export function PhotosView({ photos, people }: { photos: PhotoRow[]; people: Person[] }) {
+export function PhotosView({
+  photos,
+  people,
+  personSummaries,
+}: {
+  photos: PhotoRow[];
+  people: Person[];
+  personSummaries: Record<string, PersonSummary>;
+}) {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -255,6 +264,7 @@ export function PhotosView({ photos, people }: { photos: PhotoRow[]; people: Per
         <PhotoLightbox
           photo={openPhoto}
           people={people}
+          personSummaries={personSummaries}
           onClose={() => setOpenPhotoId(null)}
           onTagsChanged={handleTagsChanged}
           onPhotoUpdated={handlePhotoUpdated}

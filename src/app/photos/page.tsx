@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { buildPersonSummaries } from "@/lib/family";
 import { PhotosView, type PhotoRow } from "./photos-view";
 
 export default async function PhotosPage() {
@@ -13,7 +14,13 @@ export default async function PhotosPage() {
     redirect("/login");
   }
 
-  const [{ data: photos, error }, { data: tagLinks }, { data: people }] = await Promise.all([
+  const [
+    { data: photos, error },
+    { data: tagLinks },
+    { data: people },
+    { data: unions },
+    { data: unionChildren },
+  ] = await Promise.all([
     supabase
       .from("photos")
       .select("id, storage_path, original_filename, caption, taken_at, created_at")
@@ -29,7 +36,19 @@ export default async function PhotosPage() {
     // PersonSearch's expected Tables<"people"> shape, same as every other
     // caller of that shared component.
     supabase.from("people").select("*").order("name"),
+    // unions/union_children, purely to build personSummaries below — the
+    // photo-tagging PersonSearch previously never got this prop at all
+    // (unlike the document/interview review flows' own PersonSearch
+    // usage), which meant every result silently fell back to
+    // PersonSearch's own "not yet in the tree" default rather than a real
+    // relational disambiguation, even for people with recorded parents.
+    supabase.from("unions").select("*"),
+    supabase.from("union_children").select("*"),
   ]);
+
+  const personSummaries = Object.fromEntries(
+    buildPersonSummaries(people ?? [], unions ?? [], unionChildren ?? []),
+  );
 
   // Deliberately not reusing lib/documents.ts's getSignedDocumentUrls —
   // it's hardcoded to the "documents" bucket, and photos live in their
@@ -94,7 +113,9 @@ export default async function PhotosPage() {
         <p className="mx-auto text-sm text-[color:var(--color-error)]">{error.message}</p>
       )}
 
-      {!error && <PhotosView photos={photosWithUrls} people={people ?? []} />}
+      {!error && (
+        <PhotosView photos={photosWithUrls} people={people ?? []} personSummaries={personSummaries} />
+      )}
     </main>
   );
 }
