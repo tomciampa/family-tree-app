@@ -76,7 +76,7 @@ export async function addPhotoTag(
   xPosition: number,
   yPosition: number,
 ): Promise<AddPhotoTagResult> {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
 
   const { data: inserted, error } = await supabase
     .from("photo_tags")
@@ -85,6 +85,7 @@ export async function addPhotoTag(
       person_id: personId,
       x_position: xPosition,
       y_position: yPosition,
+      tagged_by: user.id,
     })
     .select("id")
     .single();

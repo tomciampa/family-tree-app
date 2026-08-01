@@ -457,6 +457,7 @@ export type Database = {
       family_members: {
         Row: {
           family_id: string
+          has_viewed_tree: boolean
           interview_voice_uri: string | null
           is_active: boolean
           joined_at: string | null
@@ -467,6 +468,7 @@ export type Database = {
         }
         Insert: {
           family_id: string
+          has_viewed_tree?: boolean
           interview_voice_uri?: string | null
           is_active?: boolean
           joined_at?: string | null
@@ -477,6 +479,7 @@ export type Database = {
         }
         Update: {
           family_id?: string
+          has_viewed_tree?: boolean
           interview_voice_uri?: string | null
           is_active?: boolean
           joined_at?: string | null
@@ -664,6 +667,7 @@ export type Database = {
           id: string
           person_id: string
           photo_id: string
+          tagged_by: string | null
           x_position: number | null
           y_position: number | null
         }
@@ -672,6 +676,7 @@ export type Database = {
           id?: string
           person_id: string
           photo_id: string
+          tagged_by?: string | null
           x_position?: number | null
           y_position?: number | null
         }
@@ -680,6 +685,7 @@ export type Database = {
           id?: string
           person_id?: string
           photo_id?: string
+          tagged_by?: string | null
           x_position?: number | null
           y_position?: number | null
         }

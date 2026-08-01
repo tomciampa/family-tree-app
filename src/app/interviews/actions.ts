@@ -68,6 +68,13 @@ export async function createInterviewSession({
 }): Promise<{ error: string } | { documentId: string }> {
   const supabase = await requireUser();
   const familyId = await getFamilyId();
+  // uploaded_by previously went unpopulated here (see the Stage 1 photos
+  // migration's comment on the same historical gap across both document
+  // insert sites) — now set so the homepage "Getting Started" checklist's
+  // "Recorded a Memory" item is actually computable per-user.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   const { data, error } = await supabase
     .from("documents")
@@ -82,6 +89,7 @@ export async function createInterviewSession({
       // never needs the pending_match candidate-matching workflow that
       // general /documents uploads go through.
       status: "matched",
+      uploaded_by: user?.id ?? null,
     })
     .select("id")
     .single();

@@ -581,6 +581,14 @@ export async function extractFactFromDocument(
 
   const supabase = await requireUser();
   const familyId = await getFamilyId();
+  // uploaded_by previously went unpopulated on this third document-insert
+  // site too — missed in the initial Getting Started investigation, which
+  // only checked documents/actions.ts and interviews/actions.ts. Found via
+  // a grep for every `.from("documents").insert(...)` call site while
+  // verifying the FK fix, not by the original review.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   const bytes = new Uint8Array(await file.arrayBuffer());
   const storagePath = `${familyId}/${crypto.randomUUID()}-${file.name}`;
@@ -650,6 +658,7 @@ export async function extractFactFromDocument(
       transcription_raw: extracted.rawText,
       family_id: familyId,
       status: "matched",
+      uploaded_by: user?.id ?? null,
     })
     .select("id")
     .single();

@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getPendingReview } from "@/lib/pending-review";
+import { getGettingStartedChecklist } from "@/lib/getting-started";
+import { getFamilyId } from "@/lib/family";
 import { CreateFamilyForm } from "@/components/create-family-form";
 import { signOut } from "./actions";
 
@@ -90,6 +92,9 @@ export default async function Home() {
 
   const pending = await getPendingReview(supabase);
   const totalPending = pending.documents.length + pending.interviews.length;
+
+  const familyId = await getFamilyId();
+  const gettingStarted = await getGettingStartedChecklist(supabase, user.id, familyId);
 
   const primaryLinks = [
     {
@@ -188,6 +193,62 @@ export default async function Home() {
           </p>
         </div>
 
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          {primaryLinks.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              className="flex min-h-[200px] flex-col items-center gap-3 rounded-[var(--radius-lg)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-6 text-center shadow-[var(--shadow-2)] transition-all duration-[var(--duration-base)] hover:-translate-y-0.5 hover:shadow-[var(--shadow-3)]"
+            >
+              <span className="text-4xl" aria-hidden="true">
+                {link.icon}
+              </span>
+              <span className="text-[length:var(--font-size-heading-3)] leading-[var(--line-height-heading-3)] font-semibold">
+                {link.label}
+              </span>
+              <span className="text-[length:var(--font-size-body-small)] text-[color:var(--color-text-secondary)]">
+                {link.description}
+              </span>
+            </Link>
+          ))}
+        </div>
+
+        <section className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-6 shadow-[var(--shadow-1)]">
+          <h2 className="text-[length:var(--font-size-heading-3)] leading-[var(--line-height-heading-3)] font-semibold">
+            Getting Started
+          </h2>
+          <ul className="flex flex-col gap-1">
+            {gettingStarted.map((item) => (
+              <li key={item.id}>
+                <Link
+                  href={item.href}
+                  className="flex items-center gap-3 rounded-[var(--radius-sm)] px-3 py-2 text-sm transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)]"
+                >
+                  <span
+                    aria-hidden="true"
+                    className={
+                      item.done
+                        ? "flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[color:var(--color-success-subtle-bg)] text-[color:var(--color-success-subtle-fg)]"
+                        : "h-5 w-5 shrink-0 rounded-full border border-[color:var(--color-border)]"
+                    }
+                  >
+                    {item.done ? "✓" : ""}
+                  </span>
+                  <span
+                    className={
+                      item.done
+                        ? "text-[color:var(--color-text-secondary)] line-through"
+                        : "text-[color:var(--color-text-primary)]"
+                    }
+                  >
+                    {item.label}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+
         <section className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-6 shadow-[var(--shadow-1)]">
           <h2 className="text-[length:var(--font-size-heading-3)] leading-[var(--line-height-heading-3)] font-semibold">
             Tasks pending your review
@@ -233,26 +294,6 @@ export default async function Home() {
             </ul>
           )}
         </section>
-
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-          {primaryLinks.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className="flex min-h-[200px] flex-col items-center gap-3 rounded-[var(--radius-lg)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] p-6 text-center shadow-[var(--shadow-2)] transition-all duration-[var(--duration-base)] hover:-translate-y-0.5 hover:shadow-[var(--shadow-3)]"
-            >
-              <span className="text-4xl" aria-hidden="true">
-                {link.icon}
-              </span>
-              <span className="text-[length:var(--font-size-heading-3)] leading-[var(--line-height-heading-3)] font-semibold">
-                {link.label}
-              </span>
-              <span className="text-[length:var(--font-size-body-small)] text-[color:var(--color-text-secondary)]">
-                {link.description}
-              </span>
-            </Link>
-          ))}
-        </div>
 
         {/* Mobile: hover doesn't exist on touch, so there's no way to
             reveal a collapsed rail's labels — always-expanded as a plain

@@ -45,11 +45,24 @@ export default async function TreePage() {
     // pickDefaultMain's existing behavior (see FamilyTree's own comment).
     supabase
       .from("family_members")
-      .select("linked_person_id")
+      .select("linked_person_id, has_viewed_tree")
       .eq("family_id", familyId)
       .eq("user_id", user.id)
       .maybeSingle(),
   ]);
+
+  // Lightest possible "viewed the tree" marker for the homepage's Getting
+  // Started checklist — a plain boolean set once, not real page-view
+  // analytics (deliberately skipped elsewhere in this app). Only writes
+  // when it's actually flipping false -> true, so a returning visitor's
+  // repeat loads are a no-op.
+  if (membership && !membership.has_viewed_tree) {
+    await supabase
+      .from("family_members")
+      .update({ has_viewed_tree: true })
+      .eq("family_id", familyId)
+      .eq("user_id", user.id);
+  }
 
   const error =
     peopleError ??

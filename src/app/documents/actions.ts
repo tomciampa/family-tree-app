@@ -46,6 +46,13 @@ export async function uploadDocument(
 
   const supabase = await requireUser();
   const familyId = await getFamilyId();
+  // uploaded_by previously went unpopulated here (see the Stage 1 photos
+  // migration's comment on the same historical gap) — now set so the
+  // homepage "Getting Started" checklist's "Uploaded a Document" item is
+  // actually computable per-user, not just for photos.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   const bytes = new Uint8Array(await file.arrayBuffer());
   const storagePath = `${familyId}/${crypto.randomUUID()}-${file.name}`;
@@ -63,6 +70,7 @@ export async function uploadDocument(
       document_type: file.type || null,
       family_id: familyId,
       status: "pending_match",
+      uploaded_by: user?.id ?? null,
     })
     .select("id")
     .single();
