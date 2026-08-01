@@ -44,7 +44,7 @@ export default async function PersonPage({
       .eq("person_id", id),
     supabase
       .from("photo_tags")
-      .select("photos(id, file_path, caption, date_estimate)")
+      .select("photos(id, storage_path, original_filename, caption)")
       .eq("person_id", id),
     supabase
       .from("document_people")
@@ -212,7 +212,7 @@ export default async function PersonPage({
               (link) =>
                 link.photos && (
                   <li key={link.photos.id} className="text-sm text-gray-600">
-                    {link.photos.file_path}
+                    {link.photos.original_filename}
                     {link.photos.caption && ` — ${link.photos.caption}`}
                   </li>
                 ),

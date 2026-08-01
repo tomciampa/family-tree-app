@@ -660,16 +660,28 @@ export type Database = {
       }
       photo_tags: {
         Row: {
+          created_at: string
+          id: string
           person_id: string
           photo_id: string
+          x_position: number | null
+          y_position: number | null
         }
         Insert: {
+          created_at?: string
+          id?: string
           person_id: string
           photo_id: string
+          x_position?: number | null
+          y_position?: number | null
         }
         Update: {
+          created_at?: string
+          id?: string
           person_id?: string
           photo_id?: string
+          x_position?: number | null
+          y_position?: number | null
         }
         Relationships: [
           {
@@ -692,53 +704,39 @@ export type Database = {
         Row: {
           caption: string | null
           created_at: string | null
-          date_estimate: string | null
-          event_id: string | null
-          family_id: string | null
-          file_path: string
+          family_id: string
           id: string
+          original_filename: string
+          storage_path: string
+          taken_at: string | null
           uploaded_by: string | null
         }
         Insert: {
           caption?: string | null
           created_at?: string | null
-          date_estimate?: string | null
-          event_id?: string | null
-          family_id?: string | null
-          file_path: string
+          family_id: string
           id?: string
+          original_filename: string
+          storage_path: string
+          taken_at?: string | null
           uploaded_by?: string | null
         }
         Update: {
           caption?: string | null
           created_at?: string | null
-          date_estimate?: string | null
-          event_id?: string | null
-          family_id?: string | null
-          file_path?: string
+          family_id?: string
           id?: string
+          original_filename?: string
+          storage_path?: string
+          taken_at?: string | null
           uploaded_by?: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "photos_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "events"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "photos_family_id_fkey"
             columns: ["family_id"]
             isOneToOne: false
             referencedRelation: "families"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "photos_uploaded_by_fkey"
-            columns: ["uploaded_by"]
-            isOneToOne: false
-            referencedRelation: "contributors"
             referencedColumns: ["id"]
           },
         ]

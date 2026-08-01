@@ -177,7 +177,7 @@ export async function forkFamily(newName: string): Promise<ForkFamilyResult> {
   const [{ data: oldDocuments, error: oldDocsError }, { data: oldPhotos, error: oldPhotosError }] =
     await Promise.all([
       supabase.from("documents").select("id, file_path, candidate_people").eq("family_id", sourceFamilyId),
-      supabase.from("photos").select("id, file_path").eq("family_id", sourceFamilyId),
+      supabase.from("photos").select("id, storage_path").eq("family_id", sourceFamilyId),
     ]);
   if (oldDocsError) return { error: oldDocsError.message };
   if (oldPhotosError) return { error: oldPhotosError.message };
@@ -195,22 +195,32 @@ export async function forkFamily(newName: string): Promise<ForkFamilyResult> {
 
   const warnings: string[] = [];
 
-  // Storage copy — deduplicated by unique old file_path, since interview
+  // Storage copy — deduplicated by unique old path, since interview
   // segments all share their parent session's exact file_path (confirmed
   // against real data: one recording, one Storage object, N segment rows
   // all pointing at it). Without deduping, an N-segment interview would
   // trigger N redundant copies of the same bytes to the same destination.
-  const uniqueOldPaths = new Set<string>();
-  for (const d of oldDocuments ?? []) uniqueOldPaths.add(d.file_path);
-  for (const p of oldPhotos ?? []) uniqueOldPaths.add(p.file_path);
+  // Photos live in their own separate "photos" bucket (see the Stage 1
+  // photos migration) — copied independently from documents' bucket, not
+  // merged into one set the way they used to be when both shared the
+  // "documents" bucket.
+  const uniqueOldDocPaths = new Set<string>();
+  for (const d of oldDocuments ?? []) uniqueOldDocPaths.add(d.file_path);
+  const uniqueOldPhotoPaths = new Set<string>();
+  for (const p of oldPhotos ?? []) uniqueOldPhotoPaths.add(p.storage_path);
 
-  const copyResults = await Promise.allSettled(
-    [...uniqueOldPaths].map(async (oldPath) => {
+  const copyResults = await Promise.allSettled([
+    ...[...uniqueOldDocPaths].map(async (oldPath) => {
       const newPath = newFilePathFor(oldPath, newFamilyId);
       const { error } = await supabase.storage.from("documents").copy(oldPath, newPath);
       if (error) throw new Error(`${oldPath}: ${error.message}`);
     }),
-  );
+    ...[...uniqueOldPhotoPaths].map(async (oldPath) => {
+      const newPath = newFilePathFor(oldPath, newFamilyId);
+      const { error } = await supabase.storage.from("photos").copy(oldPath, newPath);
+      if (error) throw new Error(`${oldPath}: ${error.message}`);
+    }),
+  ]);
   for (const result of copyResults) {
     if (result.status === "rejected") {
       const message = result.reason instanceof Error ? result.reason.message : String(result.reason);
