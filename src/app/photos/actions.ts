@@ -110,3 +110,83 @@ export async function removePhotoTag(tagId: string): Promise<{ error: string } |
   revalidatePath("/photos");
   return { success: true };
 }
+
+export type PhotoDeleteImpact = { tagCount: number; personNames: string[] };
+
+// Same "fetch fresh every time the dialog opens" reasoning as
+// getDocumentDeleteImpact/getInterviewDeleteImpact — a tag could be
+// added or removed at any point right up until the delete click.
+export async function getPhotoDeleteImpact(
+  photoId: string,
+): Promise<{ error: string } | { impact: PhotoDeleteImpact }> {
+  const { supabase } = await requireUser();
+
+  const { data: tags, error } = await supabase
+    .from("photo_tags")
+    .select("people(name)")
+    .eq("photo_id", photoId);
+  if (error) return { error: error.message };
+
+  const personNames = (tags ?? [])
+    .map((t) => t.people?.name)
+    .filter((n): n is string => !!n);
+
+  return { impact: { tagCount: tags?.length ?? 0, personNames } };
+}
+
+// Storage object removed last, after the DB row is gone — same order
+// deleteDocument/deleteInterview already use, so a failure partway
+// through leaves at worst a harmless orphaned blob, never a DB row
+// pointing at a file that no longer exists. photo_tags rows cascade
+// automatically (photo_tags_photo_id_fkey is ON DELETE CASCADE, added in
+// the Stage 1 migration) — no manual cleanup needed here.
+export async function deletePhoto(photoId: string): Promise<{ error: string } | { success: true }> {
+  const { supabase } = await requireUser();
+
+  const { data: photo, error: fetchError } = await supabase
+    .from("photos")
+    .select("storage_path")
+    .eq("id", photoId)
+    .single();
+  if (fetchError || !photo) {
+    return { error: fetchError?.message ?? "Photo not found." };
+  }
+
+  const { error: deleteError } = await supabase.from("photos").delete().eq("id", photoId);
+  if (deleteError) return { error: deleteError.message };
+
+  await supabase.storage.from("photos").remove([photo.storage_path]);
+
+  revalidatePath("/photos");
+  return { success: true };
+}
+
+export async function updatePhotoCaption(
+  photoId: string,
+  caption: string | null,
+): Promise<{ error: string } | { success: true }> {
+  const { supabase } = await requireUser();
+
+  const trimmed = caption?.trim() || null;
+  const { error } = await supabase.from("photos").update({ caption: trimmed }).eq("id", photoId);
+  if (error) return { error: error.message };
+
+  revalidatePath("/photos");
+  return { success: true };
+}
+
+// takenAt is a plain "YYYY-MM-DD" string (an <input type="date">'s native
+// value shape) or null to clear it — never a Date object, so there's no
+// timezone-shifting round trip between the browser and a date column.
+export async function updatePhotoTakenAt(
+  photoId: string,
+  takenAt: string | null,
+): Promise<{ error: string } | { success: true }> {
+  const { supabase } = await requireUser();
+
+  const { error } = await supabase.from("photos").update({ taken_at: takenAt }).eq("id", photoId);
+  if (error) return { error: error.message };
+
+  revalidatePath("/photos");
+  return { success: true };
+}

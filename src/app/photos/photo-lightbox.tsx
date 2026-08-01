@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Tables } from "@/lib/supabase/database.types";
 import { PersonSearch } from "@/components/person-search";
-import { addPhotoTag, removePhotoTag } from "./actions";
+import { DeletePhotoButton } from "./delete-photo-button";
+import { addPhotoTag, removePhotoTag, updatePhotoCaption, updatePhotoTakenAt } from "./actions";
 import type { PhotoRow, PhotoTag } from "./photos-view";
 
 type Person = Tables<"people">;
@@ -25,11 +26,15 @@ export function PhotoLightbox({
   people,
   onClose,
   onTagsChanged,
+  onPhotoUpdated,
+  onDeleted,
 }: {
   photo: PhotoRow;
   people: Person[];
   onClose: () => void;
   onTagsChanged: (photoId: string, tags: PhotoTag[]) => void;
+  onPhotoUpdated: (photoId: string, updates: { caption?: string | null; taken_at?: string | null }) => void;
+  onDeleted: (photoId: string) => void;
 }) {
   const [pendingPin, setPendingPin] = useState<PendingPin>(null);
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
@@ -39,6 +44,56 @@ export function PhotoLightbox({
   // tap-to-toggle on touch (no real :hover state there), same button
   // handles both since onClick fires for a tap regardless.
   const [activeTagId, setActiveTagId] = useState<string | null>(null);
+
+  const [captionDraft, setCaptionDraft] = useState(photo.caption ?? "");
+  const [isSavingCaption, setIsSavingCaption] = useState(false);
+  const [isSavingDate, setIsSavingDate] = useState(false);
+
+  // Shared by onBlur and every close path (✕, backdrop click, Escape) —
+  // closing via anything other than tabbing/clicking away from the input
+  // removes it from the DOM without reliably firing a blur first (verified
+  // directly: Escape previously did nothing at all here, and even once
+  // wired up, unmounting the input is not guaranteed to fire blur before
+  // React finishes removing it), so a caption typed and then closed via
+  // Escape/backdrop was silently lost — this makes the save happen
+  // explicitly on every close, not just blur.
+  async function saveCaptionIfChanged() {
+    const trimmed = captionDraft.trim();
+    if (trimmed === (photo.caption ?? "")) return; // no real change, skip the round trip
+    setIsSavingCaption(true);
+    const result = await updatePhotoCaption(photo.id, trimmed || null);
+    setIsSavingCaption(false);
+    if ("error" in result) {
+      window.alert(result.error);
+      return;
+    }
+    onPhotoUpdated(photo.id, { caption: trimmed || null });
+  }
+
+  async function handleRequestClose() {
+    await saveCaptionIfChanged();
+    onClose();
+  }
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") handleRequestClose();
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [captionDraft]);
+
+  async function handleTakenAtChange(value: string) {
+    setIsSavingDate(true);
+    const result = await updatePhotoTakenAt(photo.id, value || null);
+    setIsSavingDate(false);
+    if ("error" in result) {
+      window.alert(result.error);
+      return;
+    }
+    onPhotoUpdated(photo.id, { taken_at: value || null });
+  }
 
   function handleImageClick(e: React.MouseEvent<HTMLImageElement>) {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -92,7 +147,7 @@ export function PhotoLightbox({
     <div
       className="fixed inset-0 z-30 flex items-start justify-center overflow-y-auto bg-black/60 p-6 sm:p-10"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) handleRequestClose();
       }}
     >
       <div className="flex max-h-full w-full max-w-2xl flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] font-[family-name:var(--font-family-base)] text-[color:var(--color-text-primary)] shadow-[var(--shadow-4)]">
@@ -105,13 +160,20 @@ export function PhotoLightbox({
               Tap anywhere on the photo to tag someone.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="shrink-0 rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-2 py-1 text-sm text-[color:var(--color-text-secondary)] transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)]"
-          >
-            Close ✕
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <DeletePhotoButton
+              photoId={photo.id}
+              filename={photo.original_filename}
+              onDeleted={() => onDeleted(photo.id)}
+            />
+            <button
+              type="button"
+              onClick={handleRequestClose}
+              className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-2 py-1 text-sm text-[color:var(--color-text-secondary)] transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)]"
+            >
+              Close ✕
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-5">
@@ -225,6 +287,45 @@ export function PhotoLightbox({
               Tagged: {photo.tags.map((t) => t.personName).join(", ")} — tap a pin to remove.
             </p>
           )}
+
+          <div className="mt-4 flex flex-col gap-3 border-t border-[color:var(--color-border-subtle)] pt-4">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-text-secondary)]">
+                Caption {isSavingCaption && "(saving…)"}
+              </span>
+              <input
+                type="text"
+                value={captionDraft}
+                onChange={(e) => setCaptionDraft(e.target.value)}
+                onBlur={saveCaptionIfChanged}
+                placeholder="Add a caption…"
+                className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-page)] px-3 py-2 text-sm text-[color:var(--color-text-primary)]"
+              />
+            </label>
+
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-text-secondary)]">
+                Taken {isSavingDate && "(saving…)"}
+              </span>
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={photo.taken_at ?? ""}
+                  onChange={(e) => handleTakenAtChange(e.target.value)}
+                  className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-page)] px-3 py-2 text-sm text-[color:var(--color-text-primary)]"
+                />
+                {photo.taken_at && (
+                  <button
+                    type="button"
+                    onClick={() => handleTakenAtChange("")}
+                    className="text-xs text-[color:var(--color-text-secondary)] underline underline-offset-2 hover:text-[color:var(--color-text-primary)]"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </label>
+          </div>
         </div>
       </div>
     </div>

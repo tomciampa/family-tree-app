@@ -3,22 +3,32 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+// factCount/anecdoteCount (documents, interviews) and tagCount (photos —
+// see getPhotoDeleteImpact) are all optional so each caller only ever
+// supplies the counts that actually apply to it, rather than every
+// caller needing a shape it doesn't have data for.
 export type DeleteImpact = {
-  factCount: number;
-  anecdoteCount: number;
+  factCount?: number;
+  anecdoteCount?: number;
+  tagCount?: number;
   personNames: string[];
 };
 
 function describeLinkedData(impact: DeleteImpact) {
   const parts: string[] = [];
-  if (impact.factCount > 0) {
+  if (impact.factCount) {
     parts.push(
       `${impact.factCount} linked fact${impact.factCount === 1 ? "" : "s"}`,
     );
   }
-  if (impact.anecdoteCount > 0) {
+  if (impact.anecdoteCount) {
     parts.push(
       `${impact.anecdoteCount} linked stor${impact.anecdoteCount === 1 ? "y" : "ies"}`,
+    );
+  }
+  if (impact.tagCount) {
+    parts.push(
+      `${impact.tagCount} person tag${impact.tagCount === 1 ? "" : "s"}`,
     );
   }
   return parts.join(" and ");
@@ -91,7 +101,7 @@ export function DeleteWithImpactButton({
   }
 
   const hasLinkedData =
-    !!impact && (impact.factCount > 0 || impact.anecdoteCount > 0);
+    !!impact && !!(impact.factCount || impact.anecdoteCount || impact.tagCount);
 
   return (
     <>
