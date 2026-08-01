@@ -58,3 +58,55 @@ export async function uploadPhoto(formData: FormData): Promise<UploadPhotoResult
   revalidatePath("/photos");
   return { id: inserted.id };
 }
+
+type AddPhotoTagResult = { error: string } | { id: string };
+
+// x/y are 0.0-1.0 (percentage of the displayed image's width/height at
+// click time — see photo-lightbox.tsx), not pixels, so a tag stays
+// correctly positioned regardless of what size the image renders at
+// later. person_id is trusted to already be scoped to the active family
+// (PersonSearch here is only ever given that family's people — see
+// photos-view.tsx), but the same-family invariant is also enforced at
+// the DB layer regardless (Stage 2 migration's trigger) — never trust a
+// client-picked id alone for something a stale UI state or a future bug
+// could get wrong.
+export async function addPhotoTag(
+  photoId: string,
+  personId: string,
+  xPosition: number,
+  yPosition: number,
+): Promise<AddPhotoTagResult> {
+  const { supabase } = await requireUser();
+
+  const { data: inserted, error } = await supabase
+    .from("photo_tags")
+    .insert({
+      photo_id: photoId,
+      person_id: personId,
+      x_position: xPosition,
+      y_position: yPosition,
+    })
+    .select("id")
+    .single();
+  if (error || !inserted) {
+    return { error: error?.message ?? "Failed to save tag." };
+  }
+
+  revalidatePath("/photos");
+  return { id: inserted.id };
+}
+
+// Deletable by any active member of the photo's family, not just whoever
+// uploaded it — matches the existing convention documents/interviews
+// deletion already uses (deleteDocument/deleteInterview check only
+// family-scoped RLS, never uploaded_by), not a stricter new rule
+// introduced just for photos.
+export async function removePhotoTag(tagId: string): Promise<{ error: string } | { success: true }> {
+  const { supabase } = await requireUser();
+
+  const { error } = await supabase.from("photo_tags").delete().eq("id", tagId);
+  if (error) return { error: error.message };
+
+  revalidatePath("/photos");
+  return { success: true };
+}

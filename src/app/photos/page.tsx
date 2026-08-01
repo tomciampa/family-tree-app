@@ -13,10 +13,23 @@ export default async function PhotosPage() {
     redirect("/login");
   }
 
-  const { data: photos, error } = await supabase
-    .from("photos")
-    .select("id, storage_path, original_filename, caption, taken_at, created_at")
-    .order("created_at", { ascending: false });
+  const [{ data: photos, error }, { data: tagLinks }, { data: people }] = await Promise.all([
+    supabase
+      .from("photos")
+      .select("id, storage_path, original_filename, caption, taken_at, created_at")
+      .order("created_at", { ascending: false }),
+    // Joined with the tagged person's name up front — the gallery filter
+    // dropdown and each photo's rendered pins both need it, and neither
+    // should have to re-fetch per photo.
+    supabase.from("photo_tags").select("id, photo_id, person_id, x_position, y_position, people(name)"),
+    // Scoped to the active family by RLS alone (the same query pattern
+    // every other person-picker in the app already uses) — this is what
+    // guarantees the tagging UI's PersonSearch can never show, let alone
+    // tag, someone from a different family. select("*") to match
+    // PersonSearch's expected Tables<"people"> shape, same as every other
+    // caller of that shared component.
+    supabase.from("people").select("*").order("name"),
+  ]);
 
   // Deliberately not reusing lib/documents.ts's getSignedDocumentUrls —
   // it's hardcoded to the "documents" bucket, and photos live in their
@@ -38,9 +51,29 @@ export default async function PhotosPage() {
     }
   }
 
+  const tagsByPhoto = new Map<string, PhotoRow["tags"]>();
+  for (const link of tagLinks ?? []) {
+    // x_position/y_position are nullable at the DB level (Stage 1 added
+    // them nullable since nothing wrote them yet) but addPhotoTag always
+    // sets both together — a row missing either here would mean it was
+    // written some other way, so skip rather than render a badly-placed
+    // pin.
+    if (!link.people || link.x_position === null || link.y_position === null) continue;
+    const list = tagsByPhoto.get(link.photo_id) ?? [];
+    list.push({
+      id: link.id,
+      personId: link.person_id,
+      personName: link.people.name,
+      x: link.x_position,
+      y: link.y_position,
+    });
+    tagsByPhoto.set(link.photo_id, list);
+  }
+
   const photosWithUrls: PhotoRow[] = (photos ?? []).map((p) => ({
     ...p,
     viewUrl: urlByPath.get(p.storage_path) ?? null,
+    tags: tagsByPhoto.get(p.id) ?? [],
   }));
 
   return (
@@ -61,7 +94,7 @@ export default async function PhotosPage() {
         <p className="mx-auto text-sm text-[color:var(--color-error)]">{error.message}</p>
       )}
 
-      {!error && <PhotosView photos={photosWithUrls} />}
+      {!error && <PhotosView photos={photosWithUrls} people={people ?? []} />}
     </main>
   );
 }

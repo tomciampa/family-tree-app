@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { FamilyTree } from "@/components/family-tree";
 import { PersonPanel } from "./person-panel";
-import { PersonDossier } from "./person-dossier";
+import { PersonDossier, type PersonPhoto } from "./person-dossier";
 import { AttachToTreeForm } from "./attach-to-tree-form";
 import { deletePerson } from "./actions";
 import type { PersonDocument } from "./document-list";
@@ -24,6 +24,7 @@ export function TreeView({
   facts,
   anecdotes,
   personDocuments,
+  personPhotos,
   personSummaries,
   defaultMainPersonId,
 }: {
@@ -33,6 +34,7 @@ export function TreeView({
   facts: Fact[];
   anecdotes: Anecdote[];
   personDocuments: PersonDocument[];
+  personPhotos: (PersonPhoto & { personId: string })[];
   personSummaries: Record<string, PersonSummary>;
   defaultMainPersonId?: string | null;
 }) {
@@ -131,6 +133,9 @@ export function TreeView({
   const dossierDocuments = dossierPerson
     ? personDocuments.filter((d) => d.personId === dossierPerson.id)
     : [];
+  const dossierPhotos = dossierPerson
+    ? personPhotos.filter((p) => p.personId === dossierPerson.id)
+    : [];
 
   const attachingPerson = people.find((p) => p.id === attachingId) ?? null;
 
@@ -164,6 +169,7 @@ export function TreeView({
             facts={dossierFacts}
             anecdotes={dossierAnecdotes}
             documents={dossierDocuments}
+            photos={dossierPhotos}
             onClose={() => setDossierId(null)}
           />
         )}

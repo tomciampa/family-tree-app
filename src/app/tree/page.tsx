@@ -5,6 +5,7 @@ import { getSignedDocumentUrls } from "@/lib/documents";
 import { buildPersonSummaries, getFamilyId } from "@/lib/family";
 import { TreeView } from "./tree-view";
 import { AddFirstPersonForm } from "./add-first-person-form";
+import type { PersonPhoto } from "./person-dossier";
 
 export default async function TreePage() {
   const supabase = await createClient();
@@ -25,6 +26,7 @@ export default async function TreePage() {
     { data: facts, error: factsError },
     { data: anecdotes, error: anecdotesError },
     { data: documentLinks, error: documentLinksError },
+    { data: photoLinks, error: photoLinksError },
     { data: membership },
   ] = await Promise.all([
     supabase.from("people").select("*").order("created_at"),
@@ -35,6 +37,9 @@ export default async function TreePage() {
     supabase
       .from("document_people")
       .select("person_id, documents(id, filename, file_path, document_type)"),
+    supabase
+      .from("photo_tags")
+      .select("person_id, photos(id, storage_path, original_filename, caption)"),
     // Not part of the `error` union below — a missing/failed lookup here
     // should never block rendering the tree, just fall through to
     // pickDefaultMain's existing behavior (see FamilyTree's own comment).
@@ -52,7 +57,8 @@ export default async function TreePage() {
     unionChildrenError ??
     factsError ??
     anecdotesError ??
-    documentLinksError;
+    documentLinksError ??
+    photoLinksError;
 
   const urlByPath = await getSignedDocumentUrls(
     supabase,
@@ -68,6 +74,35 @@ export default async function TreePage() {
       filename: l.documents!.filename,
       documentType: l.documents!.document_type,
       viewUrl: urlByPath.get(l.documents!.file_path) ?? null,
+    }));
+
+  // Own separate signed-url fetch, same reasoning as photos/page.tsx —
+  // photos live in their own "photos" bucket, not "documents", so
+  // getSignedDocumentUrls (hardcoded to that bucket) doesn't apply here.
+  const photoPaths = (photoLinks ?? [])
+    .map((l) => l.photos?.storage_path)
+    .filter((p): p is string => !!p);
+  let photoUrlByPath = new Map<string, string>();
+  if (photoPaths.length > 0) {
+    const { data: signed } = await supabase.storage
+      .from("photos")
+      .createSignedUrls([...new Set(photoPaths)], 3600);
+    if (signed) {
+      photoUrlByPath = new Map(
+        signed
+          .filter((s): s is typeof s & { signedUrl: string; path: string } => !!s.signedUrl && !!s.path)
+          .map((s) => [s.path, s.signedUrl]),
+      );
+    }
+  }
+  const personPhotos: (PersonPhoto & { personId: string })[] = (photoLinks ?? [])
+    .filter((l) => l.photos)
+    .map((l) => ({
+      personId: l.person_id,
+      id: l.photos!.id,
+      originalFilename: l.photos!.original_filename,
+      caption: l.photos!.caption,
+      viewUrl: photoUrlByPath.get(l.photos!.storage_path) ?? null,
     }));
 
   // For the "search for an existing person instead of creating a new
@@ -103,6 +138,7 @@ export default async function TreePage() {
           facts={facts ?? []}
           anecdotes={anecdotes ?? []}
           personDocuments={personDocuments}
+          personPhotos={personPhotos}
           personSummaries={personSummaries}
           defaultMainPersonId={membership?.linked_person_id ?? null}
         />

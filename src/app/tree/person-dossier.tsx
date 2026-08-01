@@ -12,19 +12,31 @@ type Person = Tables<"people">;
 type Fact = Tables<"facts">;
 type Anecdote = Tables<"anecdotes">;
 
-type Tab = "facts" | "stories" | "documents";
+// Display-only in the dossier — tagging itself happens from /photos'
+// lightbox (see photo-lightbox.tsx), not from here. Just what the tab
+// needs to render a photo the person is tagged in.
+export type PersonPhoto = {
+  id: string;
+  viewUrl: string | null;
+  originalFilename: string;
+  caption: string | null;
+};
+
+type Tab = "facts" | "stories" | "documents" | "photos";
 
 export function PersonDossier({
   person,
   facts,
   anecdotes,
   documents,
+  photos,
   onClose,
 }: {
   person: Person;
   facts: Fact[];
   anecdotes: Anecdote[];
   documents: PersonDocument[];
+  photos: PersonPhoto[];
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("facts");
@@ -35,6 +47,7 @@ export function PersonDossier({
     { key: "facts", label: "Facts" },
     { key: "stories", label: "Stories" },
     { key: "documents", label: "Documents" },
+    { key: "photos", label: "Photos" },
   ];
 
   // The only delete path for an on-tree person now that family-chart's own
@@ -44,9 +57,9 @@ export function PersonDossier({
   // that one, plus the tree-structure note that one doesn't need (a loose
   // person has no parent/spouse/child links to lose).
   function handleDelete() {
-    const hasData = facts.length + anecdotes.length + documents.length > 0;
+    const hasData = facts.length + anecdotes.length + documents.length + photos.length > 0;
     const message = hasData
-      ? `Delete ${person.name}? This also removes ${facts.length} fact(s), ${anecdotes.length} stor${anecdotes.length === 1 ? "y" : "ies"}, and unlinks ${documents.length} document(s) attached to them, and removes them from the tree's parent/spouse/child structure. This can't be undone.`
+      ? `Delete ${person.name}? This also removes ${facts.length} fact(s), ${anecdotes.length} stor${anecdotes.length === 1 ? "y" : "ies"}, unlinks ${documents.length} document(s) and ${photos.length} photo tag(s) attached to them (the photos themselves aren't deleted), and removes them from the tree's parent/spouse/child structure. This can't be undone.`
       : `Delete ${person.name}? This also removes them from the tree's parent/spouse/child structure. This can't be undone.`;
     if (!window.confirm(message)) return;
     setDeleteError(null);
@@ -103,6 +116,37 @@ export function PersonDossier({
         )}
         {tab === "stories" && (
           <AnecdoteList anecdotes={anecdotes} theme="neutral" />
+        )}
+        {tab === "photos" && (
+          <div className="flex flex-col gap-3">
+            {photos.length === 0 ? (
+              <p className="text-sm text-[color:var(--color-text-secondary)]">
+                No photos tagged of {person.name} yet.
+              </p>
+            ) : (
+              <div className="grid grid-cols-3 gap-2">
+                {photos.map((photo) => (
+                  <div key={photo.id} className="flex flex-col gap-1">
+                    {photo.viewUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={photo.viewUrl}
+                        alt={photo.originalFilename}
+                        className="aspect-square w-full rounded-[var(--radius-sm)] border border-[color:var(--color-border)] object-cover"
+                      />
+                    ) : (
+                      <div className="aspect-square w-full rounded-[var(--radius-sm)] bg-[color:var(--color-bg-surface-alt)]" />
+                    )}
+                    {photo.caption && (
+                      <span className="truncate text-xs text-[color:var(--color-text-secondary)]">
+                        {photo.caption}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
         {tab === "documents" && (
           <DocumentList documents={documents} theme="neutral" showHeading={false} />
