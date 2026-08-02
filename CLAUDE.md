@@ -454,6 +454,52 @@ existing document/photo tables' own workflows:
   — so every confirmed candidate silently fell through to "skipped" with zero facts written, no
   error anywhere. Fixed by keying on plain index, matching what the client actually sends.
 
+## Exact-duplicate detection (documents & photos)
+`documents`/`photos` both carry `content_hash` (SHA-256 hex) and a self-referencing
+`duplicate_of_id`, set at insert time across all three upload paths (web document upload, web
+photo upload, email intake) — never a trigger, since the "which existing row is the original"
+lookup already needs the family scope and table context application code already has on hand.
+`src/lib/content-hash.ts` (`sha256Hex`/`findDuplicateId`) is shared by the two web upload
+actions and the email webhook's own insert of both; the Cloudflare Worker can't import that
+module (separate bundler/runtime) so it has its own `cloudflare-worker/content-hash.ts` doing
+the same SHA-256-hex computation via Web Crypto — a deterministic standard algorithm, so hashes
+from either side are directly comparable.
+
+The email path hashes an attachment's **original** bytes (`rawBytes` in
+`cloudflare-worker/email-intake.ts`), before `compressImage()` ever runs, and threads that hash
+through the webhook payload as `originalContentHash` — deliberately not re-hashing whatever
+ends up in Storage, so a since-compressed emailed photo still matches an identical original
+uploaded via the website (which never compresses). Web uploads have no compression step at all,
+so hashing right before the Storage `.upload()` call is already an original-bytes hash there.
+
+Behavior differs sharply by path, not by table: a **web** upload (document or photo) always goes
+through silently regardless of a hash match — `duplicate_of_id` is set for later reference, but
+never a warning or a block. An **email** upload still creates the row as normal either way, but
+a match surfaces as a "possible duplicate" item in the homepage's "Tasks pending your review"
+list (`getPendingReview`'s `possibleDuplicates`), linking to `/documents/[id]` (a banner added to
+the existing `document-review.tsx`, next to the `DeleteDocumentButton` already there) or to the
+new `/photos/compare/[id]` (photos had no per-item page at all before this — a deliberately
+minimal side-by-side/stacked view: each photo's upload date, source, and submitted-by info if
+emailed, no other comparison tooling, with `DeletePhotoButton` — now `redirectTo`-capable like
+`DeleteDocumentButton`/`DeleteInterviewButton` — on the newer, flagged photo only).
+
+Backfilled (2026-08-02) for the 32 pre-existing rows (13 documents, all web-sourced so never
+compressed; 19 photos, 11 of them email-sourced) by downloading and hashing each row's
+currently-stored bytes — spot-checked against `shasum -a 256` directly on a downloaded file to
+confirm the algorithm/encoding matches exactly. This backfill has one honest, accepted
+limitation: for the 11 pre-existing email-sourced photos, only the current (possibly already
+compressed) bytes could be hashed — the true original bytes were never persisted anywhere and
+are gone. A web upload today that's byte-identical to one of those photos' true originals won't
+be caught as a duplicate against that specific old row. Historical-only and narrow (at most 11
+rows, further narrowed by which were actually large enough to trigger compression); any two rows
+created after this shipped always compare consistently. No further mitigation planned.
+
+Deliberately excludes interview segments/sessions and email-body-note rows from this feature's
+scope entirely — they aren't "the same file uploaded twice" candidates the way a photo or
+document attachment is. Every lookup/write site scopes documents to
+`interviewee_person_id`/`parent_document_id` both null and `is_email_body_note` false, same
+established exclusion pattern used everywhere else this table needed it.
+
 ## Home page dashboard
 `/` shows a "Tasks pending your review" section (`src/lib/pending-review.ts`) right after the
 welcome header — the first thing surfaced after signing in. It reuses the exact same

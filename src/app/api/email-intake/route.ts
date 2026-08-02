@@ -9,6 +9,7 @@ import {
 } from "@/app/documents/actions";
 import { extractEmailBodyCandidates } from "./email-body-extraction";
 import { matchEmailNoteCandidatesWith } from "@/app/email-notes/actions";
+import { findDuplicateId } from "@/lib/content-hash";
 
 // Intake endpoint for the email-based upload feature. Nothing here is
 // user-session-authenticated — there is no browser, no cookies, no signed-
@@ -48,6 +49,12 @@ const payloadSchema = z.object({
       filename: z.string().min(1),
       contentType: z.string().min(1),
       contentBase64: z.string().min(1),
+      // SHA-256 hex of the attachment's ORIGINAL bytes, hashed in the
+      // Worker before any compression (see content_hash_dedup migration
+      // and the Worker's own comment at the point it computes this) — not
+      // re-derived from contentBase64 here, since contentBase64 may
+      // already be the compressed version.
+      originalContentHash: z.string().min(1),
     }),
   ),
 });
@@ -144,6 +151,12 @@ export async function POST(request: Request) {
       }
 
       if (isImage) {
+        // Duplicate check against the ORIGINAL (pre-compression) hash the
+        // Worker computed — an email upload still creates the row as
+        // normal either way; a match here only means duplicate_of_id gets
+        // set, surfaced later in "Tasks pending your review" rather than
+        // blocking or warning at upload time.
+        const duplicateOfId = await findDuplicateId(supabase, "photos", familyId, attachment.originalContentHash);
         const { data: inserted, error: insertError } = await supabase
           .from("photos")
           .insert({
@@ -155,6 +168,8 @@ export async function POST(request: Request) {
             source: "email",
             submitted_by_name: submittedByName,
             submitted_by_email: submittedByEmail,
+            content_hash: attachment.originalContentHash,
+            duplicate_of_id: duplicateOfId,
           })
           .select("id")
           .single();
@@ -194,6 +209,9 @@ export async function POST(request: Request) {
       // emailed-in document, leaving the raw subject line stuck as the
       // viewer's header forever. kind is left unset here on purpose so
       // classification runs normally, same as any other upload source.
+      // Same duplicate check as the photo branch above, against the
+      // documents table instead — see that branch's comment.
+      const duplicateOfId = await findDuplicateId(supabase, "documents", familyId, attachment.originalContentHash);
       const { data: inserted, error: insertError } = await supabase
         .from("documents")
         .insert({
@@ -207,6 +225,8 @@ export async function POST(request: Request) {
           source: "email",
           submitted_by_name: submittedByName,
           submitted_by_email: submittedByEmail,
+          content_hash: attachment.originalContentHash,
+          duplicate_of_id: duplicateOfId,
         })
         .select("id")
         .single();

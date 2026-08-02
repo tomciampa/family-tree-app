@@ -25,10 +25,22 @@ export type PendingEmailNoteItem = {
   unresolvedCount: number;
 };
 
+// A possible exact-duplicate flagged for review — only ever surfaced for
+// email-sourced uploads (see content_hash_dedup migration): a web upload
+// with a matching hash is let through silently, no review item at all.
+export type PendingDuplicateItem = {
+  id: string;
+  kind: "document" | "photo";
+  label: string | null;
+  originalUploadedAt: string | null;
+  reviewHref: string;
+};
+
 export type PendingReview = {
   documents: PendingDocumentItem[];
   interviews: PendingInterviewItem[];
   emailNotes: PendingEmailNoteItem[];
+  possibleDuplicates: PendingDuplicateItem[];
 };
 
 // Central "what's waiting on a human decision" view — reuses the exact
@@ -49,6 +61,8 @@ export async function getPendingReview(
     { data: segments },
     { data: emailNoteRows },
     { data: people },
+    { data: duplicateDocuments },
+    { data: duplicatePhotos },
   ] = await Promise.all([
     supabase
       .from("documents")
@@ -73,6 +87,22 @@ export async function getPendingReview(
       .select("id, submitted_by_name, submitted_by_email, candidate_people")
       .eq("is_email_body_note", true),
     supabase.from("people").select("id, name"),
+    // Possible-duplicate documents (see content_hash_dedup migration) —
+    // only email-sourced ones are ever surfaced; a web upload records
+    // duplicate_of_id too but is never flagged (see uploadDocument).
+    supabase
+      .from("documents")
+      .select("id, filename, duplicate_of_id")
+      .eq("source", "email")
+      .not("duplicate_of_id", "is", null)
+      .is("interviewee_person_id", null)
+      .is("parent_document_id", null)
+      .eq("is_email_body_note", false),
+    supabase
+      .from("photos")
+      .select("id, original_filename, duplicate_of_id")
+      .eq("source", "email")
+      .not("duplicate_of_id", "is", null),
   ]);
 
   const peopleById = new Map((people ?? []).map((p) => [p.id, p.name]));
@@ -158,5 +188,39 @@ export async function getPendingReview(
     }
   }
 
-  return { documents, interviews, emailNotes };
+  // The "uploaded on [date]" message needs the ORIGINAL row's own date,
+  // not the duplicate's — one follow-up batch fetch per table for
+  // whichever original ids are actually referenced, rather than an N+1
+  // query per flagged item.
+  const originalDocIds = [...new Set((duplicateDocuments ?? []).map((d) => d.duplicate_of_id!))];
+  const originalPhotoIds = [...new Set((duplicatePhotos ?? []).map((p) => p.duplicate_of_id!))];
+  const [{ data: originalDocs }, { data: originalPhotos }] = await Promise.all([
+    originalDocIds.length > 0
+      ? supabase.from("documents").select("id, recorded_at").in("id", originalDocIds)
+      : Promise.resolve({ data: [] as { id: string; recorded_at: string | null }[] }),
+    originalPhotoIds.length > 0
+      ? supabase.from("photos").select("id, created_at").in("id", originalPhotoIds)
+      : Promise.resolve({ data: [] as { id: string; created_at: string | null }[] }),
+  ]);
+  const originalDocDateById = new Map((originalDocs ?? []).map((d) => [d.id, d.recorded_at]));
+  const originalPhotoDateById = new Map((originalPhotos ?? []).map((p) => [p.id, p.created_at]));
+
+  const possibleDuplicates: PendingDuplicateItem[] = [
+    ...(duplicateDocuments ?? []).map((d) => ({
+      id: d.id,
+      kind: "document" as const,
+      label: d.filename,
+      originalUploadedAt: originalDocDateById.get(d.duplicate_of_id!) ?? null,
+      reviewHref: `/documents/${d.id}`,
+    })),
+    ...(duplicatePhotos ?? []).map((p) => ({
+      id: p.id,
+      kind: "photo" as const,
+      label: p.original_filename,
+      originalUploadedAt: originalPhotoDateById.get(p.duplicate_of_id!) ?? null,
+      reviewHref: `/photos/compare/${p.id}`,
+    })),
+  ];
+
+  return { documents, interviews, emailNotes, possibleDuplicates };
 }

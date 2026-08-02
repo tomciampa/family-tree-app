@@ -92,7 +92,10 @@ export default async function Home() {
 
   const pending = await getPendingReview(supabase);
   const totalPending =
-    pending.documents.length + pending.interviews.length + pending.emailNotes.length;
+    pending.documents.length +
+    pending.interviews.length +
+    pending.emailNotes.length +
+    pending.possibleDuplicates.length;
 
   const familyId = await getFamilyId();
   const gettingStarted = await getGettingStartedChecklist(supabase, user.id, familyId);
@@ -304,6 +307,26 @@ export default async function Home() {
                     <span className="shrink-0 rounded-[var(--radius-xs)] bg-[color:var(--color-warning-subtle-bg)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[color:var(--color-warning-subtle-fg)]">
                       {n.unresolvedCount} item{n.unresolvedCount === 1 ? "" : "s"} to
                       review
+                    </span>
+                  </Link>
+                </li>
+              ))}
+              {pending.possibleDuplicates.map((d) => (
+                <li key={`duplicate-${d.kind}-${d.id}`}>
+                  <Link
+                    href={d.reviewHref}
+                    className="flex items-center justify-between gap-3 rounded-[var(--radius-sm)] px-3 py-2 text-sm transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)]"
+                  >
+                    <span className="truncate">
+                      {d.kind === "photo" ? "🖼️" : "📄"} {d.label ?? "Untitled"} — looks identical to one
+                      uploaded{" "}
+                      {d.originalUploadedAt
+                        ? `on ${new Date(d.originalUploadedAt).toLocaleDateString()}`
+                        : "previously"}{" "}
+                      — review?
+                    </span>
+                    <span className="shrink-0 rounded-[var(--radius-xs)] bg-[color:var(--color-warning-subtle-bg)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[color:var(--color-warning-subtle-fg)]">
+                      possible duplicate
                     </span>
                   </Link>
                 </li>

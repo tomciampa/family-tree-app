@@ -153,7 +153,9 @@ export type Database = {
           audio_end_seconds: number | null
           audio_start_seconds: number | null
           candidate_people: Json | null
+          content_hash: string | null
           document_type: string | null
+          duplicate_of_id: string | null
           email_subject: string | null
           extraction_error: string | null
           family_id: string | null
@@ -179,7 +181,9 @@ export type Database = {
           audio_end_seconds?: number | null
           audio_start_seconds?: number | null
           candidate_people?: Json | null
+          content_hash?: string | null
           document_type?: string | null
+          duplicate_of_id?: string | null
           email_subject?: string | null
           extraction_error?: string | null
           family_id?: string | null
@@ -205,7 +209,9 @@ export type Database = {
           audio_end_seconds?: number | null
           audio_start_seconds?: number | null
           candidate_people?: Json | null
+          content_hash?: string | null
           document_type?: string | null
+          duplicate_of_id?: string | null
           email_subject?: string | null
           extraction_error?: string | null
           family_id?: string | null
@@ -228,6 +234,13 @@ export type Database = {
           uploaded_by?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "documents_duplicate_of_id_fkey"
+            columns: ["duplicate_of_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "documents_family_id_fkey"
             columns: ["family_id"]
@@ -720,7 +733,9 @@ export type Database = {
       photos: {
         Row: {
           caption: string | null
+          content_hash: string | null
           created_at: string | null
+          duplicate_of_id: string | null
           family_id: string
           id: string
           original_filename: string
@@ -733,7 +748,9 @@ export type Database = {
         }
         Insert: {
           caption?: string | null
+          content_hash?: string | null
           created_at?: string | null
+          duplicate_of_id?: string | null
           family_id: string
           id?: string
           original_filename: string
@@ -746,7 +763,9 @@ export type Database = {
         }
         Update: {
           caption?: string | null
+          content_hash?: string | null
           created_at?: string | null
+          duplicate_of_id?: string | null
           family_id?: string
           id?: string
           original_filename?: string
@@ -758,6 +777,13 @@ export type Database = {
           uploaded_by?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "photos_duplicate_of_id_fkey"
+            columns: ["duplicate_of_id"]
+            isOneToOne: false
+            referencedRelation: "photos"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "photos_family_id_fkey"
             columns: ["family_id"]

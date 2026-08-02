@@ -1,6 +1,7 @@
 import PostalMime from "postal-mime";
 import { classifySize, TOTAL_RAW_BUDGET_BYTES } from "./size-limits";
 import { compressImage, isHeicType } from "./image-compression";
+import { sha256Hex } from "./content-hash";
 
 // Cloudflare Email Worker for the email-based upload feature, Stage 1.
 // Written and committed for version control now; NOT deployed yet —
@@ -119,7 +120,12 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env) {
   // whole email bounces with a specific reason, and nothing is ever sent
   // to the webhook. Nothing gets written to the DB in that case, since
   // the webhook never even receives a request.
-  const preparedAttachments: { filename: string; contentType: string; bytes: ArrayBuffer }[] = [];
+  const preparedAttachments: {
+    filename: string;
+    contentType: string;
+    bytes: ArrayBuffer;
+    originalContentHash: string;
+  }[] = [];
   let runningTotal = 0;
   for (const attachment of parsed.attachments) {
     const filename = attachment.filename || "attachment";
@@ -127,6 +133,12 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env) {
     const rawBytes = attachment.content as ArrayBuffer;
     const isImage = contentType.toLowerCase().startsWith("image/");
     const tier = classifySize(rawBytes.byteLength, isImage);
+
+    // Hashed from rawBytes — the untouched original, before whatever
+    // compression happens below — so an emailed photo that later gets
+    // compressed still matches an identical original uploaded via the
+    // website (which never compresses). See content_hash_dedup migration.
+    const originalContentHash = await sha256Hex(rawBytes);
 
     let finalBytes = rawBytes;
     let finalContentType = contentType;
@@ -184,7 +196,12 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env) {
     const finalFilename =
       finalContentType !== contentType ? filename.replace(/\.[^./]*$/, "") + ".jpg" : filename;
 
-    preparedAttachments.push({ filename: finalFilename, contentType: finalContentType, bytes: finalBytes });
+    preparedAttachments.push({
+      filename: finalFilename,
+      contentType: finalContentType,
+      bytes: finalBytes,
+      originalContentHash,
+    });
   }
 
   const payload = {
@@ -212,6 +229,7 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env) {
       filename: a.filename,
       contentType: a.contentType,
       contentBase64: arrayBufferToBase64(a.bytes),
+      originalContentHash: a.originalContentHash,
     })),
   };
 

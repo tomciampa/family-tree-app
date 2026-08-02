@@ -30,7 +30,7 @@ export default async function DocumentReviewPage({
     supabase
       .from("documents")
       .select(
-        "id, filename, file_path, document_type, status, recorded_at, candidate_people, transcription_raw, is_email_body_note",
+        "id, filename, file_path, document_type, status, recorded_at, candidate_people, transcription_raw, is_email_body_note, duplicate_of_id",
       )
       .eq("id", id)
       .single(),
@@ -55,6 +55,21 @@ export default async function DocumentReviewPage({
 
   const urlByPath = await getSignedDocumentUrls(supabase, [document.file_path]);
   const viewUrl = urlByPath.get(document.file_path) ?? null;
+
+  // Possible-duplicate banner (see content_hash_dedup migration) — only
+  // ever meaningful here for an email-sourced document (a web upload's
+  // duplicate_of_id is recorded but never surfaced anywhere in the UI).
+  let duplicateOf: { id: string; filename: string | null; recordedAt: string | null } | null = null;
+  if (document.duplicate_of_id) {
+    const { data: original } = await supabase
+      .from("documents")
+      .select("id, filename, recorded_at")
+      .eq("id", document.duplicate_of_id)
+      .maybeSingle();
+    if (original) {
+      duplicateOf = { id: original.id, filename: original.filename, recordedAt: original.recorded_at };
+    }
+  }
 
   const personSummaries = Object.fromEntries(
     buildPersonSummaries(people ?? [], unions ?? [], unionChildren ?? []),
@@ -83,6 +98,7 @@ export default async function DocumentReviewPage({
           candidate_people: document.candidate_people as unknown as CandidatePerson[] | null,
           viewUrl,
         }}
+        duplicateOf={duplicateOf}
         people={people ?? []}
         unions={unions ?? []}
         unionChildren={unionChildren ?? []}

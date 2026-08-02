@@ -11,10 +11,17 @@ export function DeletePhotoButton({
   photoId,
   filename,
   onDeleted,
+  redirectTo,
 }: {
   photoId: string;
   filename: string;
   onDeleted?: () => void;
+  // Detail-style pages (e.g. the duplicate-compare view) that aren't the
+  // gallery itself: navigate here after a successful delete instead of
+  // just relying on the delete action's own revalidatePath. Same
+  // redirectTo pattern DeleteDocumentButton/DeleteInterviewButton already
+  // use.
+  redirectTo?: string;
 }) {
   return (
     <DeleteWithImpactButton
@@ -22,6 +29,7 @@ export function DeletePhotoButton({
       fetchImpact={() => getPhotoDeleteImpact(photoId)}
       onConfirmDelete={() => deletePhoto(photoId)}
       onDeleted={onDeleted}
+      redirectTo={redirectTo}
     />
   );
 }

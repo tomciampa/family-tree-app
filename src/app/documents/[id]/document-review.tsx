@@ -65,12 +65,16 @@ function namesConflict(a: string, b: string) {
 
 export function DocumentReview({
   doc,
+  duplicateOf,
   people,
   unions,
   unionChildren,
   personSummaries,
 }: {
   doc: ReviewDocument;
+  // Set only when this document was flagged as a possible exact duplicate
+  // (see content_hash_dedup migration) — the earlier row it matched.
+  duplicateOf: { id: string; filename: string | null; recordedAt: string | null } | null;
   people: Person[];
   unions: UnionRow[];
   unionChildren: UnionChild[];
@@ -235,6 +239,19 @@ export function DocumentReview({
           />
         </div>
       </div>
+
+      {duplicateOf && (
+        <p className="rounded-[var(--radius-sm)] border border-[color:var(--color-warning)] bg-[color:var(--color-warning-subtle-bg)] px-3 py-2 text-sm text-[color:var(--color-warning-subtle-fg)]">
+          This looks identical to{" "}
+          <a href={`/documents/${duplicateOf.id}`} className="underline">
+            &quot;{duplicateOf.filename ?? "a document"}&quot; uploaded
+            {duplicateOf.recordedAt
+              ? ` on ${new Date(duplicateOf.recordedAt).toLocaleDateString()}`
+              : " previously"}
+          </a>{" "}
+          — review, and use Delete above if this is a duplicate.
+        </p>
+      )}
 
       {error && <p className="text-sm text-[color:var(--color-error)]">{error}</p>}
 

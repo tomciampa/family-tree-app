@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getFamilyId } from "@/lib/family";
 import { sanitizeFilenameForStorageKey } from "@/lib/sanitize-filename";
+import { sha256Hex, findDuplicateId } from "@/lib/content-hash";
 
 async function requireUser() {
   const supabase = await createClient();
@@ -35,6 +36,13 @@ export async function uploadPhoto(formData: FormData): Promise<UploadPhotoResult
   const safeName = sanitizeFilenameForStorageKey(file.name);
   const storagePath = `${familyId}/${crypto.randomUUID()}-${safeName}`;
 
+  // Exact-duplicate detection (see content_hash_dedup migration) — same
+  // silent, record-only behavior as the document upload path: an
+  // "original" hash since there's no compression on this path, and
+  // duplicate_of_id never blocks or warns here, just gets recorded.
+  const contentHash = sha256Hex(bytes);
+  const duplicateOfId = await findDuplicateId(supabase, "photos", familyId, contentHash);
+
   const { error: uploadError } = await supabase.storage
     .from("photos")
     .upload(storagePath, bytes, { contentType: file.type || undefined });
@@ -47,6 +55,8 @@ export async function uploadPhoto(formData: FormData): Promise<UploadPhotoResult
       storage_path: storagePath,
       original_filename: file.name,
       uploaded_by: user.id,
+      content_hash: contentHash,
+      duplicate_of_id: duplicateOfId,
     })
     .select("id")
     .single();

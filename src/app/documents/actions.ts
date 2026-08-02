@@ -26,6 +26,7 @@ import {
   getRealGrandchildIds,
 } from "@/lib/relationship-graph";
 import { classifyRelationType } from "@/lib/relation-classification";
+import { sha256Hex, findDuplicateId } from "@/lib/content-hash";
 
 async function requireUser() {
   const supabase = await createClient();
@@ -57,6 +58,15 @@ export async function uploadDocument(
   const bytes = new Uint8Array(await file.arrayBuffer());
   const storagePath = `${familyId}/${crypto.randomUUID()}-${file.name}`;
 
+  // Exact-duplicate detection (see content_hash_dedup migration) — hashed
+  // before upload, from the exact bytes the user picked, so this is
+  // always an "original" hash for the web path (no compression here,
+  // unlike the email path). A web upload always goes through silently
+  // regardless of the result — duplicate_of_id is just recorded for
+  // later reference, never a warning or a block.
+  const contentHash = sha256Hex(bytes);
+  const duplicateOfId = await findDuplicateId(supabase, "documents", familyId, contentHash);
+
   const { error: uploadError } = await supabase.storage
     .from("documents")
     .upload(storagePath, bytes, { contentType: file.type || undefined });
@@ -71,6 +81,8 @@ export async function uploadDocument(
       family_id: familyId,
       status: "pending_match",
       uploaded_by: user?.id ?? null,
+      content_hash: contentHash,
+      duplicate_of_id: duplicateOfId,
     })
     .select("id")
     .single();
