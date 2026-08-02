@@ -163,6 +163,7 @@ export type Database = {
           id: string
           interview_summary: string | null
           interviewee_person_id: string | null
+          is_email_body_note: boolean
           kind: string | null
           parent_document_id: string | null
           prompt_text: string | null
@@ -188,6 +189,7 @@ export type Database = {
           id?: string
           interview_summary?: string | null
           interviewee_person_id?: string | null
+          is_email_body_note?: boolean
           kind?: string | null
           parent_document_id?: string | null
           prompt_text?: string | null
@@ -213,6 +215,7 @@ export type Database = {
           id?: string
           interview_summary?: string | null
           interviewee_person_id?: string | null
+          is_email_body_note?: boolean
           kind?: string | null
           parent_document_id?: string | null
           prompt_text?: string | null

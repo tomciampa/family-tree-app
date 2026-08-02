@@ -16,6 +16,12 @@ import {
   factFieldForRelation,
   type CandidatePerson,
 } from "@/app/documents/candidate-schema";
+import {
+  makeCandidateFactSchema,
+  makeCandidateAnecdoteSchema,
+  resolveAbout,
+  type AboutRef,
+} from "./extraction-schema";
 import { addFirstPerson } from "@/app/tree/actions";
 import { STANDARD_FIELD_LABELS } from "@/app/tree/constants";
 import { INTERVIEW_PROMPTS, type InterviewPrompt } from "./prompts";
@@ -594,50 +600,13 @@ export async function generateInterviewSummary(
   return { summary };
 }
 
-const interviewCandidateFactSchema = z.object({
-  about: z
-    .string()
-    .describe(
-      "Exactly matches either the interviewee's own name or the exact name of one of the people listed in `people` — whoever this fact is about.",
-    ),
-  field: z
-    .string()
-    .describe(
-      "Short label for the kind of fact. If this states one of the standard genealogy " +
-        `fields — ${STANDARD_FIELD_LABELS.join(", ")} — use that EXACT label, character for ` +
-        "character (e.g. 'Birth Date', never 'Birth' or 'Born'). If a single statement gives " +
-        "more than one of these (e.g. 'born in Portsmouth, New Hampshire on December 14, " +
-        "1987' states both a Birth Place and a Birth Date), emit a SEPARATE fact entry per " +
-        "standard field, each with only that one piece of information as its value — never " +
-        "merge multiple standard fields into one combined value. For anything that isn't one " +
-        "of those standard fields, use a short freeform label instead, e.g. 'Education', " +
-        "'Military Service', 'Marriage'.",
-    ),
-  value: z.string().describe("The factual claim itself, stated concisely"),
-  confidence: z
-    .string()
-    .nullable()
-    .describe(
-      "If the interviewee hedged (e.g. 'I think', 'I'm not sure', 'maybe', 'I guess') capture that hedge briefly here, e.g. 'uncertain' or 'not sure'. Null if stated plainly and confidently.",
-    ),
-  quote: z
-    .string()
-    .describe("The verbatim sentence(s) from the transcript this fact is drawn from"),
-});
+const interviewCandidateFactSchema = makeCandidateFactSchema(
+  "Exactly matches either the interviewee's own name or the exact name of one of the people listed in `people` — whoever this fact is about.",
+);
 
-const interviewCandidateAnecdoteSchema = z.object({
-  about: z
-    .string()
-    .describe(
-      "Exactly matches either the interviewee's own name or the exact name of one of the people listed in `people` — whoever this story centers on.",
-    ),
-  storyText: z
-    .string()
-    .describe("The narrative story itself, as told — not a discrete factual claim"),
-  quote: z
-    .string()
-    .describe("The verbatim excerpt from the transcript this anecdote is drawn from"),
-});
+const interviewCandidateAnecdoteSchema = makeCandidateAnecdoteSchema(
+  "Exactly matches either the interviewee's own name or the exact name of one of the people listed in `people` — whoever this story centers on.",
+);
 
 const interviewExtractionSchema = z.object({
   people: z
@@ -657,38 +626,13 @@ const interviewExtractionSchema = z.object({
     ),
 });
 
-// Resolves which person a fact/anecdote's "about" name refers to, by exact
-// (then partial, e.g. "Karen" for "Karen Dubois") match against the
-// interviewee's own name or one of this segment's extracted people —
-// resolved once at extraction time and stable afterward, since matching
-// (matchCandidatesForSegment) only enriches each people[] entry in place,
-// never reorders it.
-export type AboutRef =
-  | { type: "interviewee" }
-  | { type: "person"; index: number; name: string }
-  | { type: "unresolved"; raw: string };
-
-function resolveAbout(
-  about: string,
-  intervieweeName: string,
-  people: { name: string }[],
-): AboutRef {
-  const normalize = (s: string) => s.trim().toLowerCase();
-  if (normalize(about) === normalize(intervieweeName)) return { type: "interviewee" };
-
-  const exactIndex = people.findIndex((p) => normalize(p.name) === normalize(about));
-  if (exactIndex >= 0) return { type: "person", index: exactIndex, name: people[exactIndex].name };
-
-  const partialIndex = people.findIndex(
-    (p) =>
-      normalize(p.name).includes(normalize(about)) || normalize(about).includes(normalize(p.name)),
-  );
-  if (partialIndex >= 0) {
-    return { type: "person", index: partialIndex, name: people[partialIndex].name };
-  }
-
-  return { type: "unresolved", raw: about };
-}
+// Re-exported so existing `import { type AboutRef } from "./actions"`
+// call sites (interviews-view.tsx, interview-review.tsx) keep working
+// unchanged — the real definition moved to extraction-schema.ts (see
+// that file's own comment) since this is a "use server" file and can
+// only export async functions as real values, but a type-only
+// re-export is exempt from that restriction.
+export type { AboutRef };
 
 export type InterviewCandidateFact = z.infer<typeof interviewCandidateFactSchema> & {
   aboutRef: AboutRef;
@@ -815,11 +759,11 @@ export async function extractCandidatesFromSegment(
   const people = result.object.people;
   const facts = result.object.facts.map((f) => ({
     ...f,
-    aboutRef: resolveAbout(f.about, interviewee.name, people),
+    aboutRef: resolveAbout(f.about, people, interviewee.name),
   }));
   const anecdotes = result.object.anecdotes.map((a) => ({
     ...a,
-    aboutRef: resolveAbout(a.about, interviewee.name, people),
+    aboutRef: resolveAbout(a.about, people, interviewee.name),
   }));
 
   const extraction: InterviewExtraction = { people, facts, anecdotes };

@@ -91,7 +91,8 @@ export default async function Home() {
   }
 
   const pending = await getPendingReview(supabase);
-  const totalPending = pending.documents.length + pending.interviews.length;
+  const totalPending =
+    pending.documents.length + pending.interviews.length + pending.emailNotes.length;
 
   const familyId = await getFamilyId();
   const gettingStarted = await getGettingStartedChecklist(supabase, user.id, familyId);
@@ -286,6 +287,22 @@ export default async function Home() {
                     </span>
                     <span className="shrink-0 rounded-[var(--radius-xs)] bg-[color:var(--color-warning-subtle-bg)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[color:var(--color-warning-subtle-fg)]">
                       {i.unresolvedCount} item{i.unresolvedCount === 1 ? "" : "s"} to
+                      review
+                    </span>
+                  </Link>
+                </li>
+              ))}
+              {pending.emailNotes.map((n) => (
+                <li key={`email-note-${n.id}`}>
+                  <Link
+                    href={`/email-notes/${n.id}`}
+                    className="flex items-center justify-between gap-3 rounded-[var(--radius-sm)] px-3 py-2 text-sm transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)]"
+                  >
+                    <span className="truncate">
+                      ✉️ Email from {n.senderName || n.senderEmail || "unknown sender"}
+                    </span>
+                    <span className="shrink-0 rounded-[var(--radius-xs)] bg-[color:var(--color-warning-subtle-bg)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[color:var(--color-warning-subtle-fg)]">
+                      {n.unresolvedCount} item{n.unresolvedCount === 1 ? "" : "s"} to
                       review
                     </span>
                   </Link>

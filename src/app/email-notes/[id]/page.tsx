@@ -1,12 +1,11 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getSignedDocumentUrls } from "@/lib/documents";
 import { buildPersonSummaries } from "@/lib/family";
-import { DocumentReview } from "./document-review";
-import type { CandidatePerson } from "../documents-view";
+import type { EmailNoteExtraction } from "@/app/api/email-intake/email-body-extraction";
+import { EmailNoteReview } from "./email-note-review";
 
-export default async function DocumentReviewPage({
+export default async function EmailNoteReviewPage({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -22,7 +21,7 @@ export default async function DocumentReviewPage({
   }
 
   const [
-    { data: document, error },
+    { data: note, error },
     { data: people },
     { data: unions },
     { data: unionChildren },
@@ -30,7 +29,7 @@ export default async function DocumentReviewPage({
     supabase
       .from("documents")
       .select(
-        "id, filename, file_path, document_type, status, recorded_at, candidate_people, transcription_raw, is_email_body_note",
+        "id, recorded_at, submitted_by_name, submitted_by_email, email_subject, transcription_raw, candidate_people, extraction_error, is_email_body_note",
       )
       .eq("id", id)
       .single(),
@@ -39,23 +38,15 @@ export default async function DocumentReviewPage({
     supabase.from("union_children").select("*"),
   ]);
 
-  if (error || !document) {
+  // Symmetric with documents/[id]/page.tsx's redirect the other way — a
+  // stale/guessed link to a normal document's id must never render here,
+  // since this page assumes the { people, facts, anecdotes } extraction
+  // shape rather than CandidatePerson[].
+  if (error || !note || !note.is_email_body_note) {
     notFound();
   }
 
-  // An email-body-note row (see the email_body_facts migration) shapes
-  // candidate_people as { people, facts, anecdotes }, not this page's
-  // expected CandidatePerson[] — rendering it here would hit the same
-  // shape-mismatch crash interview rows once did before they got their
-  // own exclusion. It has its own dedicated review page; redirect there
-  // instead of rendering the wrong UI on a stale/guessed link.
-  if (document.is_email_body_note) {
-    redirect(`/email-notes/${id}`);
-  }
-
-  const urlByPath = await getSignedDocumentUrls(supabase, [document.file_path]);
-  const viewUrl = urlByPath.get(document.file_path) ?? null;
-
+  const extraction = note.candidate_people as unknown as EmailNoteExtraction | null;
   const personSummaries = Object.fromEntries(
     buildPersonSummaries(people ?? [], unions ?? [], unionChildren ?? []),
   );
@@ -64,25 +55,22 @@ export default async function DocumentReviewPage({
     <main className="flex min-h-screen flex-col gap-4 p-6 font-[family-name:var(--font-family-base)] text-[color:var(--color-text-primary)]">
       <div className="flex items-center justify-between">
         <Link
-          href="/documents"
-          className="text-sm text-[color:var(--color-text-secondary)] underline transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-text-primary)]"
-        >
-          ← Documents
-        </Link>
-        <Link
           href="/"
           className="text-sm text-[color:var(--color-text-secondary)] underline transition-colors duration-[var(--duration-base)] hover:text-[color:var(--color-text-primary)]"
         >
-          Home
+          ← Home
         </Link>
       </div>
 
-      <DocumentReview
-        doc={{
-          ...document,
-          candidate_people: document.candidate_people as unknown as CandidatePerson[] | null,
-          viewUrl,
-        }}
+      <EmailNoteReview
+        documentId={note.id}
+        senderName={note.submitted_by_name}
+        senderEmail={note.submitted_by_email}
+        subject={note.email_subject}
+        recordedAt={note.recorded_at}
+        bodyText={note.transcription_raw}
+        extraction={extraction}
+        extractionError={note.extraction_error}
         people={people ?? []}
         unions={unions ?? []}
         unionChildren={unionChildren ?? []}

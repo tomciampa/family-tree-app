@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sanitizeFilenameForStorageKey } from "@/lib/sanitize-filename";
-import { deriveEmailCaption, truncateCaption } from "./clean-email-body";
+import { cleanEmailBody, deriveEmailCaption, truncateCaption } from "./clean-email-body";
 import {
   extractCandidatesFromDocument,
   matchCandidatesForDocument,
 } from "@/app/documents/actions";
+import { extractEmailBodyCandidates } from "./email-body-extraction";
+import { matchEmailNoteCandidatesWith } from "@/app/email-notes/actions";
 
 // Intake endpoint for the email-based upload feature. Nothing here is
 // user-session-authenticated — there is no browser, no cookies, no signed-
@@ -33,15 +35,21 @@ const payloadSchema = z.object({
   }),
   subject: z.string().nullable().optional(),
   bodyText: z.string().nullable().optional(),
-  attachments: z
-    .array(
-      z.object({
-        filename: z.string().min(1),
-        contentType: z.string().min(1),
-        contentBase64: z.string().min(1),
-      }),
-    )
-    .min(1),
+  // The email's own Date: header (see the Worker's payload comment) —
+  // used as the reference timestamp for resolving relative date
+  // expressions in the body, not webhook-receipt time.
+  date: z.string().nullable().optional(),
+  // No longer .min(1) — a body-only email (no attachments at all) is now
+  // a valid, useful payload for the email-body-facts feature. The Worker
+  // itself still rejects a truly empty email (no attachments AND no body
+  // text) before ever sending anything here.
+  attachments: z.array(
+    z.object({
+      filename: z.string().min(1),
+      contentType: z.string().min(1),
+      contentBase64: z.string().min(1),
+    }),
+  ),
 });
 
 type AttachmentResult =
@@ -75,7 +83,7 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  const { token, from, subject, bodyText, attachments } = parsed.data;
+  const { token, from, subject, bodyText, date, attachments } = parsed.data;
 
   const supabase = createAdminClient();
 
@@ -104,6 +112,11 @@ export async function POST(request: Request) {
   const submittedByName = from.name?.trim() || null;
   const submittedByEmail = from.email?.trim() || null;
   const emailSubject = subject?.trim() ? truncateCaption(subject.trim()) : null;
+  // Cleaned once, reused for both the photo-caption decision below and
+  // the "create a separate email-body-note record" decision further
+  // down — a single result so the two can never drift apart on what
+  // counts as "meaningful" content.
+  const cleanedBody = bodyText ? cleanEmailBody(bodyText) : "";
   // Photo captions prefer the email's own body text over its subject —
   // a forwarded email's subject is very often useless noise ("Fwd: Family
   // Picture of THe Week"), while the body (once cleaned of forward/reply
@@ -111,7 +124,7 @@ export async function POST(request: Request) {
   // words about the photo. Falls back to the subject only if the body is
   // empty or reduces to nothing after cleanup, and to no caption at all
   // if both are empty — never fabricates one.
-  const photoCaption = deriveEmailCaption(bodyText ?? null, subject ?? null);
+  const photoCaption = deriveEmailCaption(cleanedBody, subject ?? null);
 
   const results: AttachmentResult[] = [];
   for (const attachment of attachments) {
@@ -238,5 +251,85 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json({ familyId, results });
+  // Separate from the attachment loop above — the attachment's own
+  // routing (image -> photos, other -> documents) is unchanged. This
+  // creates an ADDITIONAL record purely from the body text, regardless
+  // of whether an attachment was also present, as long as there's
+  // meaningful content once cleaned (the same cleanedBody already
+  // computed above for the photo caption — never a second, possibly
+  // divergent cleaning pass).
+  let emailNoteResult:
+    | { id: string; extractionError: string | null }
+    | { error: string }
+    | null = null;
+
+  if (cleanedBody.trim()) {
+    // The email's own Date: header, not webhook-receipt time — the
+    // reference timestamp extraction resolves relative date expressions
+    // ("yesterday") against. Falls back to receipt time only if the
+    // header was missing or unparseable, which is an honest "we don't
+    // know when this was sent" situation, not a data-quality flag worth
+    // its own note.
+    const parsedDate = date ? new Date(date) : null;
+    const referenceDate = parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate : new Date();
+
+    const storagePath = `${familyId}/${crypto.randomUUID()}-email-body.txt`;
+    const { error: uploadError } = await supabase.storage
+      .from("documents")
+      .upload(storagePath, new TextEncoder().encode(cleanedBody), { contentType: "text/plain" });
+
+    if (uploadError) {
+      emailNoteResult = { error: uploadError.message };
+    } else {
+      const { data: inserted, error: insertError } = await supabase
+        .from("documents")
+        .insert({
+          family_id: familyId,
+          file_path: storagePath,
+          filename: emailSubject ? `${emailSubject}.txt` : "Email.txt",
+          document_type: "text/plain",
+          // No document-matching workflow applies to this row (matching
+          // happens on candidate_people.people[], not this column) —
+          // fixed placeholder, same convention interview session rows
+          // already use for the same reason.
+          status: "matched",
+          transcription_raw: cleanedBody,
+          recorded_at: referenceDate.toISOString(),
+          email_subject: emailSubject,
+          uploaded_by: null,
+          source: "email",
+          submitted_by_name: submittedByName,
+          submitted_by_email: submittedByEmail,
+          is_email_body_note: true,
+        })
+        .select("id")
+        .single();
+
+      if (insertError || !inserted) {
+        await supabase.storage.from("documents").remove([storagePath]);
+        emailNoteResult = { error: insertError?.message ?? "Failed to save email note." };
+      } else {
+        const documentId = inserted.id;
+        // Same auto-chain shape as the attachment/document path above —
+        // extract, then match, persisting any failure durably since
+        // there's no live browser tab here either.
+        let extractionError: string | null = null;
+        const extracted = await extractEmailBodyCandidates(supabase, documentId);
+        if ("error" in extracted) {
+          extractionError = extracted.error;
+        } else {
+          const matched = await matchEmailNoteCandidatesWith(supabase, familyId, documentId);
+          if ("error" in matched) extractionError = matched.error;
+        }
+        await supabase
+          .from("documents")
+          .update({ extraction_error: extractionError })
+          .eq("id", documentId);
+
+        emailNoteResult = { id: documentId, extractionError };
+      }
+    }
+  }
+
+  return NextResponse.json({ familyId, results, emailNote: emailNoteResult });
 }

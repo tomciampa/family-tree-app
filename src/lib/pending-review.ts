@@ -1,6 +1,7 @@
 import type { createClient } from "@/lib/supabase/server";
 import type { CandidatePerson } from "@/app/documents/documents-view";
 import type { InterviewExtraction } from "@/app/interviews/actions";
+import type { EmailNoteExtraction } from "@/app/api/email-intake/email-body-extraction";
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -17,9 +18,17 @@ export type PendingInterviewItem = {
   unresolvedCount: number;
 };
 
+export type PendingEmailNoteItem = {
+  id: string;
+  senderName: string | null;
+  senderEmail: string | null;
+  unresolvedCount: number;
+};
+
 export type PendingReview = {
   documents: PendingDocumentItem[];
   interviews: PendingInterviewItem[];
+  emailNotes: PendingEmailNoteItem[];
 };
 
 // Central "what's waiting on a human decision" view — reuses the exact
@@ -38,13 +47,19 @@ export async function getPendingReview(
     { data: plainDocuments },
     { data: sessions },
     { data: segments },
+    { data: emailNoteRows },
     { data: people },
   ] = await Promise.all([
     supabase
       .from("documents")
       .select("id, filename, candidate_people")
       .is("interviewee_person_id", null)
-      .is("parent_document_id", null),
+      .is("parent_document_id", null)
+      // Same crash-risk class as interview rows (candidate_people shaped
+      // as {people,facts,anecdotes}, not CandidatePerson[]) — needs its
+      // own exclusion since the two null checks above don't distinguish
+      // this case. See documents/page.tsx's identical filter.
+      .eq("is_email_body_note", false),
     supabase
       .from("documents")
       .select("id, interviewee_person_id")
@@ -53,6 +68,10 @@ export async function getPendingReview(
       .from("documents")
       .select("id, parent_document_id, candidate_people")
       .not("parent_document_id", "is", null),
+    supabase
+      .from("documents")
+      .select("id, submitted_by_name, submitted_by_email, candidate_people")
+      .eq("is_email_body_note", true),
     supabase.from("people").select("id, name"),
   ]);
 
@@ -116,5 +135,28 @@ export async function getPendingReview(
     }
   }
 
-  return { documents, interviews };
+  // Same unresolved-counting shape as the interview loop above — an
+  // email-body-note row's candidate_people is the same
+  // {people, facts, anecdotes} extraction, just with a single flat batch
+  // instead of per-segment ones.
+  const emailNotes: PendingEmailNoteItem[] = [];
+  for (const note of emailNoteRows ?? []) {
+    const extraction = note.candidate_people as unknown as EmailNoteExtraction | null;
+    if (!extraction) continue;
+    let unresolvedCount = extraction.people.filter(
+      (p) => p.roleCategory === "family" && !("resolution" in p && p.resolution),
+    ).length;
+    unresolvedCount += extraction.facts.filter((f) => !f.written).length;
+    unresolvedCount += extraction.anecdotes.filter((a) => !a.written).length;
+    if (unresolvedCount > 0) {
+      emailNotes.push({
+        id: note.id,
+        senderName: note.submitted_by_name,
+        senderEmail: note.submitted_by_email,
+        unresolvedCount,
+      });
+    }
+  }
+
+  return { documents, interviews, emailNotes };
 }

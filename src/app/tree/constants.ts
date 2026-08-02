@@ -1,6 +1,7 @@
 export const FACT_SOURCE_TYPES = [
   "document",
   "letter",
+  "email",
   "chart",
   "conflict",
   "firsthand",

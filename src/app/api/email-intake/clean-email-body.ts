@@ -93,11 +93,17 @@ export function truncateCaption(text: string, maxLength = CAPTION_MAX_LENGTH): s
 // otherwise the subject line, otherwise null (no caption at all — never
 // fabricate one). Both candidates get the same length cap; a very long
 // subject is just as unwelcome as a very long body in a caption field.
+//
+// Takes the ALREADY-cleaned body, not raw bodyText — the caller (the
+// webhook route) now also uses that same cleaned result to decide
+// whether to create a separate email-body-note record at all, and
+// calling cleanEmailBody twice on the same raw text would risk the two
+// decisions drifting apart if that function's behavior ever changes.
+// Call cleanEmailBody(bodyText) once upstream and pass its result here.
 export function deriveEmailCaption(
-  bodyText: string | null,
+  cleanedBody: string,
   subject: string | null,
 ): string | null {
-  const cleanedBody = bodyText ? cleanEmailBody(bodyText) : "";
   if (cleanedBody) return truncateCaption(cleanedBody);
 
   const trimmedSubject = subject?.trim() ?? "";

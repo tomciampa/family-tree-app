@@ -59,7 +59,12 @@ export async function getGettingStartedChecklist(
       .not("interviewee_person_id", "is", null)
       .is("parent_document_id", null),
     // Excludes interview sessions/segments, which also live in
-    // `documents` — same filter convention as getPendingReview.
+    // `documents` — same filter convention as getPendingReview. Also
+    // excludes email-body-note rows (uploaded_by is always null for
+    // those, since they're created by the webhook, not a logged-in
+    // upload — so this filter is currently moot in practice, but kept
+    // explicit for correctness/defensiveness rather than relying on that
+    // coincidence).
     supabase
       .from("documents")
       .select("id")
@@ -67,6 +72,7 @@ export async function getGettingStartedChecklist(
       .eq("family_id", familyId)
       .is("interviewee_person_id", null)
       .is("parent_document_id", null)
+      .eq("is_email_body_note", false)
       .limit(1),
     supabase
       .from("photos")

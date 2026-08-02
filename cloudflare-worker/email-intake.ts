@@ -94,11 +94,17 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env) {
     return;
   }
 
-  if (parsed.attachments.length === 0) {
-    // Nothing for the webhook to do with a text-only email — reject
-    // clearly rather than silently accepting and forwarding an empty
-    // payload the webhook's own schema would just reject anyway.
-    message.setReject("No attachments found — this address only accepts photo/document uploads.");
+  // A text-only email (no attachments) is no longer rejected here — the
+  // email-body-facts feature means a body-only email is now genuinely
+  // useful (e.g. "yesterday was John's birthday"), not just noise. Only
+  // reject an email with literally nothing usable: no attachments AND no
+  // body text at all. Whether the body text is *meaningful* once cleaned
+  // (vs. just whitespace/boilerplate) is the webhook's own call — see
+  // cleanEmailBody in clean-email-body.ts — since this Worker doesn't
+  // have that cleaning logic and duplicating it here would risk the two
+  // drifting apart.
+  if (parsed.attachments.length === 0 && !parsed.text?.trim()) {
+    message.setReject("This email has no attachments and no body text — nothing to upload.");
     return;
   }
 
@@ -188,6 +194,11 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env) {
       email: parsed.from?.address || null,
     },
     subject: parsed.subject || null,
+    // The email's own Date: header, not webhook-receipt time — used as
+    // the reference timestamp for resolving relative date expressions
+    // ("yesterday", "last week") in the body text against when the email
+    // was actually sent, not whenever the webhook happened to process it.
+    date: parsed.date || null,
     // Photo captions on the webhook side prefer this (cleaned) over the
     // subject — a forwarded email's subject line is very often useless
     // ("Fwd: Family Picture of THe Week"). Sent raw/unparsed here on

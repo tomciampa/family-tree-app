@@ -826,7 +826,9 @@ export async function getDocumentForViewer(
 
   const { data: document, error } = await supabase
     .from("documents")
-    .select("file_path, filename, document_type, transcription_raw, kind, parent_document_id")
+    .select(
+      "file_path, filename, document_type, transcription_raw, kind, parent_document_id, is_email_body_note",
+    )
     .eq("id", documentId)
     .single();
   if (error || !document) {
@@ -846,9 +848,19 @@ export async function getDocumentForViewer(
     ? await buildSegmentInterviewHeader(supabase, document.parent_document_id, document.kind)
     : null;
 
-  const kind =
-    document.kind ??
-    (await classifyDocumentKind(supabase, documentId, document.transcription_raw));
+  // An email-body-note row's file is just the cleaned email body saved as
+  // plain text (see email_body_facts) — it renders fine through the same
+  // viewUrl/transcription_raw path a regular document uses, so unlike the
+  // /documents list or document-review page this doesn't need to be
+  // excluded outright. It does need its own fixed kind rather than paying
+  // for classifyDocumentKind's AI call, which is tuned to categorize
+  // certificates/letters/charts and would be guessing at the wrong task
+  // (and writing a wrong guess back via its own `kind` cache) applied to
+  // an ordinary personal email.
+  const kind = document.is_email_body_note
+    ? "Email"
+    : (document.kind ??
+      (await classifyDocumentKind(supabase, documentId, document.transcription_raw)));
 
   return {
     viewUrl,

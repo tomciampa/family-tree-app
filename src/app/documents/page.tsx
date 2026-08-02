@@ -26,6 +26,13 @@ export default async function DocumentsPage() {
     // rather than in every consumer of this query's result.
     .is("interviewee_person_id", null)
     .is("parent_document_id", null)
+    // Email-body-note rows (see the email_body_facts migration) also live
+    // here with both of the above null, and shape candidate_people the
+    // same { people, facts, anecdotes } way interview rows do — the exact
+    // same crash risk interview rows already have a documented fix for,
+    // now needing its own explicit exclusion since interviewee_person_id/
+    // parent_document_id being null doesn't distinguish this case.
+    .eq("is_email_body_note", false)
     .order("recorded_at", { ascending: false });
 
   const urlByPath = await getSignedDocumentUrls(

@@ -111,8 +111,18 @@ async function fetchAdminDashboardStats(): Promise<AdminDashboardStats> {
   // live in this same table (see interviewee_person_id/parent_document_id
   // — the established distinguishing filter used everywhere else in the
   // app that queries this table, e.g. /interviews and /documents).
+  //
+  // Deliberate choice, not a side effect of the column existing: also
+  // excludes email-body-note rows (is_email_body_note), for the same
+  // reason interview segments are excluded — they're not something a user
+  // uploaded/manages via the documents pipeline, they're an
+  // auto-generated-from-email-text record with its own review surface
+  // (/email-notes). Counting them here would inflate "Total Documents"
+  // with rows that were never really documents from an admin's read of
+  // that number. If a distinct "Email Notes" admin metric is ever wanted,
+  // add it as its own stat rather than folding it back into this count.
   const generalDocsFilter = (q: ReturnType<typeof admin.from>) =>
-    q.is("interviewee_person_id", null).is("parent_document_id", null);
+    q.is("interviewee_person_id", null).is("parent_document_id", null).eq("is_email_body_note", false);
 
   const [
     { count: totalDocuments },
