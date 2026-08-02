@@ -43,6 +43,13 @@ supabase/.temp
 # live session, never commit
 .auth/
 
+# cloudflare-worker: a separate deployment target with its own
+# dependencies/local secrets, not part of the Next.js app's own ignores
+# above (which only anchor to the repo root).
+cloudflare-worker/node_modules
+cloudflare-worker/.dev.vars
+cloudflare-worker/.wrangler
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

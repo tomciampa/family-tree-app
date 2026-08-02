@@ -154,6 +154,7 @@ export type Database = {
           audio_start_seconds: number | null
           candidate_people: Json | null
           document_type: string | null
+          email_subject: string | null
           extraction_error: string | null
           family_id: string | null
           file_path: string
@@ -166,7 +167,10 @@ export type Database = {
           parent_document_id: string | null
           prompt_text: string | null
           recorded_at: string | null
+          source: string
           status: string
+          submitted_by_email: string | null
+          submitted_by_name: string | null
           transcription_raw: string | null
           uploaded_by: string | null
         }
@@ -175,6 +179,7 @@ export type Database = {
           audio_start_seconds?: number | null
           candidate_people?: Json | null
           document_type?: string | null
+          email_subject?: string | null
           extraction_error?: string | null
           family_id?: string | null
           file_path: string
@@ -187,7 +192,10 @@ export type Database = {
           parent_document_id?: string | null
           prompt_text?: string | null
           recorded_at?: string | null
+          source?: string
           status?: string
+          submitted_by_email?: string | null
+          submitted_by_name?: string | null
           transcription_raw?: string | null
           uploaded_by?: string | null
         }
@@ -196,6 +204,7 @@ export type Database = {
           audio_start_seconds?: number | null
           candidate_people?: Json | null
           document_type?: string | null
+          email_subject?: string | null
           extraction_error?: string | null
           family_id?: string | null
           file_path?: string
@@ -208,7 +217,10 @@ export type Database = {
           parent_document_id?: string | null
           prompt_text?: string | null
           recorded_at?: string | null
+          source?: string
           status?: string
+          submitted_by_email?: string | null
+          submitted_by_name?: string | null
           transcription_raw?: string | null
           uploaded_by?: string | null
         }
@@ -239,13 +251,6 @@ export type Database = {
             columns: ["parent_document_id"]
             isOneToOne: false
             referencedRelation: "documents"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "documents_uploaded_by_fkey"
-            columns: ["uploaded_by"]
-            isOneToOne: false
-            referencedRelation: "contributors"
             referencedColumns: ["id"]
           },
         ]
@@ -396,18 +401,21 @@ export type Database = {
         Row: {
           created_at: string | null
           created_by: string | null
+          email_upload_token: string
           id: string
           name: string
         }
         Insert: {
           created_at?: string | null
           created_by?: string | null
+          email_upload_token?: string
           id?: string
           name: string
         }
         Update: {
           created_at?: string | null
           created_by?: string | null
+          email_upload_token?: string
           id?: string
           name?: string
         }
@@ -713,7 +721,10 @@ export type Database = {
           family_id: string
           id: string
           original_filename: string
+          source: string
           storage_path: string
+          submitted_by_email: string | null
+          submitted_by_name: string | null
           taken_at: string | null
           uploaded_by: string | null
         }
@@ -723,7 +734,10 @@ export type Database = {
           family_id: string
           id?: string
           original_filename: string
+          source?: string
           storage_path: string
+          submitted_by_email?: string | null
+          submitted_by_name?: string | null
           taken_at?: string | null
           uploaded_by?: string | null
         }
@@ -733,7 +747,10 @@ export type Database = {
           family_id?: string
           id?: string
           original_filename?: string
+          source?: string
           storage_path?: string
+          submitted_by_email?: string | null
+          submitted_by_name?: string | null
           taken_at?: string | null
           uploaded_by?: string | null
         }

@@ -87,10 +87,16 @@ type ExtractCandidatesResult =
   | { error: string }
   | { candidates: z.infer<typeof candidatePersonSchema>[] };
 
+// override lets a caller with no user session (the email-intake webhook —
+// see app/api/email-intake/route.ts) supply an already-authorized client
+// (service-role, since there's no cookie session to derive one from)
+// instead of going through requireUser(). Every existing caller omits
+// this and gets the exact same behavior as before.
 export async function extractCandidatesFromDocument(
   documentId: string,
+  override?: { supabase: SupabaseClient },
 ): Promise<ExtractCandidatesResult> {
-  const supabase = await requireUser();
+  const supabase = override?.supabase ?? (await requireUser());
 
   const { data: document, error: fetchError } = await supabase
     .from("documents")
@@ -475,11 +481,15 @@ export async function matchFamilyCandidates(
   return { results };
 }
 
+// Same override escape hatch as extractCandidatesFromDocument above, for
+// the same reason (the email-intake webhook has no user session to derive
+// a client or familyId from).
 export async function matchCandidatesForDocument(
   documentId: string,
+  override?: { supabase: SupabaseClient; familyId: string },
 ): Promise<MatchCandidatesResult> {
-  const supabase = await requireUser();
-  const familyId = await getFamilyId();
+  const supabase = override?.supabase ?? (await requireUser());
+  const familyId = override?.familyId ?? (await getFamilyId());
 
   const { data: document, error: fetchError } = await supabase
     .from("documents")

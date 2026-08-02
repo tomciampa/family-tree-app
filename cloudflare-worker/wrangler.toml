@@ -1,0 +1,43 @@
+# Cloudflare Worker config for the email-based upload intake, Stage 1.
+# NOT deployed yet — see README.md for the manual deployment steps this
+# intentionally leaves for afterward (Cloudflare Email Routing needs to be
+# enabled and pointed at this Worker on a dedicated subdomain before any
+# of this actually receives mail).
+
+name = "email-intake-worker"
+main = "worker-entry.ts"
+compatibility_date = "2025-01-01"
+# Required for libheif-js (HEIC decode) specifically — its Emscripten
+# glue code has unconditional `require("fs")`/`require("path")` calls
+# for its Node-environment code path (never actually reached at runtime
+# in Workers, but esbuild still needs to resolve them at bundle time).
+# Confirmed via a real `wrangler deploy --dry-run`: without this flag,
+# the build fails outright on those two requires; with it, the build
+# succeeds and adds a real, measured +107 KB gzip to the bundle (277 KB
+# -> 385 KB), comfortably inside even the free plan's 3 MB compressed
+# limit. None of the other codecs (jSquash) need this.
+compatibility_flags = ["nodejs_compat"]
+
+# EMAIL_INTAKE_URL is not secret, so it lives here directly rather than
+# as a wrangler secret. Confirmed directly against the real Vercel
+# project (`vercel ls`/`vercel domains ls`) rather than assumed — the
+# production domain is the bare apex talkthroughhistory.com, no `www.`
+# (no www subdomain is even registered; only the apex resolves).
+# EMAIL_INTAKE_SECRET must NOT go here (this file is committed) — set it
+# with `wrangler secret put EMAIL_INTAKE_SECRET` at actual deploy time, or
+# in a local .dev.vars file (gitignored) for `wrangler dev`.
+[vars]
+EMAIL_INTAKE_URL = "https://talkthroughhistory.com/api/email-intake"
+
+# Which inbound addresses actually reach this Worker's email() handler is
+# configured separately in Cloudflare's Email Routing settings (dashboard
+# or API) — a catch-all rule on the intake subdomain pointed at this
+# Worker, not anything expressed in this file. See README.md.
+
+# image-compression.ts (jSquash + libheif-js) never relies on any
+# codec's own default self-initializing WASM loading — that path does a
+# fetch() against a file:// URL and fails in both plain Node and the real
+# Workers runtime (confirmed directly, not assumed). Every codec's real
+# compiled WebAssembly.Module is instead loaded via a static .wasm import
+# in worker-entry.ts and passed in explicitly. A real `wrangler deploy
+# --dry-run` confirmed this builds and bundles cleanly end to end.

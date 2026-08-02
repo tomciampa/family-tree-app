@@ -22,6 +22,7 @@ export default async function SettingsPage() {
     { data: unionChildren, error: unionChildrenError },
     { data: membership, error: membershipError },
     { data: memberships, error: membershipsError },
+    { data: family, error: familyError },
   ] = await Promise.all([
     supabase.from("people").select("*").order("created_at"),
     supabase.from("unions").select("*"),
@@ -40,10 +41,13 @@ export default async function SettingsPage() {
       .select("family_id, is_active, families(name)")
       .eq("user_id", user.id)
       .order("joined_at", { ascending: true }),
+    // email_upload_token for the active family's own upload address —
+    // see EmailUploadSettings in settings-view.tsx.
+    supabase.from("families").select("email_upload_token").eq("id", familyId).single(),
   ]);
 
   const error =
-    peopleError ?? unionsError ?? unionChildrenError ?? membershipError ?? membershipsError;
+    peopleError ?? unionsError ?? unionChildrenError ?? membershipError ?? membershipsError ?? familyError;
 
   const personSummaries = Object.fromEntries(
     buildPersonSummaries(people ?? [], unions ?? [], unionChildren ?? []),
@@ -79,6 +83,7 @@ export default async function SettingsPage() {
           interviewVoiceURI={membership?.interview_voice_uri ?? null}
           narrationEnabled={membership?.narration_enabled ?? true}
           families={families}
+          emailUploadToken={family?.email_upload_token ?? null}
         />
       )}
     </main>

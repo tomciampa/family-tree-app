@@ -5,9 +5,15 @@ import type { Database } from "./database.types";
 // the app that ever touches SUPABASE_SERVICE_ROLE_KEY (server-only env var,
 // never NEXT_PUBLIC_-prefixed, so it can't end up in client-bundled JS).
 // Deliberately separate from lib/supabase/server.ts's cookie-scoped,
-// RLS-bound client, which every other server action/page uses — never call
-// this without first checking the caller is a confirmed platform admin (see
-// requirePlatformAdmin in lib/admin-stats.ts). No cookie/session handling
+// RLS-bound client, which every other server action/page uses. Two
+// deliberate callers, each with its own non-session authorization check
+// standing in for RLS: the platform admin dashboard (gated on
+// requirePlatformAdmin in lib/admin-stats.ts) and the email-intake webhook
+// (app/api/email-intake/route.ts, gated on its own shared-secret header —
+// there's no user session at all on that path, so RLS has nothing to
+// scope against regardless). Any new caller needs the same kind of
+// explicit, non-RLS authorization check before this is ever appropriate —
+// this client trusts nothing on its own. No cookie/session handling
 // needed here; this authenticates as the service role itself, not a user.
 export function createAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

@@ -1,0 +1,23 @@
+{
+  "name": "email-intake-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloudflare Email Worker for talkthroughhistory.com's email-based upload feature — parses inbound email and forwards it to the Next.js app's /api/email-intake webhook. A separate deployment target from the main app; not part of the Vercel build.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@jsquash/jpeg": "^1.6.0",
+    "@jsquash/png": "^3.1.1",
+    "@jsquash/resize": "^2.1.1",
+    "libheif-js": "^1.19.8",
+    "postal-mime": "^2.2.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250101.0",
+    "typescript": "^5.7.0",
+    "wrangler": "^3.90.0"
+  }
+}
