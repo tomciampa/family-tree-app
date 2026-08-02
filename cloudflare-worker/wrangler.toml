@@ -48,3 +48,16 @@ EMAIL_INTAKE_URL = "https://talkthroughhistory.com/api/email-intake"
 # compiled WebAssembly.Module is instead loaded via a static .wasm import
 # in worker-entry.ts and passed in explicitly. A real `wrangler deploy
 # --dry-run` confirmed this builds and bundles cleanly end to end.
+
+# Explicit CPU-time ceiling for this Worker specifically — the account's
+# Workers Paid plan upgrade (2026-08-02) raises what CPU budget is
+# available to draw on, but doesn't by itself raise what any individual
+# already-deployed Worker actually claims; this Worker needs its own
+# [limits] block to draw the full amount. 30000ms is the plan's own
+# default ceiling for the standard (Bundled) usage model — set here
+# explicitly rather than left implicit, since the compression codec is
+# genuinely CPU-heavy for a >1MB image and real testing showed
+# "Exceeded CPU Limit" persisting even after the plan upgrade until this
+# was added.
+[limits]
+cpu_ms = 30000

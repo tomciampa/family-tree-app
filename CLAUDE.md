@@ -454,6 +454,47 @@ existing document/photo tables' own workflows:
   — so every confirmed candidate silently fell through to "skipped" with zero facts written, no
   error anywhere. Fixed by keying on plain index, matching what the client actually sends.
 
+### Image compression: a real production incident, root-caused and fixed (2026-08-02)
+The email path's photo compression (`cloudflare-worker/image-compression.ts`) had never actually
+succeeded for a real >1MB photo in production, despite being described as verified — Stage 1's
+verification ran `compressImage` directly in Node (confirmed via a leftover test artifact's
+timestamp predating the Worker's first-ever deployment by 56 minutes), and Node has no CPU-time
+or memory ceiling the way the real Workers isolate does. The first real large-photo emails
+(sent during the exact-duplicate-detection work above) crashed consistently — "Exceeded CPU
+Limit" or a WASM "Error: unreachable" trap — and confirmed every one of the 11 real production
+email-sourced photos had always been under 1MB, meaning this code path had silently never run
+for real before.
+
+Root-caused, not guessed at: upgrading the Cloudflare account to Workers Paid (and even adding
+an explicit `[limits] cpu_ms = 30000` to `wrangler.toml`) did **not** fix it — ruling out CPU
+time as the actual bottleneck, since real local timing showed the whole decode+resize+encode
+pipeline completing in ~1-2 seconds. The real cause, found by instrumenting the exact same code
+locally with `process.memoryUsage()`: `@jsquash/resize` alone was responsible for the majority
+of peak memory — resizing a decoded 1800x1400 image (already ~76MB resident after decode alone)
+peaked at 214MB during the resize call itself, and a 4000x3000 image peaked over 500MB. Workers
+has a **fixed 128MB isolate memory ceiling that the paid plan does not raise** (unlike CPU time,
+a hard platform constant) — even modest, realistic photo dimensions were nowhere close to
+fitting.
+
+Fixed by replacing `@jsquash/resize` entirely with a small hand-written box-average downscale
+(`boxDownscale` in `image-compression.ts`) operating directly on the decoded `ImageData` —
+averages every source pixel under each output pixel, deliberately not a fancier interpolation
+(quality is a non-goal here, see below). Allocates exactly one destination buffer instead of
+whatever `@jsquash/resize`'s WASM internals were doing; measured at ~10MB of additional memory
+for the same 1800x1400 case instead of 130MB+. One fewer WASM module to compile/instantiate at
+Worker startup too — `initCodecs` no longer takes a `resize` module, and the package is removed
+from `package.json` entirely. Real end-to-end testing after this fix (real deployed Worker, not
+Node) confirmed every previously-crashing size — from 1800x1400 up to a real 4000x3000/7.3MB
+file — now compresses and lands successfully.
+
+Alongside this, `compressImage`'s old 4-attempt iterative quality/resolution search (2000px/q75
+→ 2000px/q45 → 1200px/q60 → 800px/q40) was replaced with a single fixed pass — `TARGET_MAX_DIMENSION
+= 1600`, `TARGET_QUALITY = 40` — since this app prioritizes "don't lose the photo" over fidelity
+and there's no reason to pay for three lower-compression attempts a phone photo will essentially
+never need. This didn't turn out to be the actual fix for the crash (memory, not CPU time, was),
+but it's a real, worthwhile simplification kept regardless — a quarter of the worst-case work for
+the same outcome.
+
 ## Exact-duplicate detection (documents & photos)
 `documents`/`photos` both carry `content_hash` (SHA-256 hex) and a self-referencing
 `duplicate_of_id`, set at insert time across all three upload paths (web document upload, web

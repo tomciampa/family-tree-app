@@ -31,10 +31,6 @@ declare module "@jsquash/png/codec/pkg/squoosh_png_bg.wasm" {
   const wasmModule: WebAssembly.Module;
   export default wasmModule;
 }
-declare module "@jsquash/resize/lib/resize/pkg/squoosh_resize_bg.wasm" {
-  const wasmModule: WebAssembly.Module;
-  export default wasmModule;
-}
 declare module "libheif-js/libheif-wasm/libheif.wasm" {
   const wasmModule: WebAssembly.Module;
   export default wasmModule;

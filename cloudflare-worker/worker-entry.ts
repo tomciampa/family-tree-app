@@ -10,16 +10,20 @@
 import jpegDecWasm from "@jsquash/jpeg/codec/dec/mozjpeg_dec.wasm";
 import jpegEncWasm from "@jsquash/jpeg/codec/enc/mozjpeg_enc.wasm";
 import pngDecWasm from "@jsquash/png/codec/pkg/squoosh_png_bg.wasm";
-import resizeWasm from "@jsquash/resize/lib/resize/pkg/squoosh_resize_bg.wasm";
 import heicDecWasm from "libheif-js/libheif-wasm/libheif.wasm";
 import { initCodecs } from "./image-compression";
 import { handleEmail, type Env } from "./email-intake";
 
+// @jsquash/resize is no longer used at all (2026-08-02) — replaced by a
+// hand-written box-average downscale directly on the decoded ImageData
+// (see image-compression.ts's boxDownscale), after real testing found
+// it was the single biggest memory cost in the whole pipeline, blowing
+// past Workers' fixed 128MB isolate ceiling even for modestly-sized
+// photos. One fewer WASM module to compile/instantiate at startup too.
 const codecsReady = initCodecs({
   jpegDecode: jpegDecWasm,
   jpegEncode: jpegEncWasm,
   pngDecode: pngDecWasm,
-  resize: resizeWasm,
   heicDecode: heicDecWasm,
 });
 

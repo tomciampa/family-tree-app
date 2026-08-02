@@ -1,7 +1,6 @@
 import decodeJpeg, { init as initJpegDecode } from "@jsquash/jpeg/decode";
 import encodeJpeg, { init as initJpegEncode } from "@jsquash/jpeg/encode";
 import decodePng, { init as initPngDecode } from "@jsquash/png/decode";
-import resize, { initResize } from "@jsquash/resize";
 import libheifFactory from "libheif-js/libheif-wasm/libheif.js";
 import { MAX_ATTACHMENT_BYTES } from "./size-limits";
 
@@ -56,17 +55,15 @@ export async function initCodecs(wasm: {
   jpegDecode: WebAssembly.Module;
   jpegEncode: WebAssembly.Module;
   pngDecode: WebAssembly.Module;
-  resize: WebAssembly.Module;
   heicDecode: WebAssembly.Module;
 }): Promise<void> {
   const factory = libheifFactory as unknown as (
     opts: LibheifFactoryOptions,
   ) => Promise<HeifNamespace>;
-  const [, , , , heif] = await Promise.all([
+  const [, , , heif] = await Promise.all([
     initJpegDecode(wasm.jpegDecode),
     initJpegEncode(wasm.jpegEncode),
     initPngDecode(wasm.pngDecode),
-    initResize(wasm.resize),
     factory({
       instantiateWasm: (imports, callback) => {
         const instance = new WebAssembly.Instance(wasm.heicDecode, imports);
@@ -103,10 +100,11 @@ declare global {
 // keeps the size-targeting logic below simple (one quality knob, not a
 // format-specific one per codec).
 //
-// @jsquash/resize's ImageData construction requires the browser/DOM
-// ImageData constructor, which exists in neither the Workers runtime nor
-// plain Node by default (confirmed via investigation) — polyfilled here
-// with the minimal shape jSquash actually touches (data/width/height).
+// jSquash's decode calls (and this file's own boxDownscale, below) all
+// construct real ImageData objects, which requires the browser/DOM
+// ImageData constructor — present in neither the Workers runtime nor
+// plain Node by default (confirmed via investigation). Polyfilled here
+// with the minimal shape actually touched (data/width/height).
 // Registered once, defensively (only if not already present), since this
 // module is imported both by the real Worker and by local Node test
 // scripts that exercise this same code directly.
@@ -177,22 +175,21 @@ async function decode(contentType: string, bytes: ArrayBuffer): Promise<ImageDat
   return decodeJpeg(bytes);
 }
 
-// Bounded, deterministic attempt sequence — not an open-ended search.
-// Resolution reduction does most of the real work for a typical
-// oversized phone photo (a 12MP original re-encoded at the same
-// resolution and even low quality is often still >1MB just from raw
-// pixel entropy); quality reduction fine-tunes within each resolution
-// step. Gives up after these 4 attempts rather than looping arbitrarily
-// — an image that still can't fit under MAX_ATTACHMENT_BYTES after a
-// resize to 800px on its longest side at quality 40 is a genuinely
-// pathological case (or the polyfill/codec silently failed), not one
-// more retry away from succeeding.
-const ATTEMPTS: { maxDimension: number; quality: number }[] = [
-  { maxDimension: 2000, quality: 75 },
-  { maxDimension: 2000, quality: 45 },
-  { maxDimension: 1200, quality: 60 },
-  { maxDimension: 800, quality: 40 },
-];
+// Single fixed pass, deliberately not an iterative quality/resolution
+// search — replaced the old 4-attempt version (2000px/q75, 2000px/q45,
+// 1200px/q60, 800px/q40) after real production testing (2026-08-02)
+// showed it blowing through even an explicit 30-second Workers CPU
+// limit on real-world-sized (>1MB) photos: each attempt is its own full
+// resize+encode WASM pass, so a worst case pays for up to four of them
+// sequentially. This app prioritizes "don't lose the photo" over
+// fidelity — there's no reason to spend CPU time on three lower-
+// compression attempts a phone photo will virtually never need just to
+// preserve a quality bar nothing here asked for. One aggressive
+// downscale + fixed low quality costs at most a quarter of the old
+// worst case and reliably clears MAX_ATTACHMENT_BYTES for any real
+// photo on its own.
+const TARGET_MAX_DIMENSION = 1600;
+const TARGET_QUALITY = 40;
 
 function scaledDimensions(width: number, height: number, maxDimension: number) {
   const longest = Math.max(width, height);
@@ -202,6 +199,59 @@ function scaledDimensions(width: number, height: number, maxDimension: number) {
     width: Math.max(1, Math.round(width * scale)),
     height: Math.max(1, Math.round(height * scale)),
   };
+}
+
+// Replaces @jsquash/resize entirely (2026-08-02) — found via real
+// production testing to be the single biggest memory cost in this whole
+// pipeline, not CPU time: measured locally, resizing a decoded 1800x1400
+// image (already ~76MB resident after decode alone) peaked at 214MB
+// during the resize call itself, and a 4000x3000 image peaked over
+// 500MB — comfortably blowing Workers' fixed 128MB isolate memory
+// ceiling (a hard platform limit the paid plan does NOT raise, unlike
+// CPU time) even for images nowhere near "huge". A plain box-average
+// downscale — average every source pixel that falls under each output
+// pixel, deliberately not a fancier interpolation — allocates exactly
+// one destination buffer and nothing else, measured at ~10MB of
+// additional memory for the same 1800x1400 case (86MB peak vs 214MB).
+// Quality is a non-goal here (see TARGET_QUALITY's own comment) so the
+// visual difference against a "proper" resize algorithm doesn't matter;
+// staying inside the memory ceiling at all does.
+function boxDownscale(image: ImageData, targetWidth: number, targetHeight: number): ImageData {
+  const { width: srcWidth, height: srcHeight, data: src } = image;
+  const dst = new Uint8ClampedArray(targetWidth * targetHeight * 4);
+
+  for (let oy = 0; oy < targetHeight; oy++) {
+    const sy0 = Math.floor((oy * srcHeight) / targetHeight);
+    const sy1 = Math.max(sy0 + 1, Math.floor(((oy + 1) * srcHeight) / targetHeight));
+    for (let ox = 0; ox < targetWidth; ox++) {
+      const sx0 = Math.floor((ox * srcWidth) / targetWidth);
+      const sx1 = Math.max(sx0 + 1, Math.floor(((ox + 1) * srcWidth) / targetWidth));
+
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let a = 0;
+      let count = 0;
+      for (let sy = sy0; sy < sy1; sy++) {
+        let offset = (sy * srcWidth + sx0) * 4;
+        for (let sx = sx0; sx < sx1; sx++) {
+          r += src[offset];
+          g += src[offset + 1];
+          b += src[offset + 2];
+          a += src[offset + 3];
+          offset += 4;
+          count++;
+        }
+      }
+      const dstOffset = (oy * targetWidth + ox) * 4;
+      dst[dstOffset] = r / count;
+      dst[dstOffset + 1] = g / count;
+      dst[dstOffset + 2] = b / count;
+      dst[dstOffset + 3] = a / count;
+    }
+  }
+
+  return new ImageData(dst, targetWidth, targetHeight);
 }
 
 // `kind` lets callers pick an accurate rejection message instead of
@@ -242,16 +292,12 @@ export async function compressImage(
     };
   }
 
-  for (const attempt of ATTEMPTS) {
-    const { width, height } = scaledDimensions(image.width, image.height, attempt.maxDimension);
-    const resized =
-      width === image.width && height === image.height
-        ? image
-        : await resize(image, { width, height });
-    const encoded = await encodeJpeg(resized, { quality: attempt.quality });
-    if (encoded.byteLength <= MAX_ATTACHMENT_BYTES) {
-      return { ok: true, bytes: encoded, contentType: "image/jpeg" };
-    }
+  const { width, height } = scaledDimensions(image.width, image.height, TARGET_MAX_DIMENSION);
+  const resized =
+    width === image.width && height === image.height ? image : boxDownscale(image, width, height);
+  const encoded = await encodeJpeg(resized, { quality: TARGET_QUALITY });
+  if (encoded.byteLength <= MAX_ATTACHMENT_BYTES) {
+    return { ok: true, bytes: encoded, contentType: "image/jpeg" };
   }
 
   return {
