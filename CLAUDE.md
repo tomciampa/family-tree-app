@@ -393,6 +393,67 @@ that's a separate manual step via the tree's own person-delete UI (`deletePerson
 `tree/actions.ts`, exposed on a loose person's card in the "Not yet connected to the tree"
 list), not something the interview delete cascades into automatically.
 
+## Email-based upload intake
+Family members can email photos/documents straight into the app: each family gets a unique
+upload address (`families.email_upload_token`, shown in Settings), a Cloudflare Email Worker
+(`cloudflare-worker/email-intake.ts`) parses the inbound email and POSTs a shared JSON shape to
+`/api/email-intake` (`route.ts`), authenticated by a shared secret header plus the family token
+found *in* the payload — never an `auth.users` session, since there is no browser on this path at
+all (`uploaded_by` is always left null; honest provenance goes in `source`/`submitted_by_name`/
+`submitted_by_email` instead — display fields only, never authentication). Image attachments
+route to `photos`, everything else to `documents`, auto-chaining the same extract→match actions
+the manual buttons call, exactly like the interactive upload flow.
+
+As of 2026-08-02, an email's *body text* is also captured as its own sourced-fact record,
+separate from however any attachment routes — a photo emailed in with "here's Jeff, born
+November 29th" now produces both the photo AND a standalone fact candidate for Jeff's birth
+date, regardless of whether an attachment was present at all. Deliberately NOT folded into the
+existing document/photo tables' own workflows:
+- `documents.is_email_body_note` (boolean) discriminates these rows from ordinary uploaded
+  documents — same crash-risk class as interview rows (`candidate_people` shaped as
+  `{people,facts,anecdotes}`, not `CandidatePerson[]`), so every plain-document query
+  (`/documents` list, `documents/[id]`'s viewer, `getting-started.ts`, `admin-stats.ts`) needed
+  its own explicit exclusion, not just the interview one. `documents/[id]/page.tsx` redirects to
+  `/email-notes/[id]` if it lands on one by a stale link; `tree/actions.ts`'s
+  `getDocumentForViewer` (the fact-source viewer modal) renders it fine — it's a real `.txt`
+  file — but skips `classifyDocumentKind`'s AI call (tuned for certificates/letters, not
+  emails) in favor of a fixed "Email" kind.
+- New `facts.source_type` value `'email'` — not reused `'letter'`; a physically-written letter
+  and an auto-parsed modern email are meaningfully different kinds of source even though both
+  are prose.
+- Extraction (`app/api/email-intake/email-body-extraction.ts`) is anchor-free like document
+  extraction (nobody is "already known" the way an interview's interviewee is), but produces
+  interview-shaped `facts[]`/`anecdotes[]` per mentioned person (field/value/confidence/quote,
+  `STANDARD_FIELD_LABELS`-aware) via `makeCandidateFactSchema`/`resolveAbout`, now split out of
+  `interviews/actions.ts` into `interviews/extraction-schema.ts` so both callers share them
+  without duplication. The extraction prompt is given the email's own reference date (the
+  `Date:` header, threaded through the Worker payload and stored on `recorded_at` — not
+  webhook-receipt time) and told to resolve unambiguous relative expressions ("yesterday",
+  "when he turned 40 in 2019") into absolute dates, leaving genuinely ambiguous ones ("a while
+  back") unresolved rather than guessed. A resolved-relative-date fact carries a
+  `dateInferenceNote` that gets folded into `source_ref` at write time (e.g. "email from Jane
+  Doe, 2026-07-15 — date inferred from relative reference 'yesterday'") — `confidence` stays
+  untouched, since it's purely about whether the sender hedged the claim itself, a separate
+  concern.
+- The webhook computes `cleanEmailBody(bodyText)` exactly once and reuses that single result for
+  both the photo-caption decision and the "is there enough here to create a note at all"
+  decision, so the two can never drift apart on what counts as meaningful content. A forwarded
+  email whose body reduces to just a mail-client signature (e.g. "Sent from my iPhone") creates
+  no note. The Worker no longer hard-rejects a zero-attachment email either — only an email with
+  neither attachments nor body text bounces now, since a body-only email is genuinely useful to
+  this feature.
+- Its own review surface, `/email-notes/[id]` (`email-notes/actions.ts` +
+  `[id]/email-note-review.tsx`), mirrors the interview review page's layout (multi-fact-per-
+  person, not document-review's one-candidate-one-fact shape) rather than reusing it, and lands
+  in the homepage's "Tasks pending your review" list (`getPendingReview`) alongside documents
+  and interviews via the same unresolved-count convention.
+- Real bug caught by live verification (not just typecheck): `confirmEmailNoteBatch` initially
+  looked up resolution decisions by a `${documentId}:${index}` key copied from
+  `confirmInterviewBatch`'s per-segment pattern, but the client (`email-note-review.tsx`) only
+  ever sends plain `${index}` — there's just one document per review page here, no segment loop
+  — so every confirmed candidate silently fell through to "skipped" with zero facts written, no
+  error anywhere. Fixed by keying on plain index, matching what the client actually sends.
+
 ## Home page dashboard
 `/` shows a "Tasks pending your review" section (`src/lib/pending-review.ts`) right after the
 welcome header — the first thing surfaced after signing in. It reuses the exact same
@@ -535,6 +596,21 @@ placeholder.
 - **Always verify with a real browser test before committing**, not just typecheck/build —
   use a disposable test account/session, never real user data, for destructive or
   auth-dependent testing.
+- **For a feature that needs real writes to verify (not just RLS/read checks), create a
+  throwaway `families` row and temporarily flip the real account's `family_members.is_active`
+  to it** (multi-family membership already supports this — see "Multi-User / Multi-Family"),
+  rather than writing test data into the real family tree. Restore the real family's
+  `is_active` and delete every test row by exact id (facts → document_people → documents →
+  Storage objects → people → family_members → families) when done — confirmed this session
+  (2026-08-02) for the email-body-facts feature, and it's what actually caught a real bug (see
+  "Email-based upload intake" above) that SQL-only simulation wouldn't have, since the bug was
+  in a Server Action only reachable through a real request context (`requireUser()`'s
+  `cookies()` call throws outside one — plain functions taking an injected `supabase` client,
+  like `matchEmailNoteCandidatesWith`, don't have this problem and can be called directly from a
+  script instead). A saved `.auth/session.json` can go stale between sessions; if so, ask the
+  user to log in in a visible (non-headless) Playwright-launched browser window and save a fresh
+  one — don't try to self-authenticate as them via the admin API's `generateLink` even though it
+  never sends a real email, since that routes around them explicitly doing it themselves.
 - **Reuse a saved auth session before requesting a new magic link.** Login is Supabase
   magic-link OTP with no service-role key available locally, so verifying anything
   auth-dependent means asking the user to click an emailed link — and Supabase rate-limits
