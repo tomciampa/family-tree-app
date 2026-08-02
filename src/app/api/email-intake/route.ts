@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sanitizeFilenameForStorageKey } from "@/lib/sanitize-filename";
+import { deriveEmailCaption, truncateCaption } from "./clean-email-body";
 import {
   extractCandidatesFromDocument,
   matchCandidatesForDocument,
@@ -31,6 +32,7 @@ const payloadSchema = z.object({
     email: z.string().nullable().optional(),
   }),
   subject: z.string().nullable().optional(),
+  bodyText: z.string().nullable().optional(),
   attachments: z
     .array(
       z.object({
@@ -73,7 +75,7 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  const { token, from, subject, attachments } = parsed.data;
+  const { token, from, subject, bodyText, attachments } = parsed.data;
 
   const supabase = createAdminClient();
 
@@ -101,7 +103,15 @@ export async function POST(request: Request) {
 
   const submittedByName = from.name?.trim() || null;
   const submittedByEmail = from.email?.trim() || null;
-  const emailSubject = subject?.trim() || null;
+  const emailSubject = subject?.trim() ? truncateCaption(subject.trim()) : null;
+  // Photo captions prefer the email's own body text over its subject —
+  // a forwarded email's subject is very often useless noise ("Fwd: Family
+  // Picture of THe Week"), while the body (once cleaned of forward/reply
+  // boilerplate — see clean-email-body.ts) is usually the sender's actual
+  // words about the photo. Falls back to the subject only if the body is
+  // empty or reduces to nothing after cleanup, and to no caption at all
+  // if both are empty — never fabricates one.
+  const photoCaption = deriveEmailCaption(bodyText ?? null, subject ?? null);
 
   const results: AttachmentResult[] = [];
   for (const attachment of attachments) {
@@ -127,7 +137,7 @@ export async function POST(request: Request) {
             family_id: familyId,
             storage_path: storagePath,
             original_filename: attachment.filename,
-            caption: emailSubject,
+            caption: photoCaption,
             uploaded_by: null,
             source: "email",
             submitted_by_name: submittedByName,
@@ -148,9 +158,20 @@ export async function POST(request: Request) {
         continue;
       }
 
-      // Non-image: documents table. The email subject goes in the
-      // dedicated email_subject column, NOT kind — kind is lazily
-      // AI-classified on first view (getDocumentForViewer in
+      // Non-image: documents table. email_subject deliberately stays
+      // subject-only, NOT switched to the body-preferring logic photos.
+      // caption now uses — it's a differently-purposed field, not a
+      // user-facing caption at all, just a short provenance-display
+      // label (the same role an interview segment's own short label
+      // already plays), shown alongside a document that also has its
+      // own real extracted content (transcription_raw) and, once
+      // viewed, an AI-classified kind. Photos have no equivalent —
+      // caption is the *only* descriptive text a photo ever gets, which
+      // is what actually justifies pulling in and cleaning the full
+      // body for it.
+      //
+      // Goes in the dedicated email_subject column, NOT kind — kind is
+      // lazily AI-classified on first view (getDocumentForViewer in
       // tree/actions.ts, via `document.kind ?? classifyDocumentKind(...)`)
       // and that classification would never run at all if kind already
       // held a truthy value from insert. Confirmed this collision for

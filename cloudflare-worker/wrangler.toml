@@ -7,6 +7,13 @@
 name = "email-intake-worker"
 main = "worker-entry.ts"
 compatibility_date = "2025-01-01"
+# Cloudflare requires every Worker to have either a route or a
+# workers.dev subdomain before it can be deployed at all — even one like
+# this, whose only real trigger is an Email Routing rule configured
+# separately (see below). Harmless here: this Worker exports only an
+# email() handler, no fetch() handler, so a request to its
+# workers.dev URL exposes no real functionality.
+workers_dev = true
 # Required for libheif-js (HEIC decode) specifically — its Emscripten
 # glue code has unconditional `require("fs")`/`require("path")` calls
 # for its Node-environment code path (never actually reached at runtime

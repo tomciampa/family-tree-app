@@ -188,6 +188,15 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env) {
       email: parsed.from?.address || null,
     },
     subject: parsed.subject || null,
+    // Photo captions on the webhook side prefer this (cleaned) over the
+    // subject — a forwarded email's subject line is very often useless
+    // ("Fwd: Family Picture of THe Week"). Sent raw/unparsed here on
+    // purpose; postal-mime's email.text already includes the full
+    // forward/reply chain and any mail-client signature verbatim (see
+    // the caption investigation notes for this feature) — cleanup is
+    // the webhook's job, not this Worker's, keeping the "what's a good
+    // caption" decision in one place rather than split across both.
+    bodyText: parsed.text || null,
     attachments: preparedAttachments.map((a) => ({
       filename: a.filename,
       contentType: a.contentType,
