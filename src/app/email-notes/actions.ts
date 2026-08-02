@@ -167,7 +167,12 @@ export async function confirmEmailNoteBatch(
       continue;
     }
 
-    const decision = resolutions[`${documentId}:${i}`];
+    // Keyed by plain candidate index — unlike interview's per-segment
+    // confirmInterviewBatch, there's only ever one document here (no
+    // segment loop), so the client (email-note-review.tsx) never
+    // prefixes with documentId; it's already implied by this function's
+    // own parameter.
+    const decision = resolutions[`${i}`];
     if (!decision || decision.action === "skip") {
       people[i] = { ...candidate, resolution: { action: "skipped" } };
       summary.peopleSkipped++;
