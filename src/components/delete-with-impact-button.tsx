@@ -74,29 +74,44 @@ export function DeleteWithImpactButton({
     setImpact(null);
     setIsOpen(true);
     setIsLoadingImpact(true);
-    const result = await fetchImpact();
-    setIsLoadingImpact(false);
-    if ("error" in result) {
-      setError(result.error);
-      return;
+    // A thrown (not returned-as-error) server action must still clear the
+    // loading flag — otherwise this dialog is stuck on "Checking for linked
+    // data…" forever with no visible error, exactly the incident this guards
+    // against (a module-load-time crash in interviews/actions.ts left every
+    // export in that file throwing instead of returning {error}).
+    try {
+      const result = await fetchImpact();
+      if ("error" in result) {
+        setError(result.error);
+      } else {
+        setImpact(result.impact);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong checking for linked data.");
+    } finally {
+      setIsLoadingImpact(false);
     }
-    setImpact(result.impact);
   }
 
   async function handleConfirmDelete() {
     setIsDeleting(true);
     setError(null);
-    const result = await onConfirmDelete();
-    setIsDeleting(false);
-    if ("error" in result) {
-      setError(result.error);
-      return;
-    }
-    setIsOpen(false);
-    if (onDeleted) {
-      onDeleted();
-    } else if (redirectTo) {
-      router.push(redirectTo);
+    try {
+      const result = await onConfirmDelete();
+      if ("error" in result) {
+        setError(result.error);
+        return;
+      }
+      setIsOpen(false);
+      if (onDeleted) {
+        onDeleted();
+      } else if (redirectTo) {
+        router.push(redirectTo);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong deleting this.");
+    } finally {
+      setIsDeleting(false);
     }
   }
 

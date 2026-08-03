@@ -631,8 +631,18 @@ const interviewExtractionSchema = z.object({
 // unchanged — the real definition moved to extraction-schema.ts (see
 // that file's own comment) since this is a "use server" file and can
 // only export async functions as real values, but a type-only
-// re-export is exempt from that restriction.
-export type { AboutRef };
+// re-export is exempt from that restriction. Re-exported directly FROM
+// the source module (`export type { X } from "mod"`), not as a second
+// statement re-exporting the local import above — that two-step form
+// compiled clean under `tsc` but crashed production with "ReferenceError:
+// AboutRef is not defined" at module evaluation: this file's Turbopack
+// SSR bundle kept a live runtime reference to the type-only local
+// binding instead of eliding it. This direct form needs no local
+// runtime binding at all, so there's nothing for the bundler to get
+// wrong. Verified against a real `next build` + `next start` (not just
+// typecheck) after the original version had already typechecked fine
+// and still broken live — see the incident writeup this fixes.
+export type { AboutRef } from "./extraction-schema";
 
 export type InterviewCandidateFact = z.infer<typeof interviewCandidateFactSchema> & {
   aboutRef: AboutRef;
