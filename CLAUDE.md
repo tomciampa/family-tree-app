@@ -495,6 +495,39 @@ never need. This didn't turn out to be the actual fix for the crash (memory, not
 but it's a real, worthwhile simplification kept regardless — a quarter of the worst-case work for
 the same outcome.
 
+**Known limitation, deliberately accepted, not a bug to fix**: extremely high-resolution email
+attachments (~48MP+, e.g. some high-end Android phones' non-default "max resolution" camera
+mode) still fail compression on the real Worker — confirmed directly (not guessed) by sending a
+real 8000x6000/12.2MB file through the live pipeline, which failed consistently with "Exceeded
+CPU Limit" across multiple automatic retries. Failure is clean: zero writes, no corrupted or
+partial data, same as any other genuinely-too-large case. Standard real-world photos are
+unaffected — confirmed by sending real iPhone-default-dimension files (4032x3024 and its
+portrait rotation, the actual most common real-world case) through the same live pipeline; both
+succeeded. The gap between "12MP confirmed fine" and "48MP confirmed fails" hasn't been narrowed
+further — not treated as resolved, just not pursued past the point of a rare, safely-failing
+edge case.
+
+**Methodological lesson from this investigation**: Node's `process.memoryUsage().rss` is
+**not** a reliable proxy for what a Workers isolate's memory limit actually enforces, and an
+earlier version of this investigation's own numbers were wrong because of it (a 250-290MB
+figure, since corrected down to ~148-211MB, but even that corrected number still doesn't match
+real Worker behavior — real 4000x3000 photos succeed on the live Worker despite Node estimating
+they shouldn't fit under 128MB). Two compounding reasons: (1) RSS reflects the *entire Node
+process*'s OS-level resident pages, including V8 engine overhead, JIT code caches, and Node
+runtime baggage (libuv, ICU, etc.) that a much more minimal Workers isolate doesn't carry, and
+(2) RSS counts freed-but-not-yet-OS-reclaimed pages as still "used" (macOS in particular isn't
+aggressive about returning freed heap pages), while Cloudflare's real enforcement almost
+certainly tracks live V8 heap + external memory accounting — a different, typically lower
+number. A separate, real bug compounded this further the first time: looping multiple files
+through *one* Node process and reusing `process.memoryUsage()` readings across them inflated
+later files' numbers, since WASM linear memory can only grow, never shrink, so earlier files'
+retained memory leaked into later readings — always measure one file per fresh process if a
+Node estimate is attempted at all. Bottom line, extending the CPU-time lesson earlier in this
+same section to memory as well: **for anything memory- or CPU-sensitive in this Worker, a Node
+estimate is a starting hypothesis at best — verify against the real deployed Worker before
+trusting it**, the same discipline already applied throughout this incident (Node passed
+originally; only real deployment testing ever caught the actual bug).
+
 ## Exact-duplicate detection (documents & photos)
 `documents`/`photos` both carry `content_hash` (SHA-256 hex) and a self-referencing
 `duplicate_of_id`, set at insert time across all three upload paths (web document upload, web
