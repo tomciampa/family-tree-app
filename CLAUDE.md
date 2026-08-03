@@ -791,8 +791,40 @@ placeholder.
   regardless of whether the email exists — anti-enumeration only matters where a visitor could be
   probing an email that isn't theirs, not where they already typed and know the exact email
   they're claiming.
+- **A two-step type re-export (`import { type X } from "./mod"` in one statement, then a
+  separate `export type { X };` later in the same file) is not reliably elided by Turbopack's
+  production SSR bundle** — real incident, 2026-08-02: `interviews/actions.ts` re-exported
+  `AboutRef` this way (kept a local `import { ..., type AboutRef }` for the file's own type
+  annotations, then a second `export type { AboutRef };` for external consumers). It typechecked
+  clean under `tsc` and had been live for hours, but the compiled production chunk kept a live
+  runtime reference to the type-only local binding, throwing `ReferenceError: AboutRef is not
+  defined` at module evaluation — which broke *every* export in that file, not just the one
+  being called, since the crash happens before any function body runs. Always re-export a type
+  directly from its source module instead — `export type { X } from "./mod";` — which needs no
+  local runtime binding at all, so there's nothing for the bundler to get wrong. This class of
+  bug is invisible to typecheck/`next build`'s type-checking pass; **verify by grepping the
+  actual compiled chunk** (`.next/server/chunks/ssr/**/*.js`) for the type name after a real
+  `next build`, not just a clean `tsc --noEmit`.
+- **Vercel runtime log retention on the current plan is ~1 hour** — `vercel logs` with
+  `--since`/`--until` honors the requested window but simply has nothing older to return past
+  that point (confirmed directly: a 10-hour query returned real data only for the trailing ~44
+  minutes). For investigating anything further back than that, the database/Storage state is
+  the more durable source of truth — e.g. checking for rows created (or *not* created) after a
+  known incident start time, and cross-checking Storage listings against `documents.file_path`
+  for orphaned uploads, is what actually confirmed no real data was lost in the 2026-08-02
+  `AboutRef` incident above, since the logs themselves couldn't cover the full outage window.
 
 ## Known follow-ups (already on the todo list — don't rebuild without checking first)
 - Splitting interviews out of the shared `documents` table into their own model — see "Audio
   Interview architecture" above for why this keeps causing friction.
 - Linking a person's interviews to their dossier (currently only documents show there).
+- **~20 unaudited instances of the same unguarded-await-on-loading-state pattern** found during
+  the 2026-08-02 `AboutRef` incident cleanup above: a client component awaits a server-action
+  call with no try/catch around a `setIsLoading(true)` / `setIsLoading(false)` pair, so a thrown
+  (rather than returned-as-`{error}`) action leaves that loading state stuck true forever with
+  no visible error — the same failure shape `DeleteWithImpactButton` had. Only
+  `DeleteWithImpactButton` has been hardened so far. Still open, across: `fork-family-form.tsx`,
+  `documents-view.tsx`, `interviews-view.tsx`, `document-review.tsx`, `email-note-review.tsx`,
+  `interview-review.tsx`, `photo-lightbox.tsx`, `record-interview-flow.tsx`. Needs its own
+  dedicated sweep, not a drive-by fix — several of these fire automatically (auto-chained
+  extract/match, auto-transcribe) rather than from a user click.
