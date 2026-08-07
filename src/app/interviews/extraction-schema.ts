@@ -89,3 +89,13 @@ export function resolveAbout(
 
   return { type: "unresolved", raw: about };
 }
+
+// Shared display helper — previously duplicated per review page
+// (email-note-review.tsx had its own copy before this). "interviewee" is
+// unreachable for any caller that never produces it (see resolveAbout's
+// own comment) but must still typecheck since AboutRef is shared.
+export function aboutLabel(aboutRef: AboutRef, intervieweeName?: string): string {
+  if (aboutRef.type === "person") return aboutRef.name;
+  if (aboutRef.type === "unresolved") return `${aboutRef.raw} (unresolved)`;
+  return intervieweeName ?? "interviewee";
+}

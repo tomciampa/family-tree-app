@@ -18,20 +18,21 @@ export default async function DocumentsPage() {
     .from("documents")
     .select("id, filename, file_path, status, recorded_at, candidate_people")
     // Interview recordings/segments live in this same table (see
-    // interviews/actions.ts) but shape candidate_people as an
-    // { facts, people, anecdotes } extraction object rather than this
-    // page's CandidatePerson[] — they're never candidates for the
+    // interviews/actions.ts) — they're never candidates for the
     // document-matching workflow (already linked via
     // interviewee_person_id/parent_document_id), so exclude them here
-    // rather than in every consumer of this query's result.
+    // rather than in every consumer of this query's result. (Their
+    // candidate_people is the same { people, facts, anecdotes } shape
+    // plain documents now also use — this exclusion is about them being a
+    // structurally different kind of row, not a JSON-shape mismatch
+    // anymore.)
     .is("interviewee_person_id", null)
     .is("parent_document_id", null)
     // Email-body-note rows (see the email_body_facts migration) also live
-    // here with both of the above null, and shape candidate_people the
-    // same { people, facts, anecdotes } way interview rows do — the exact
-    // same crash risk interview rows already have a documented fix for,
-    // now needing its own explicit exclusion since interviewee_person_id/
-    // parent_document_id being null doesn't distinguish this case.
+    // here with both of the above null — a different kind of row (its own
+    // review page, different display columns) needing its own explicit
+    // exclusion since interviewee_person_id/parent_document_id being null
+    // doesn't distinguish this case.
     .eq("is_email_body_note", false)
     .order("recorded_at", { ascending: false });
 

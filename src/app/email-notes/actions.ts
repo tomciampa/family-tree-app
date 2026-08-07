@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getFamilyId } from "@/lib/family";
 import { addFirstPerson } from "@/app/tree/actions";
-import { matchFamilyCandidates } from "@/app/documents/actions";
+import { matchExtractionCandidates } from "@/app/documents/actions";
 import type { CandidateWithMatch } from "@/app/documents/actions";
 import { factFieldForRelation, type CandidatePerson } from "@/app/documents/candidate-schema";
 import {
@@ -66,22 +66,25 @@ export async function matchEmailNoteCandidatesWith(
   const extraction = document.candidate_people as unknown as EmailNoteExtraction | null;
   if (!extraction) return { error: "Extract candidates before matching." };
 
-  const matched = await matchFamilyCandidates(supabase, familyId, extraction.people as CandidatePerson[]);
+  // Delegates the "read object shape, match .people, write back preserving
+  // facts/anecdotes" work to the shared helper documents/actions.ts also
+  // uses (matchCandidatesForDocument) — previously duplicated here nearly
+  // verbatim. Only the email-specific extraction_error persistence on
+  // failure stays local to this wrapper.
+  const matched = await matchExtractionCandidates(supabase, familyId, documentId, extraction);
   if ("error" in matched) {
     await supabase.from("documents").update({ extraction_error: matched.error }).eq("id", documentId);
     return matched;
   }
 
-  const updatedExtraction: EmailNoteExtraction = { ...extraction, people: matched.results };
-
-  const { error: updateError } = await supabase
+  const { error: clearError } = await supabase
     .from("documents")
-    .update({ candidate_people: updatedExtraction, extraction_error: null })
+    .update({ extraction_error: null })
     .eq("id", documentId);
-  if (updateError) return { error: updateError.message };
+  if (clearError) return { error: clearError.message };
 
   revalidatePath(`/email-notes/${documentId}`);
-  return { extraction: updatedExtraction };
+  return { extraction: matched.extraction };
 }
 
 function relationFactValue(candidate: CandidatePerson, sourceLabel: string): string {

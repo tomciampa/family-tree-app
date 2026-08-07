@@ -4,7 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getSignedDocumentUrls } from "@/lib/documents";
 import { buildPersonSummaries } from "@/lib/family";
 import { DocumentReview } from "./document-review";
-import type { CandidatePerson } from "../documents-view";
+import type { CandidateWithMatch } from "../actions";
+import type { DocumentExtraction } from "../document-extraction-schema";
 
 export default async function DocumentReviewPage({
   params,
@@ -43,12 +44,14 @@ export default async function DocumentReviewPage({
     notFound();
   }
 
-  // An email-body-note row (see the email_body_facts migration) shapes
-  // candidate_people as { people, facts, anecdotes }, not this page's
-  // expected CandidatePerson[] — rendering it here would hit the same
-  // shape-mismatch crash interview rows once did before they got their
-  // own exclusion. It has its own dedicated review page; redirect there
-  // instead of rendering the wrong UI on a stale/guessed link.
+  // An email-body-note row's candidate_people is now the same
+  // { people, facts, anecdotes } shape this page itself expects (see the
+  // document-extraction facts/anecdotes feature) — the redirect below is
+  // no longer about a shape mismatch, but the row itself has different
+  // columns (submitted_by_name/submitted_by_email, no file_path/
+  // document_type the same way) and its own dedicated review page/layout
+  // (email-note-review.tsx). Redirect there instead of rendering the
+  // wrong UI on a stale/guessed link.
   if (document.is_email_body_note) {
     redirect(`/email-notes/${id}`);
   }
@@ -95,7 +98,7 @@ export default async function DocumentReviewPage({
       <DocumentReview
         doc={{
           ...document,
-          candidate_people: document.candidate_people as unknown as CandidatePerson[] | null,
+          candidate_people: document.candidate_people as unknown as DocumentExtraction<CandidateWithMatch> | null,
           viewUrl,
         }}
         duplicateOf={duplicateOf}

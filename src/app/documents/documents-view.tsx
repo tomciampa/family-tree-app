@@ -6,33 +6,10 @@ import {
   uploadDocument,
   extractCandidatesFromDocument,
   matchCandidatesForDocument,
+  type CandidateForReview,
 } from "./actions";
+import type { DocumentExtraction } from "./document-extraction-schema";
 import { DeleteDocumentButton } from "./delete-document-button";
-
-export type PersonMatch = {
-  personId: string;
-  personName: string;
-  score: number;
-  dateSignal: "overlap" | "conflict" | null;
-  relationSignal?: boolean;
-};
-
-export type CandidateResolution = {
-  action: "confirmed" | "created" | "skipped";
-  personId?: string;
-  factId?: string;
-};
-
-export type CandidatePerson = {
-  name: string;
-  relation: string | null;
-  roleCategory: "family" | "administrative";
-  dates: string | null;
-  note: string | null;
-  matchStatus?: "high_confidence" | "multiple_matches" | "no_match";
-  matches?: PersonMatch[];
-  resolution?: CandidateResolution;
-};
 
 export type DocumentRow = {
   id: string;
@@ -40,7 +17,13 @@ export type DocumentRow = {
   file_path: string;
   status: string;
   recorded_at: string | null;
-  candidate_people: CandidatePerson[] | null;
+  // { people, facts, anecdotes } — not a bare candidate array, since the
+  // document-extraction facts/anecdotes feature. People-only counting
+  // below (familyCandidates/unresolvedCount) is unaffected: resolving a
+  // candidate always writes its own attributed facts/anecdotes as part of
+  // that same action, so candidate-resolution state is still the right
+  // thing to summarize here.
+  candidate_people: DocumentExtraction<CandidateForReview> | null;
   viewUrl: string | null;
 };
 
@@ -185,7 +168,7 @@ function DocumentItem({
   // (a fresh server prop on every navigation back here) is always
   // current; no local mutation needed.
   const status = doc.status;
-  const [candidates, setCandidates] = useState<CandidatePerson[] | null>(
+  const [extraction, setExtraction] = useState<DocumentExtraction<CandidateForReview> | null>(
     doc.candidate_people,
   );
   const autoTriggered = useRef(false);
@@ -199,9 +182,9 @@ function DocumentItem({
       setIsAutoProcessing(false);
       return;
     }
-    setCandidates(extracted.candidates);
+    setExtraction(extracted.extraction);
 
-    const hasFamily = extracted.candidates.some(
+    const hasFamily = extracted.extraction.people.some(
       (c) => c.roleCategory === "family",
     );
     if (hasFamily) {
@@ -211,7 +194,7 @@ function DocumentItem({
         setIsAutoProcessing(false);
         return;
       }
-      setCandidates(matched.candidates);
+      setExtraction(matched.extraction);
     }
     setIsAutoProcessing(false);
   }
@@ -237,7 +220,7 @@ function DocumentItem({
       setError(result.error);
       return;
     }
-    setCandidates(result.candidates);
+    setExtraction(result.extraction);
   }
 
   async function handleMatch() {
@@ -249,10 +232,10 @@ function DocumentItem({
       setError(result.error);
       return;
     }
-    setCandidates(result.candidates);
+    setExtraction(result.extraction);
   }
 
-  const familyCandidates = (candidates ?? []).filter(
+  const familyCandidates = (extraction?.people ?? []).filter(
     (c) => c.roleCategory === "family",
   );
   const hasFamilyCandidates = familyCandidates.length > 0;
@@ -302,7 +285,7 @@ function DocumentItem({
             disabled={isExtracting || isAutoProcessing}
             className="rounded-[var(--radius-sm)] border border-[color:var(--color-border)] px-2 py-1 text-xs transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] disabled:opacity-50"
           >
-            {isExtracting ? "Extracting…" : candidates ? "Re-extract" : "Extract"}
+            {isExtracting ? "Extracting…" : extraction ? "Re-extract" : "Extract"}
           </button>
           {hasFamilyCandidates && (
             <button

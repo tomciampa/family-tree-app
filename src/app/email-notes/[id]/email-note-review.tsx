@@ -7,9 +7,10 @@ import type { PersonSummary } from "@/lib/family";
 import { splitWithHighlight } from "@/lib/documents";
 import { FamilyTree } from "@/components/family-tree";
 import { PersonSearch } from "@/components/person-search";
+import { FactAnecdoteLine } from "@/components/fact-anecdote-line";
 import type { CandidateWithMatch, PersonMatch } from "@/app/documents/actions";
 import type { PersonResolutionInput, BatchConfirmSummary } from "@/app/interviews/actions";
-import type { AboutRef } from "@/app/interviews/extraction-schema";
+import { aboutLabel, type AboutRef } from "@/app/interviews/extraction-schema";
 import type { EmailNoteExtraction } from "@/app/api/email-intake/email-body-extraction";
 import {
   confirmEmailNoteBatch,
@@ -84,15 +85,6 @@ function resolveTargetIncluded(
     return candidate.resolution.action !== "skipped";
   }
   return !!decisions[`${aboutRef.index}`]?.included;
-}
-
-function aboutLabel(aboutRef: AboutRef): string {
-  if (aboutRef.type === "person") return aboutRef.name;
-  if (aboutRef.type === "unresolved") return `${aboutRef.raw} (unresolved)`;
-  // Email extraction never produces "interviewee" (resolveAbout is called
-  // with no anchorName) — unreachable in practice, but AboutRef is a
-  // shared type, so this branch must still typecheck.
-  return "unresolved";
 }
 
 export function EmailNoteReview({
@@ -354,34 +346,6 @@ export function EmailNoteReview({
         </div>
       </div>
     </div>
-  );
-}
-
-function FactAnecdoteLine({
-  included,
-  already,
-  label,
-  children,
-}: {
-  included: boolean;
-  already: boolean;
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <p
-      className={`text-[11px] ${
-        already
-          ? "text-[color:var(--color-text-tertiary)]"
-          : included
-            ? "text-[color:var(--color-text-secondary)]"
-            : "text-[color:var(--color-text-tertiary)]"
-      }`}
-    >
-      <span className="text-[color:var(--color-text-secondary)]">{label}</span> — {children}
-      {already && <span className="italic"> · saved</span>}
-      {!already && !included && <span className="italic"> · will be skipped for now</span>}
-    </p>
   );
 }
 

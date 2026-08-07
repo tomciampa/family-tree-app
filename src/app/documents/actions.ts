@@ -3,15 +3,21 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { generateObject } from "ai";
-import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { getFamilyId } from "@/lib/family";
 import { addFirstPerson } from "@/app/tree/actions";
 import {
-  candidatePersonSchema,
   factFieldForRelation,
   type CandidatePerson,
 } from "./candidate-schema";
+import {
+  documentExtractionSchema,
+  attachAboutRefs,
+  type DocumentExtraction,
+  type DocumentCandidateFact,
+  type DocumentCandidateAnecdote,
+} from "./document-extraction-schema";
+import type { AboutRef } from "@/app/interviews/extraction-schema";
 import {
   isVisionCapable,
   hasTextExtractor,
@@ -134,7 +140,7 @@ export async function uploadDocument(
 
 type ExtractCandidatesResult =
   | { error: string }
-  | { candidates: z.infer<typeof candidatePersonSchema>[] };
+  | { extraction: DocumentExtraction<CandidatePerson> };
 
 // override lets a caller with no user session (the email-intake webhook —
 // see app/api/email-intake/route.ts) supply an already-authorized client
@@ -185,7 +191,12 @@ export async function extractCandidatesFromDocument(
     content = [
       {
         type: "text" as const,
-        text: "This is a genealogy source document (e.g. a certificate, letter, or record), possibly a scanned image. Transcribe its full text, then list every person it names — not just the main subject. Many documents (e.g. death certificates) also name a spouse or parent (family) as well as an informant, registrar, witness, or clergy member (administrative) — classify each person's roleCategory accordingly so administrative names aren't confused with family.",
+        text: [
+          "This is a genealogy source document (e.g. a certificate, letter, or record), possibly a scanned image. Transcribe its full text, then extract:",
+          "1. Every person it names, not just the main subject. Many documents (e.g. death certificates) also name a spouse or parent (family) as well as an informant, registrar, witness, or clergy member (administrative) — classify each person's roleCategory accordingly so administrative names aren't confused with family.",
+          "2. Discrete factual claims — dates, places, occupations, and other concrete details stated about a specific person. Don't duplicate a person's name/relation here, that's already captured in step 1. If a single statement gives more than one standard field (e.g. a table row listing both a birth date and birthplace), emit a separate fact entry per field.",
+          "3. Narrative anecdotes — stories, characterizations, and color that don't reduce to a discrete factual claim (e.g. a letter's reminiscences).",
+        ].join("\n"),
       },
       {
         type: "file" as const,
@@ -209,7 +220,15 @@ export async function extractCandidatesFromDocument(
     content = [
       {
         type: "text" as const,
-        text: `This is a genealogy source document. Transcribe its full text, then list every person it names — not just the main subject. Classify each person's roleCategory as 'family' (related to or personally connected with the subject) or 'administrative' (an informant, registrar, witness, clergy member, etc. with no personal relation).\n\nDocument content:\n${plainText}`,
+        text: [
+          "This is a genealogy source document. Transcribe its full text, then extract:",
+          "1. Every person it names, not just the main subject. Classify each person's roleCategory as 'family' (related to or personally connected with the subject) or 'administrative' (an informant, registrar, witness, clergy member, etc. with no personal relation).",
+          "2. Discrete factual claims — dates, places, occupations, and other concrete details stated about a specific person. Don't duplicate a person's name/relation here, that's already captured in step 1. If a single statement gives more than one standard field (e.g. a table row listing both a birth date and birthplace), emit a separate fact entry per field.",
+          "3. Narrative anecdotes — stories, characterizations, and color that don't reduce to a discrete factual claim.",
+          "",
+          "Document content:",
+          plainText,
+        ].join("\n"),
       },
     ];
   }
@@ -218,16 +237,7 @@ export async function extractCandidatesFromDocument(
   try {
     result = await generateObject({
       model: "anthropic/claude-sonnet-5",
-      schema: z.object({
-        rawText: z
-          .string()
-          .describe("The full transcribed text content of the document"),
-        candidates: z
-          .array(candidatePersonSchema)
-          .describe(
-            "Every person named in the document, not just its main subject",
-          ),
-      }),
+      schema: documentExtractionSchema,
       messages: [{ role: "user", content }],
     });
   } catch (err) {
@@ -256,10 +266,21 @@ export async function extractCandidatesFromDocument(
   // this particular re-run happened to find zero family candidates — only a
   // document that was still waiting (pending_match) should ever be moved to
   // no_match by this.
-  const hasFamilyCandidates = result.object.candidates.some(
+  const hasFamilyCandidates = result.object.people.some(
     (c) => c.roleCategory === "family",
   );
   const shouldMarkNoMatch = !hasFamilyCandidates && document.status === "pending_match";
+
+  const { facts, anecdotes } = attachAboutRefs(
+    result.object.people,
+    result.object.facts,
+    result.object.anecdotes,
+  );
+  const extraction: DocumentExtraction<CandidatePerson> = {
+    people: result.object.people,
+    facts,
+    anecdotes,
+  };
 
   const { error: updateError } = await supabase
     .from("documents")
@@ -271,7 +292,7 @@ export async function extractCandidatesFromDocument(
       // keeping" and preserved forever, even after a later re-extract
       // produced the real text.
       transcription_raw: result.object.rawText || document.transcription_raw,
-      candidate_people: result.object.candidates,
+      candidate_people: extraction,
       status: shouldMarkNoMatch ? "no_match" : undefined,
     })
     .eq("id", documentId);
@@ -279,7 +300,7 @@ export async function extractCandidatesFromDocument(
 
   revalidatePath("/documents");
   revalidatePath(`/documents/${documentId}`);
-  return { candidates: result.object.candidates };
+  return { extraction };
 }
 
 export type PersonMatch = {
@@ -299,6 +320,27 @@ export type CandidateResolution = {
 export type CandidateWithMatch = CandidatePerson & {
   matchStatus: "high_confidence" | "multiple_matches" | "no_match";
   matches: PersonMatch[];
+  resolution?: CandidateResolution;
+};
+
+// A candidate as the document review UI actually observes it — which may
+// not have gone through matching yet (extractCandidatesFromDocument's own
+// result, right after Extract but before anyone's clicked Match or
+// manually confirmed). Unlike CandidateWithMatch itself, whose
+// matchStatus/matches are always populated (matchFamilyCandidates always
+// sets them for every result it returns), this stays a distinct, looser
+// type rather than making CandidateWithMatch's own fields optional —
+// email/interview review pages rely on CandidateWithMatch staying strict,
+// since they only ever render an already-matched candidate (gated by
+// their own isCandidateWithMatch check before a row renders at all).
+// Documents' own review UI has always supported showing a not-yet-matched
+// candidate inline instead (see document-review.tsx's "not_matched"
+// fallback), so it needs this looser shape. Both CandidatePerson and
+// CandidateWithMatch are structurally assignable to this type, so a
+// single client-side state value can hold either.
+export type CandidateForReview = CandidatePerson & {
+  matchStatus?: CandidateWithMatch["matchStatus"];
+  matches?: PersonMatch[];
   resolution?: CandidateResolution;
 };
 
@@ -456,10 +498,6 @@ async function applyRelationshipSignal(
   }
 }
 
-type MatchCandidatesResult =
-  | { error: string }
-  | { candidates: CandidateWithMatch[] };
-
 // Shared by document matching (below) and interview segment matching (see
 // matchInterviewSegmentCandidates in app/interviews/actions.ts) — one
 // name-similarity + date + relationship-signal pipeline, not two. Pass
@@ -530,13 +568,43 @@ export async function matchFamilyCandidates(
   return { results };
 }
 
+// Shared by matchCandidatesForDocument (below) and
+// matchEmailNoteCandidatesWith (app/email-notes/actions.ts) — both read a
+// { people, facts, anecdotes } extraction off candidate_people, re-run
+// matching on just the people[] identity array, and write the matched
+// results back while leaving facts/anecdotes untouched. Previously
+// duplicated near-verbatim between the two call sites; factored out once
+// documents adopted the same extraction shape email-notes already used,
+// rather than becoming a third copy.
+export async function matchExtractionCandidates<
+  E extends { people: CandidatePerson[] },
+>(
+  supabase: SupabaseClient,
+  familyId: string,
+  documentId: string,
+  extraction: E,
+): Promise<{ error: string } | { extraction: E }> {
+  const matched = await matchFamilyCandidates(supabase, familyId, extraction.people);
+  if ("error" in matched) return matched;
+
+  const updatedExtraction: E = { ...extraction, people: matched.results };
+
+  const { error: updateError } = await supabase
+    .from("documents")
+    .update({ candidate_people: updatedExtraction })
+    .eq("id", documentId);
+  if (updateError) return { error: updateError.message };
+
+  return { extraction: updatedExtraction };
+}
+
 // Same override escape hatch as extractCandidatesFromDocument above, for
 // the same reason (the email-intake webhook has no user session to derive
 // a client or familyId from).
 export async function matchCandidatesForDocument(
   documentId: string,
   override?: { supabase: SupabaseClient; familyId: string },
-): Promise<MatchCandidatesResult> {
+): Promise<{ error: string } | { extraction: DocumentExtraction<CandidateWithMatch> }> {
   const supabase = override?.supabase ?? (await requireUser());
   const familyId = override?.familyId ?? (await getFamilyId());
 
@@ -549,24 +617,24 @@ export async function matchCandidatesForDocument(
     return { error: fetchError?.message ?? "Document not found." };
   }
 
-  const candidates = (document.candidate_people ??
-    []) as unknown as CandidatePerson[];
-
-  const matched = await matchFamilyCandidates(supabase, familyId, candidates);
+  const extraction = document.candidate_people as unknown as DocumentExtraction<CandidatePerson>;
+  const matched = await matchExtractionCandidates(supabase, familyId, documentId, extraction);
   if ("error" in matched) return matched;
-  const results = matched.results;
-
-  const { error: updateError } = await supabase
-    .from("documents")
-    .update({ candidate_people: results })
-    .eq("id", documentId);
-  if (updateError) return { error: updateError.message };
 
   revalidatePath("/documents");
   revalidatePath(`/documents/${documentId}`);
-  return { candidates: results };
+  return { extraction: matched.extraction as DocumentExtraction<CandidateWithMatch> };
 }
 
+// Deliberately unchanged (per the confirmed decision) even though facts[]
+// now separately captures any real structured info dates/note might
+// contain — still joins them into this one relation-level fact's value,
+// same as before. Not deduplicated against the new structured facts:
+// that risks silently dropping real extracted info if the AI put
+// something in dates/note that it didn't also emit as a distinct fact.
+// Some visible overlap on a well-extracted document (e.g. both "Child:
+// 2/21/65 · Born Cambridge..." and a separate "Birth Date"/"Birth Place")
+// is the accepted, safer tradeoff.
 function factValueForCandidate(candidate: CandidatePerson): string {
   const parts = [candidate.dates, candidate.note].filter(
     (v): v is string => !!v,
@@ -583,9 +651,9 @@ function factValueForCandidate(candidate: CandidatePerson): string {
 async function maybeMarkDocumentMatched(
   supabase: SupabaseClient,
   documentId: string,
-  candidates: CandidateWithMatch[],
+  people: CandidateWithMatch[],
 ) {
-  const familyCandidates = candidates.filter((c) => c.roleCategory === "family");
+  const familyCandidates = people.filter((c) => c.roleCategory === "family");
   const allResolved =
     familyCandidates.length > 0 &&
     familyCandidates.every((c) => !!c.resolution);
@@ -597,12 +665,12 @@ async function maybeMarkDocumentMatched(
   }
 }
 
-async function loadCandidates(
+async function loadExtraction(
   supabase: SupabaseClient,
   documentId: string,
 ): Promise<
   | { error: string }
-  | { filename: string | null; candidates: CandidateWithMatch[] }
+  | { filename: string | null; extraction: DocumentExtraction<CandidateWithMatch> }
 > {
   const { data: document, error } = await supabase
     .from("documents")
@@ -612,20 +680,99 @@ async function loadCandidates(
   if (error || !document) {
     return { error: error?.message ?? "Document not found." };
   }
-  return {
-    filename: document.filename,
-    candidates: (document.candidate_people ??
-      []) as unknown as CandidateWithMatch[],
-  };
+  const extraction = (document.candidate_people ?? {
+    people: [],
+    facts: [],
+    anecdotes: [],
+  }) as unknown as DocumentExtraction<CandidateWithMatch>;
+  return { filename: document.filename, extraction };
 }
 
-type ResolveResult = { error: string } | { candidates: CandidateWithMatch[] };
+type ResolveResult = { error: string } | { extraction: DocumentExtraction<CandidateWithMatch> };
+
+// Writes every not-yet-written fact/anecdote whose aboutRef resolves to
+// candidateIndex, marking each written:{...} so a later re-extract or
+// re-confirm never duplicates them — the same idempotent convention
+// confirmEmailNoteBatch already established for its own batch write,
+// applied per-candidate here since documents resolve identity one
+// candidate at a time (immediately, on its own Confirm/Skip button —
+// including the tree-hover "confirm from tree" path) rather than via one
+// deferred batch submit the way email/interview review does.
+async function writeAttributedFactsAndAnecdotes(
+  supabase: SupabaseClient,
+  familyId: string,
+  documentId: string,
+  sourceRef: string,
+  personId: string,
+  candidateIndex: number,
+  facts: DocumentCandidateFact[],
+  anecdotes: DocumentCandidateAnecdote[],
+): Promise<
+  | { error: string }
+  | { facts: DocumentCandidateFact[]; anecdotes: DocumentCandidateAnecdote[] }
+> {
+  function targetsThisCandidate(aboutRef: AboutRef): boolean {
+    return aboutRef.type === "person" && aboutRef.index === candidateIndex;
+  }
+
+  const nextFacts = [...facts];
+  for (let i = 0; i < nextFacts.length; i++) {
+    const fact = nextFacts[i];
+    if (fact.written || !targetsThisCandidate(fact.aboutRef)) continue;
+
+    const { data: inserted, error } = await supabase
+      .from("facts")
+      .insert({
+        person_id: personId,
+        field: fact.field,
+        value: fact.value,
+        confidence: fact.confidence,
+        source_type: "document",
+        source_ref: sourceRef,
+        document_id: documentId,
+        family_id: familyId,
+        recorded_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single();
+    if (error || !inserted) return { error: error?.message ?? "Could not save fact." };
+    nextFacts[i] = { ...fact, written: { factId: inserted.id } };
+  }
+
+  const nextAnecdotes = [...anecdotes];
+  for (let i = 0; i < nextAnecdotes.length; i++) {
+    const anecdote = nextAnecdotes[i];
+    if (anecdote.written || !targetsThisCandidate(anecdote.aboutRef)) continue;
+
+    const { data: inserted, error } = await supabase
+      .from("anecdotes")
+      .insert({
+        person_id: personId,
+        story_text: anecdote.storyText,
+        // Documents have no equivalent of an interview's interviewee or an
+        // email's sender to name as "who told it" — the document itself is
+        // the source, same as source_ref on the facts written above.
+        who_told_it: sourceRef,
+        document_id: documentId,
+        family_id: familyId,
+        recorded_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single();
+    if (error || !inserted) return { error: error?.message ?? "Could not save anecdote." };
+    nextAnecdotes[i] = { ...anecdote, written: { anecdoteId: inserted.id } };
+  }
+
+  return { facts: nextFacts, anecdotes: nextAnecdotes };
+}
 
 // Links the document to an existing person (a suggested match the user
-// confirmed, or one they picked from the multiple_matches alternatives)
-// and records a fact on that person sourced from this document. Nothing
-// is written until this is explicitly called — matching alone never
-// touches document_people or facts.
+// confirmed, or one they picked from the multiple_matches alternatives),
+// records the usual relation-level fact on that person, and now also
+// writes every structured fact/anecdote this document's extraction
+// attributed to this specific candidate. Nothing is written until this is
+// explicitly called — matching alone never touches document_people or
+// facts.
 export async function confirmCandidateMatch(
   documentId: string,
   candidateIndex: number,
@@ -634,11 +781,12 @@ export async function confirmCandidateMatch(
   const supabase = await requireUser();
   const familyId = await getFamilyId();
 
-  const loaded = await loadCandidates(supabase, documentId);
+  const loaded = await loadExtraction(supabase, documentId);
   if ("error" in loaded) return loaded;
-  const { filename, candidates } = loaded;
-  const candidate = candidates[candidateIndex];
+  const { filename, extraction } = loaded;
+  const candidate = extraction.people[candidateIndex];
   if (!candidate) return { error: "Candidate not found." };
+  const sourceRef = filename ?? "uploaded document";
 
   const { error: linkError } = await supabase
     .from("document_people")
@@ -655,7 +803,7 @@ export async function confirmCandidateMatch(
       field: factFieldForRelation(candidate.relation),
       value: factValueForCandidate(candidate),
       source_type: "document",
-      source_ref: filename ?? "uploaded document",
+      source_ref: sourceRef,
       document_id: documentId,
       family_id: familyId,
       recorded_at: new Date().toISOString(),
@@ -666,29 +814,47 @@ export async function confirmCandidateMatch(
     return { error: factError?.message ?? "Could not create fact." };
   }
 
-  candidates[candidateIndex] = {
+  const attributed = await writeAttributedFactsAndAnecdotes(
+    supabase,
+    familyId,
+    documentId,
+    sourceRef,
+    personId,
+    candidateIndex,
+    extraction.facts,
+    extraction.anecdotes,
+  );
+  if ("error" in attributed) return attributed;
+
+  const people = [...extraction.people];
+  people[candidateIndex] = {
     ...candidate,
     resolution: { action: "confirmed", personId, factId: fact.id },
+  };
+  const updatedExtraction: DocumentExtraction<CandidateWithMatch> = {
+    people,
+    facts: attributed.facts,
+    anecdotes: attributed.anecdotes,
   };
 
   const { error: updateError } = await supabase
     .from("documents")
-    .update({ candidate_people: candidates })
+    .update({ candidate_people: updatedExtraction })
     .eq("id", documentId);
   if (updateError) return { error: updateError.message };
 
-  await maybeMarkDocumentMatched(supabase, documentId, candidates);
+  await maybeMarkDocumentMatched(supabase, documentId, people);
 
   revalidatePath("/documents");
   revalidatePath(`/documents/${documentId}`);
   revalidatePath("/tree");
-  return { candidates };
+  return { extraction: updatedExtraction };
 }
 
 // For no_match candidates, or when the user rejects every suggested
 // match — creates a brand-new person via the same addFirstPerson action
 // the tree's own "+ Add first person" flow uses (no separate person-
-// creation code path), then links and records a fact exactly like
+// creation code path), then links and records facts exactly like
 // confirming an existing match does.
 export async function createPersonForCandidate(
   documentId: string,
@@ -698,11 +864,12 @@ export async function createPersonForCandidate(
   const supabase = await requireUser();
   const familyId = await getFamilyId();
 
-  const loaded = await loadCandidates(supabase, documentId);
+  const loaded = await loadExtraction(supabase, documentId);
   if ("error" in loaded) return loaded;
-  const { filename, candidates } = loaded;
-  const candidate = candidates[candidateIndex];
+  const { filename, extraction } = loaded;
+  const candidate = extraction.people[candidateIndex];
   if (!candidate) return { error: "Candidate not found." };
+  const sourceRef = filename ?? "uploaded document";
 
   const created = await addFirstPerson(name);
   if ("error" in created) return { error: created.error };
@@ -722,7 +889,7 @@ export async function createPersonForCandidate(
       field: factFieldForRelation(candidate.relation),
       value: factValueForCandidate(candidate),
       source_type: "document",
-      source_ref: filename ?? "uploaded document",
+      source_ref: sourceRef,
       document_id: documentId,
       family_id: familyId,
       recorded_at: new Date().toISOString(),
@@ -733,53 +900,80 @@ export async function createPersonForCandidate(
     return { error: factError?.message ?? "Could not create fact." };
   }
 
-  candidates[candidateIndex] = {
+  const attributed = await writeAttributedFactsAndAnecdotes(
+    supabase,
+    familyId,
+    documentId,
+    sourceRef,
+    personId,
+    candidateIndex,
+    extraction.facts,
+    extraction.anecdotes,
+  );
+  if ("error" in attributed) return attributed;
+
+  const people = [...extraction.people];
+  people[candidateIndex] = {
     ...candidate,
     resolution: { action: "created", personId, factId: fact.id },
+  };
+  const updatedExtraction: DocumentExtraction<CandidateWithMatch> = {
+    people,
+    facts: attributed.facts,
+    anecdotes: attributed.anecdotes,
   };
 
   const { error: updateError } = await supabase
     .from("documents")
-    .update({ candidate_people: candidates })
+    .update({ candidate_people: updatedExtraction })
     .eq("id", documentId);
   if (updateError) return { error: updateError.message };
 
-  await maybeMarkDocumentMatched(supabase, documentId, candidates);
+  await maybeMarkDocumentMatched(supabase, documentId, people);
 
   revalidatePath("/documents");
   revalidatePath(`/documents/${documentId}`);
   revalidatePath("/tree");
-  return { candidates };
+  return { extraction: updatedExtraction };
 }
 
+// Deliberately never writes any fact/anecdote attributed to this
+// candidate — same as an aboutRef that never resolves to anyone. If a
+// later re-extract or a different candidate's own confirm doesn't pick
+// them up either, they just stay visibly unresolved in the review UI.
 export async function skipCandidateResolution(
   documentId: string,
   candidateIndex: number,
 ): Promise<ResolveResult> {
   const supabase = await requireUser();
 
-  const loaded = await loadCandidates(supabase, documentId);
+  const loaded = await loadExtraction(supabase, documentId);
   if ("error" in loaded) return loaded;
-  const { candidates } = loaded;
-  const candidate = candidates[candidateIndex];
+  const { extraction } = loaded;
+  const candidate = extraction.people[candidateIndex];
   if (!candidate) return { error: "Candidate not found." };
 
-  candidates[candidateIndex] = {
+  const people = [...extraction.people];
+  people[candidateIndex] = {
     ...candidate,
     resolution: { action: "skipped" },
+  };
+  const updatedExtraction: DocumentExtraction<CandidateWithMatch> = {
+    ...extraction,
+    people,
   };
 
   const { error: updateError } = await supabase
     .from("documents")
-    .update({ candidate_people: candidates })
+    .update({ candidate_people: updatedExtraction })
     .eq("id", documentId);
   if (updateError) return { error: updateError.message };
 
-  await maybeMarkDocumentMatched(supabase, documentId, candidates);
+  await maybeMarkDocumentMatched(supabase, documentId, people);
 
   revalidatePath("/documents");
   revalidatePath(`/documents/${documentId}`);
-  return { candidates };
+  return { extraction: updatedExtraction };
 }
 
 export type DocumentDeleteImpact = {

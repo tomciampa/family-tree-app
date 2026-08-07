@@ -1,5 +1,6 @@
 import type { createClient } from "@/lib/supabase/server";
-import type { CandidatePerson } from "@/app/documents/documents-view";
+import type { CandidateWithMatch } from "@/app/documents/actions";
+import type { DocumentExtraction } from "@/app/documents/document-extraction-schema";
 import type { InterviewExtraction } from "@/app/interviews/actions";
 import type { EmailNoteExtraction } from "@/app/api/email-intake/email-body-extraction";
 
@@ -69,10 +70,11 @@ export async function getPendingReview(
       .select("id, filename, candidate_people")
       .is("interviewee_person_id", null)
       .is("parent_document_id", null)
-      // Same crash-risk class as interview rows (candidate_people shaped
-      // as {people,facts,anecdotes}, not CandidatePerson[]) — needs its
-      // own exclusion since the two null checks above don't distinguish
-      // this case. See documents/page.tsx's identical filter.
+      // Excludes email-body-note rows (their candidate_people is a
+      // {people,facts,anecdotes} extraction with different submitted_by_*
+      // display fields, handled separately below) — needs its own
+      // exclusion since the two null checks above don't distinguish this
+      // case. See documents/page.tsx's identical filter.
       .eq("is_email_body_note", false),
     supabase
       .from("documents")
@@ -109,9 +111,18 @@ export async function getPendingReview(
 
   const documents: PendingDocumentItem[] = [];
   for (const doc of plainDocuments ?? []) {
-    const candidates = (doc.candidate_people ??
-      []) as unknown as CandidatePerson[];
-    const familyCandidates = candidates.filter(
+    // candidate_people is now { people, facts, anecdotes } for plain
+    // documents too (previously a bare CandidatePerson[] — see the
+    // document-extraction facts/anecdotes feature). Counted here by
+    // candidates only, same as before: resolving a candidate always
+    // writes its own attributed facts/anecdotes as part of that same
+    // action (confirmCandidateMatch/createPersonForCandidate), so once
+    // every family candidate is resolved there's nothing left pending —
+    // a fact/anecdote only stays permanently unwritten if its candidate
+    // was skipped or its aboutRef never resolved, both final states, not
+    // "still pending".
+    const extraction = (doc.candidate_people ?? { people: [], facts: [], anecdotes: [] }) as unknown as DocumentExtraction<CandidateWithMatch>;
+    const familyCandidates = extraction.people.filter(
       (c) => c.roleCategory === "family",
     );
     const unresolvedCount = familyCandidates.filter(

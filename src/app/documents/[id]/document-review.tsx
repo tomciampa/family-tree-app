@@ -6,14 +6,21 @@ import type { PersonSummary } from "@/lib/family";
 import { splitWithHighlight } from "@/lib/documents";
 import { FamilyTree } from "@/components/family-tree";
 import { PersonSearch } from "@/components/person-search";
+import { FactAnecdoteLine } from "@/components/fact-anecdote-line";
 import {
   extractCandidatesFromDocument,
   matchCandidatesForDocument,
   confirmCandidateMatch,
   createPersonForCandidate,
   skipCandidateResolution,
+  type CandidateForReview,
 } from "../actions";
-import type { CandidatePerson } from "../documents-view";
+import type {
+  DocumentExtraction,
+  DocumentCandidateFact,
+  DocumentCandidateAnecdote,
+} from "../document-extraction-schema";
+import { aboutLabel } from "@/app/interviews/extraction-schema";
 import { DeleteDocumentButton } from "../delete-document-button";
 
 type Person = Tables<"people">;
@@ -27,7 +34,7 @@ type ReviewDocument = {
   document_type: string | null;
   status: string;
   recorded_at: string | null;
-  candidate_people: CandidatePerson[] | null;
+  candidate_people: DocumentExtraction<CandidateForReview> | null;
   transcription_raw: string | null;
   viewUrl: string | null;
 };
@@ -83,7 +90,7 @@ export function DocumentReview({
   const [isExtracting, setIsExtracting] = useState(false);
   const [isMatching, setIsMatching] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [candidates, setCandidates] = useState<CandidatePerson[] | null>(
+  const [extraction, setExtraction] = useState<DocumentExtraction<CandidateForReview> | null>(
     doc.candidate_people,
   );
   // Driven by hovering/focusing a match in the resolution pane — read by
@@ -133,7 +140,7 @@ export function DocumentReview({
       setError(result.error);
       return;
     }
-    setCandidates(result.candidates);
+    setExtraction(result.extraction);
   }
 
   async function handleMatch() {
@@ -145,7 +152,7 @@ export function DocumentReview({
       setError(result.error);
       return;
     }
-    setCandidates(result.candidates);
+    setExtraction(result.extraction);
   }
 
   function handleFocusMatch(personId: string, name: string) {
@@ -172,18 +179,43 @@ export function DocumentReview({
       setConfirmFromTreeError(result.error);
       return;
     }
-    setCandidates(result.candidates);
+    setExtraction(result.extraction);
   }
 
-  const familyEntries = (candidates ?? [])
+  const candidates = extraction?.people ?? [];
+  const familyEntries = candidates
     .map((c, index) => ({ c, index }))
     .filter(({ c }) => c.roleCategory === "family");
-  const adminEntries = (candidates ?? [])
+  const adminEntries = candidates
     .map((c, index) => ({ c, index }))
     .filter(({ c }) => c.roleCategory === "administrative");
   const hasFamilyCandidates = familyEntries.length > 0;
   const activeCandidate =
-    activeCandidateIndex !== null ? candidates?.[activeCandidateIndex] : null;
+    activeCandidateIndex !== null ? candidates[activeCandidateIndex] : null;
+
+  // Facts/anecdotes are nested under their own candidate's card (see
+  // FamilyCandidateRow below), not shown as one global cross-referenced
+  // list the way email-note-review.tsx does — documents resolve identity
+  // one candidate at a time, immediately, so "this fact is about the
+  // candidate whose card it's nested in" needs no separate label.
+  function factsFor(index: number): DocumentCandidateFact[] {
+    return (extraction?.facts ?? []).filter(
+      (f) => f.aboutRef.type === "person" && f.aboutRef.index === index,
+    );
+  }
+  function anecdotesFor(index: number): DocumentCandidateAnecdote[] {
+    return (extraction?.anecdotes ?? []).filter(
+      (a) => a.aboutRef.type === "person" && a.aboutRef.index === index,
+    );
+  }
+  // Facts/anecdotes whose `about` never resolved to anyone in `people` —
+  // never written (nowhere to attach them), but still surfaced rather
+  // than silently dropped, same as email-note-review.tsx's own
+  // "(unresolved)" labeling.
+  const unattributedFacts = (extraction?.facts ?? []).filter((f) => f.aboutRef.type === "unresolved");
+  const unattributedAnecdotes = (extraction?.anecdotes ?? []).filter(
+    (a) => a.aboutRef.type === "unresolved",
+  );
 
   const transcriptionParts = useMemo(
     () => splitWithHighlight(doc.transcription_raw ?? "", highlightName),
@@ -312,7 +344,7 @@ export function DocumentReview({
           <h2 className="text-[length:var(--font-size-caption)] font-medium uppercase tracking-wide text-[color:var(--color-text-secondary)]">
             Candidates
           </h2>
-          {(!candidates || candidates.length === 0) && (
+          {candidates.length === 0 && (
             <p className="text-sm text-[color:var(--color-text-secondary)]">
               No candidates extracted yet — click Extract above.
             </p>
@@ -325,9 +357,11 @@ export function DocumentReview({
                   documentId={doc.id}
                   index={index}
                   candidate={c}
+                  facts={factsFor(index)}
+                  anecdotes={anecdotesFor(index)}
                   people={people}
                   personSummaries={personSummaries}
-                  onUpdate={setCandidates}
+                  onUpdate={setExtraction}
                   onFocusMatch={handleFocusMatch}
                   onActivate={setActiveCandidateIndex}
                 />
@@ -354,6 +388,25 @@ export function DocumentReview({
                   </li>
                 ))}
               </ul>
+            </div>
+          )}
+          {(unattributedFacts.length > 0 || unattributedAnecdotes.length > 0) && (
+            <div>
+              <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-[color:var(--color-text-tertiary)]">
+                Didn&apos;t resolve to a listed person
+              </p>
+              <div className="flex flex-col gap-0.5">
+                {unattributedFacts.map((f, i) => (
+                  <FactAnecdoteLine key={`f-${i}`} included={false} already={false} label={aboutLabel(f.aboutRef)}>
+                    <span className="font-medium">{f.field}:</span> {f.value}
+                  </FactAnecdoteLine>
+                ))}
+                {unattributedAnecdotes.map((a, i) => (
+                  <FactAnecdoteLine key={`a-${i}`} included={false} already={false} label={aboutLabel(a.aboutRef)}>
+                    {a.storyText}
+                  </FactAnecdoteLine>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -401,6 +454,8 @@ function FamilyCandidateRow({
   documentId,
   index,
   candidate,
+  facts,
+  anecdotes,
   people,
   personSummaries,
   onUpdate,
@@ -409,10 +464,14 @@ function FamilyCandidateRow({
 }: {
   documentId: string;
   index: number;
-  candidate: CandidatePerson;
+  candidate: CandidateForReview;
+  // Pre-filtered by the parent to just this candidate's own attributed
+  // entries (aboutRef.index === index) — see factsFor/anecdotesFor above.
+  facts: DocumentCandidateFact[];
+  anecdotes: DocumentCandidateAnecdote[];
   people: Person[];
   personSummaries: Record<string, PersonSummary>;
-  onUpdate: (updated: CandidatePerson[]) => void;
+  onUpdate: (updated: DocumentExtraction<CandidateForReview>) => void;
   onFocusMatch: (personId: string, name: string) => void;
   // Marks this row as the one "confirm from the tree pane" acts on — see
   // that button next to the tree pane. Fired on hovering anywhere in the
@@ -459,7 +518,7 @@ function FamilyCandidateRow({
       setError(result.error);
       return;
     }
-    onUpdate(result.candidates);
+    onUpdate(result.extraction);
   }
 
   async function handleSkip() {
@@ -471,8 +530,16 @@ function FamilyCandidateRow({
       setError(result.error);
       return;
     }
-    onUpdate(result.candidates);
+    onUpdate(result.extraction);
   }
+
+  // See document-review.tsx module's own comment on the equivalent
+  // mapping choice: "will be skipped for now" (included=false) is only
+  // shown once this candidate was actually, explicitly skipped — while
+  // still-unresolved is shown neutrally (included=true, no claim either
+  // way), since "skipped" would be a false claim before the user has made
+  // any decision at all.
+  const factsIncluded = candidate.resolution?.action !== "skipped";
 
   const resolvedPerson = candidate.resolution?.personId
     ? (matches.find((m) => m.personId === candidate.resolution?.personId)
@@ -497,6 +564,24 @@ function FamilyCandidateRow({
       {candidate.relation && ` — ${candidate.relation}`}
       {candidate.dates && ` (${candidate.dates})`}
       {candidate.note && ` · ${candidate.note}`}
+
+      {(facts.length > 0 || anecdotes.length > 0) && (
+        <div className="mt-1 ml-2 flex flex-col gap-0.5">
+          {facts.map((f, i) => (
+            <FactAnecdoteLine key={`f-${i}`} included={factsIncluded} already={!!f.written} label={f.field}>
+              {f.value}
+              {f.confidence && (
+                <span className="text-[color:var(--color-text-secondary)]"> ({f.confidence})</span>
+              )}
+            </FactAnecdoteLine>
+          ))}
+          {anecdotes.map((a, i) => (
+            <FactAnecdoteLine key={`a-${i}`} included={factsIncluded} already={!!a.written} label="Story">
+              {a.storyText}
+            </FactAnecdoteLine>
+          ))}
+        </div>
+      )}
 
       {(() => {
         // "Match" hasn't necessarily run yet for this candidate — a
