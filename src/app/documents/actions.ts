@@ -27,6 +27,7 @@ import {
 } from "@/lib/relationship-graph";
 import { classifyRelationType } from "@/lib/relation-classification";
 import { sha256Hex, findDuplicateId } from "@/lib/content-hash";
+import { isHeicFile, convertHeicToJpeg, replaceExtensionWithJpg, HeicConversionError } from "@/lib/heic-convert";
 
 async function requireUser() {
   const supabase = await createClient();
@@ -55,29 +56,65 @@ export async function uploadDocument(
     data: { user },
   } = await supabase.auth.getUser();
 
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const storagePath = `${familyId}/${crypto.randomUUID()}-${file.name}`;
+  const originalBytes = new Uint8Array(await file.arrayBuffer());
+  let bytes: Uint8Array = originalBytes;
+  let filename = file.name;
+  let documentType: string | null = file.type || null;
+
+  // Convert HEIC/HEIF to JPEG before it's ever stored — same reasoning
+  // and same conversion this app's email-intake path already applies:
+  // isVisionCapable() treats any image/* as vision-capable and sends
+  // document_type straight through to the AI Gateway call as the vision
+  // mediaType, but Claude's vision API doesn't accept image/heic (a real
+  // production error, not hypothetical — see heic-convert.ts). Converted
+  // here, before storage, rather than only at extraction time, so a
+  // downloaded/re-viewed HEIC document is never silently unopenable
+  // either — see documents.ts's getSignedDocumentUrls and the fact-source
+  // viewer modal, both of which just point a plain link/<img> at whatever
+  // is actually in Storage.
+  if (isHeicFile(file.type || null, file.name)) {
+    try {
+      bytes = await convertHeicToJpeg(originalBytes);
+    } catch (err) {
+      return {
+        error:
+          err instanceof HeicConversionError
+            ? err.message
+            : `Could not convert HEIC file: ${err instanceof Error ? err.message : "unknown error"}`,
+      };
+    }
+    filename = replaceExtensionWithJpg(file.name);
+    documentType = "image/jpeg";
+  }
+
+  const storagePath = `${familyId}/${crypto.randomUUID()}-${filename}`;
 
   // Exact-duplicate detection (see content_hash_dedup migration) — hashed
-  // before upload, from the exact bytes the user picked, so this is
-  // always an "original" hash for the web path (no compression here,
-  // unlike the email path). A web upload always goes through silently
-  // regardless of the result — duplicate_of_id is just recorded for
-  // later reference, never a warning or a block.
-  const contentHash = sha256Hex(bytes);
+  // from the ORIGINAL bytes the user picked, never the HEIC-converted
+  // ones, so this stays the same "original bytes" hash the email path's
+  // originalContentHash already uses (see email-intake.ts: the Worker
+  // hashes rawBytes before compressImage() ever runs, specifically so a
+  // since-compressed emailed photo still matches an identical original
+  // uploaded via the website). Hashing the converted JPEG here instead
+  // would silently break that cross-path match for every HEIC file —
+  // confirmed as a real regression while verifying this feature, not
+  // hypothetical. A web upload always goes through silently regardless
+  // of the result — duplicate_of_id is just recorded for later
+  // reference, never a warning or a block.
+  const contentHash = sha256Hex(originalBytes);
   const duplicateOfId = await findDuplicateId(supabase, "documents", familyId, contentHash);
 
   const { error: uploadError } = await supabase.storage
     .from("documents")
-    .upload(storagePath, bytes, { contentType: file.type || undefined });
+    .upload(storagePath, bytes, { contentType: documentType || undefined });
   if (uploadError) return { error: uploadError.message };
 
   const { data: inserted, error: insertError } = await supabase
     .from("documents")
     .insert({
       file_path: storagePath,
-      filename: file.name,
-      document_type: file.type || null,
+      filename: filename,
+      document_type: documentType,
       family_id: familyId,
       status: "pending_match",
       uploaded_by: user?.id ?? null,

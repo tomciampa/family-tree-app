@@ -26,11 +26,21 @@ const TEXT_EXTRACTORS: Record<string, (bytes: Uint8Array) => Promise<string>> = 
     },
 };
 
+// HEIC/HEIF explicitly excluded even though it's an image/* type: Claude's
+// vision API doesn't accept image/heic as a mediaType (a real production
+// error, not hypothetical — see heic-convert.ts). New uploads never reach
+// here as HEIC any more (uploadDocument converts to JPEG before storage),
+// but excluding it here too means a pre-existing document stuck with
+// document_type=image/heic from before that fix (or the email path, which
+// converts before this function ever sees the type) fails with this
+// function's own clear "unsupported file type" message instead of a raw,
+// confusing API error surfacing from generateObject.
+const NON_VISION_IMAGE_TYPES = new Set(["image/heic", "image/heif"]);
+
 export function isVisionCapable(documentType: string | null): boolean {
-  return (
-    documentType === "application/pdf" ||
-    (documentType?.startsWith("image/") ?? false)
-  );
+  if (!documentType) return false;
+  if (NON_VISION_IMAGE_TYPES.has(documentType.toLowerCase())) return false;
+  return documentType === "application/pdf" || documentType.startsWith("image/");
 }
 
 export function hasTextExtractor(documentType: string | null): boolean {

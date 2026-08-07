@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getFamilyId } from "@/lib/family";
 import { sanitizeFilenameForStorageKey } from "@/lib/sanitize-filename";
 import { sha256Hex, findDuplicateId } from "@/lib/content-hash";
+import { isHeicFile, convertHeicToJpeg, replaceExtensionWithJpg, HeicConversionError } from "@/lib/heic-convert";
 
 async function requireUser() {
   const supabase = await createClient();
@@ -32,20 +33,49 @@ export async function uploadPhoto(formData: FormData): Promise<UploadPhotoResult
   const { supabase, user } = await requireUser();
   const familyId = await getFamilyId();
 
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const safeName = sanitizeFilenameForStorageKey(file.name);
+  const originalBytes = new Uint8Array(await file.arrayBuffer());
+  let bytes: Uint8Array = originalBytes;
+  let filename = file.name;
+  let contentType: string | null = file.type || null;
+
+  // Convert HEIC/HEIF to JPEG before it's ever stored — most browsers
+  // besides Safari can't render HEIC in an <img> tag at all (confirmed
+  // directly for this app: a real HEIC file served through the gallery's
+  // plain <img src> fails to load in real Chrome), so an unconverted HEIC
+  // photo would silently land as a permanently broken image with no error
+  // anywhere. Same conversion the email-intake path already applies to
+  // emailed photos — see heic-convert.ts.
+  if (isHeicFile(file.type || null, file.name)) {
+    try {
+      bytes = await convertHeicToJpeg(originalBytes);
+    } catch (err) {
+      return {
+        error:
+          err instanceof HeicConversionError
+            ? err.message
+            : `Could not convert HEIC file: ${err instanceof Error ? err.message : "unknown error"}`,
+      };
+    }
+    filename = replaceExtensionWithJpg(file.name);
+    contentType = "image/jpeg";
+  }
+
+  const safeName = sanitizeFilenameForStorageKey(filename);
   const storagePath = `${familyId}/${crypto.randomUUID()}-${safeName}`;
 
-  // Exact-duplicate detection (see content_hash_dedup migration) — same
-  // silent, record-only behavior as the document upload path: an
-  // "original" hash since there's no compression on this path, and
-  // duplicate_of_id never blocks or warns here, just gets recorded.
-  const contentHash = sha256Hex(bytes);
+  // Exact-duplicate detection (see content_hash_dedup migration) — hashed
+  // from the ORIGINAL bytes the user picked, never the HEIC-converted
+  // ones, so this stays the same "original bytes" hash the email path's
+  // originalContentHash already uses — see the matching comment in
+  // documents/actions.ts's uploadDocument for why hashing the converted
+  // bytes instead would silently break cross-path duplicate matching for
+  // every HEIC file.
+  const contentHash = sha256Hex(originalBytes);
   const duplicateOfId = await findDuplicateId(supabase, "photos", familyId, contentHash);
 
   const { error: uploadError } = await supabase.storage
     .from("photos")
-    .upload(storagePath, bytes, { contentType: file.type || undefined });
+    .upload(storagePath, bytes, { contentType: contentType || undefined });
   if (uploadError) return { error: uploadError.message };
 
   const { data: inserted, error: insertError } = await supabase
@@ -53,7 +83,7 @@ export async function uploadPhoto(formData: FormData): Promise<UploadPhotoResult
     .insert({
       family_id: familyId,
       storage_path: storagePath,
-      original_filename: file.name,
+      original_filename: filename,
       uploaded_by: user.id,
       content_hash: contentHash,
       duplicate_of_id: duplicateOfId,
