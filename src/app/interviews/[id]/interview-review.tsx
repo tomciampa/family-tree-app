@@ -97,7 +97,12 @@ function resolveTargetIncluded(
   decisions: DecisionMap,
 ): boolean {
   if (aboutRef.type === "interviewee") return true;
-  if (aboutRef.type === "unresolved") return false;
+  // "ambiguous" is only ever produced by documents' facts-only
+  // reprocessing pipeline (see document-extraction-schema.ts) — never by
+  // interview extraction — but AboutRef is a shared type, so this branch
+  // must still typecheck. Treated the same as "unresolved": not yet
+  // attributed to a specific person, so not included.
+  if (aboutRef.type === "unresolved" || aboutRef.type === "ambiguous") return false;
   const candidate = segment.extraction?.people[aboutRef.index];
   if (!candidate) return false;
   if (isCandidateWithMatch(candidate) && candidate.resolution) {

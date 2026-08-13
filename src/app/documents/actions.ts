@@ -12,7 +12,9 @@ import {
 } from "./candidate-schema";
 import {
   documentExtractionSchema,
+  documentFactsOnlyExtractionSchema,
   attachAboutRefs,
+  attachFactsOnlyAboutRefs,
   normalizeDocumentExtraction,
   type DocumentExtraction,
   type DocumentCandidateFact,
@@ -687,6 +689,108 @@ async function loadExtraction(
 
 type ResolveResult = { error: string } | { extraction: DocumentExtraction<CandidateWithMatch> };
 
+type ReextractFactsResult =
+  | { error: string }
+  | { facts: DocumentCandidateFact[]; anecdotes: DocumentCandidateAnecdote[] };
+
+// Narrow, facts/anecdotes-only re-extraction for a document whose people[]
+// identity matching is already correct — built for the 14 real documents
+// extracted before this app's facts[]/anecdotes[] feature shipped (see
+// CLAUDE.md's shape-migration incident note). Deliberately does NOT call
+// extractCandidatesFromDocument, which always overwrites candidate_people
+// with a fresh, unresolved people[] list — that would destroy every real
+// confirmed match. This only ever appends to facts[]/anecdotes[]; people[]
+// (and therefore every resolution), document_people, and status are read
+// but never written here.
+//
+// Reuses the document's own already-saved transcription_raw rather than
+// re-downloading/re-running vision OCR on the original file: the existing
+// identity matches were built against that exact transcript, so keeping
+// the source text axis stable for this facts-only pass avoids a second
+// OCR pass introducing any drift from what was actually reviewed.
+//
+// override mirrors extractCandidatesFromDocument's own — lets a
+// script-driven reprocessing run (no browser session) supply an
+// already-authorized client. No familyId is needed here since this never
+// writes to facts/anecdotes/family-scoped tables itself — see
+// saveNewFactsForResolvedCandidate below for the actual write, which
+// always goes through a real user session.
+export async function reextractFactsForResolvedDocument(
+  documentId: string,
+  override?: { supabase: SupabaseClient },
+): Promise<ReextractFactsResult> {
+  const supabase = override?.supabase ?? (await requireUser());
+
+  const { data: document, error: fetchError } = await supabase
+    .from("documents")
+    .select("transcription_raw, candidate_people")
+    .eq("id", documentId)
+    .single();
+  if (fetchError || !document) {
+    return { error: fetchError?.message ?? "Document not found." };
+  }
+  if (!document.transcription_raw) {
+    return { error: "No saved transcript to extract from — run Extract first." };
+  }
+
+  const existingExtraction = normalizeDocumentExtraction<CandidateWithMatch>(
+    document.candidate_people,
+  );
+  const knownNames = existingExtraction.people.map((p) => p.name);
+
+  let result;
+  try {
+    result = await generateObject({
+      model: "anthropic/claude-sonnet-5",
+      schema: documentFactsOnlyExtractionSchema,
+      messages: [
+        {
+          role: "user",
+          content: [
+            "This is the transcript of a genealogy source document. The people already identified in it are:",
+            knownNames.map((n) => `- ${n}`).join("\n"),
+            "",
+            "Extract only:",
+            "1. Discrete factual claims — dates, places, occupations, and other concrete details stated about one of the people listed above. If a single statement gives more than one standard field (e.g. a birth date and birthplace together), emit a separate fact entry per field. Only attribute a fact to a name from the list above — never introduce a new person.",
+            "2. Narrative anecdotes — stories, characterizations, and color that don't reduce to a discrete factual claim.",
+            "",
+            "Document transcript:",
+            document.transcription_raw,
+          ].join("\n"),
+        },
+      ],
+    });
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Extraction failed." };
+  }
+
+  const { facts: newFacts, anecdotes: newAnecdotes } = attachFactsOnlyAboutRefs(
+    existingExtraction.people,
+    result.object.facts,
+    result.object.anecdotes,
+  );
+
+  // Additive only — never drops/replaces whatever facts[]/anecdotes[] this
+  // document already had (always empty for these legacy rows today, but
+  // stays correct if this is ever re-run on a document that already has
+  // some).
+  const updatedExtraction: DocumentExtraction<CandidateWithMatch> = {
+    people: existingExtraction.people,
+    facts: [...existingExtraction.facts, ...newFacts],
+    anecdotes: [...existingExtraction.anecdotes, ...newAnecdotes],
+  };
+
+  const { error: updateError } = await supabase
+    .from("documents")
+    .update({ candidate_people: updatedExtraction })
+    .eq("id", documentId);
+  if (updateError) return { error: updateError.message };
+
+  revalidatePath("/documents");
+  revalidatePath(`/documents/${documentId}`);
+  return { facts: newFacts, anecdotes: newAnecdotes };
+}
+
 // Writes every not-yet-written fact/anecdote whose aboutRef resolves to
 // candidateIndex, marking each written:{...} so a later re-extract or
 // re-confirm never duplicates them — the same idempotent convention
@@ -1069,4 +1173,109 @@ export async function deleteDocument(
   revalidatePath("/documents");
   revalidatePath("/tree");
   return { success: true };
+}
+
+// Writes whatever new, not-yet-written facts/anecdotes an already-resolved
+// candidate has accumulated (e.g. from reextractFactsForResolvedDocument
+// above) — the one case document-review.tsx's per-candidate Confirm
+// button never covered, since that always paired identity confirmation
+// with a fact write in the same action. This candidate's identity/
+// resolution is completely untouched here; only
+// writeAttributedFactsAndAnecdotes runs, against the personId it already
+// has.
+export async function saveNewFactsForResolvedCandidate(
+  documentId: string,
+  candidateIndex: number,
+): Promise<ResolveResult> {
+  const supabase = await requireUser();
+  const familyId = await getFamilyId();
+
+  const loaded = await loadExtraction(supabase, documentId);
+  if ("error" in loaded) return loaded;
+  const { filename, extraction } = loaded;
+  const candidate = extraction.people[candidateIndex];
+  if (!candidate?.resolution?.personId) {
+    return { error: "This candidate isn't linked to a person yet." };
+  }
+  const sourceRef = filename ?? "uploaded document";
+
+  const attributed = await writeAttributedFactsAndAnecdotes(
+    supabase,
+    familyId,
+    documentId,
+    sourceRef,
+    candidate.resolution.personId,
+    candidateIndex,
+    extraction.facts,
+    extraction.anecdotes,
+  );
+  if ("error" in attributed) return attributed;
+
+  const updatedExtraction: DocumentExtraction<CandidateWithMatch> = {
+    ...extraction,
+    facts: attributed.facts,
+    anecdotes: attributed.anecdotes,
+  };
+
+  const { error: updateError } = await supabase
+    .from("documents")
+    .update({ candidate_people: updatedExtraction })
+    .eq("id", documentId);
+  if (updateError) return { error: updateError.message };
+
+  revalidatePath("/documents");
+  revalidatePath(`/documents/${documentId}`);
+  revalidatePath("/tree");
+  return { extraction: updatedExtraction };
+}
+
+// Lets a human pick which of several same-named candidates an ambiguous
+// fact/anecdote (see attachFactsOnlyAboutRefs) actually belongs to — never
+// guessed automatically, per the real "Anthony Ciampa"-style name-
+// collision risk this app has already been burned by once. Only updates
+// the aboutRef in candidate_people; still requires its own explicit Save
+// (saveNewFactsForResolvedCandidate above) before anything is written to
+// facts/anecdotes.
+export async function resolveAmbiguousAttribution(
+  documentId: string,
+  kind: "fact" | "anecdote",
+  itemIndex: number,
+  chosenCandidateIndex: number,
+): Promise<ResolveResult> {
+  const supabase = await requireUser();
+
+  const loaded = await loadExtraction(supabase, documentId);
+  if ("error" in loaded) return loaded;
+  const { extraction } = loaded;
+
+  const items = kind === "fact" ? extraction.facts : extraction.anecdotes;
+  const item = items[itemIndex];
+  if (!item || item.aboutRef.type !== "ambiguous") {
+    return { error: "This item isn't ambiguous (or doesn't exist)." };
+  }
+  const chosen = item.aboutRef.candidates.find((c) => c.index === chosenCandidateIndex);
+  if (!chosen) return { error: "Not one of the people this could belong to." };
+
+  const resolvedItem = { ...item, aboutRef: { type: "person" as const, index: chosen.index, name: chosen.name } };
+  const updatedExtraction: DocumentExtraction<CandidateWithMatch> =
+    kind === "fact"
+      ? {
+          ...extraction,
+          facts: extraction.facts.map((f, i) => (i === itemIndex ? (resolvedItem as DocumentCandidateFact) : f)),
+        }
+      : {
+          ...extraction,
+          anecdotes: extraction.anecdotes.map((a, i) =>
+            i === itemIndex ? (resolvedItem as DocumentCandidateAnecdote) : a,
+          ),
+        };
+
+  const { error: updateError } = await supabase
+    .from("documents")
+    .update({ candidate_people: updatedExtraction })
+    .eq("id", documentId);
+  if (updateError) return { error: updateError.message };
+
+  revalidatePath(`/documents/${documentId}`);
+  return { extraction: updatedExtraction };
 }

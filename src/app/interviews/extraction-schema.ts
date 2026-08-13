@@ -60,6 +60,15 @@ export function makeCandidateAnecdoteSchema(aboutDescription: string) {
 export type AboutRef =
   | { type: "interviewee" }
   | { type: "person"; index: number; name: string }
+  // Matches more than one same-named person entry — e.g. a document with
+  // two different candidates both named "Anthony", only one of them
+  // resolved to a real person. Only ever produced by
+  // documents/document-extraction-schema.ts's attachFactsOnlyAboutRefs
+  // (the narrow reprocessing pipeline), never by resolveAbout itself —
+  // never silently guessed, a human must pick one (see
+  // resolveAmbiguousAttribution in documents/actions.ts) before this can
+  // become a "person" ref and be written.
+  | { type: "ambiguous"; raw: string; candidates: { index: number; name: string }[] }
   | { type: "unresolved"; raw: string };
 
 // The "interviewee" variant is never produced when anchorName is omitted
@@ -96,6 +105,7 @@ export function resolveAbout(
 // own comment) but must still typecheck since AboutRef is shared.
 export function aboutLabel(aboutRef: AboutRef, intervieweeName?: string): string {
   if (aboutRef.type === "person") return aboutRef.name;
+  if (aboutRef.type === "ambiguous") return `${aboutRef.raw} (ambiguous)`;
   if (aboutRef.type === "unresolved") return `${aboutRef.raw} (unresolved)`;
   return intervieweeName ?? "interviewee";
 }

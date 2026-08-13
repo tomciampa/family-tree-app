@@ -113,27 +113,34 @@ export async function getPendingReview(
   for (const doc of plainDocuments ?? []) {
     // candidate_people is now { people, facts, anecdotes } for plain
     // documents too (previously a bare CandidatePerson[] — see the
-    // document-extraction facts/anecdotes feature). Counted here by
-    // candidates only, same as before: resolving a candidate always
-    // writes its own attributed facts/anecdotes as part of that same
-    // action (confirmCandidateMatch/createPersonForCandidate), so once
-    // every family candidate is resolved there's nothing left pending —
-    // a fact/anecdote only stays permanently unwritten if its candidate
-    // was skipped or its aboutRef never resolved, both final states, not
-    // "still pending".
+    // document-extraction facts/anecdotes feature). Usually counting
+    // candidates alone is enough: resolving a candidate normally writes
+    // its own attributed facts/anecdotes as part of that same action
+    // (confirmCandidateMatch/createPersonForCandidate). But
+    // reextractFactsForResolvedDocument (the legacy-document reprocessing
+    // pipeline — see CLAUDE.md's shape-migration incident note) can add
+    // new facts/anecdotes onto an ALREADY-resolved candidate afterward,
+    // needing their own explicit Save (saveNewFactsForResolvedCandidate)
+    // — so unwritten facts/anecdotes must be counted here too, same as
+    // the interview/email-note loops below already do, or those items
+    // would never surface as pending anywhere.
     const extraction = normalizeDocumentExtraction<CandidateWithMatch>(doc.candidate_people);
     const familyCandidates = extraction.people.filter(
       (c) => c.roleCategory === "family",
     );
-    const unresolvedCount = familyCandidates.filter(
+    const unresolvedCandidates = familyCandidates.filter(
       (c) => !c.resolution,
     ).length;
+    const unwrittenFacts = extraction.facts.filter((f) => !f.written).length;
+    const unwrittenAnecdotes = extraction.anecdotes.filter((a) => !a.written).length;
+    const unresolvedCount = unresolvedCandidates + unwrittenFacts + unwrittenAnecdotes;
+    const totalCount = familyCandidates.length + extraction.facts.length + extraction.anecdotes.length;
     if (unresolvedCount > 0) {
       documents.push({
         id: doc.id,
         filename: doc.filename,
         unresolvedCount,
-        totalCount: familyCandidates.length,
+        totalCount,
       });
     }
   }

@@ -89,6 +89,61 @@ export function attachAboutRefs<P extends { name: string }>(
   };
 }
 
+// Facts/anecdotes-only extraction — no `people`/`rawText`, used by
+// documents/actions.ts's reextractFactsForResolvedDocument to backfill
+// facts[]/anecdotes[] onto a document whose people[] identity matching is
+// already correct, without re-running (and risking overwriting) any of
+// it. See CLAUDE.md's shape-migration incident note for why this exists.
+export const documentFactsOnlyExtractionSchema = z.object({
+  facts: z
+    .array(documentCandidateFactSchema)
+    .describe(
+      "Discrete factual claims: names, dates, places, occupations, and other concrete details. " +
+        "Only about a person already named in the provided list — never introduce a new person.",
+    ),
+  anecdotes: z
+    .array(documentCandidateAnecdoteSchema)
+    .describe(
+      "Narrative material that doesn't reduce to a discrete claim — stories, memories, " +
+        "characterizations, letters' reminiscences.",
+    ),
+});
+
+// Same job as attachAboutRefs above, plus one addition: if `about`
+// resolves to a person whose exact name is shared by more than one entry
+// in `people` (e.g. a document with two different candidates both named
+// "Anthony", only one of them actually matched to a real person), that's
+// a real name collision this app has been burned by before (see
+// CLAUDE.md's "Anthony Ciampa" name-collision note) — never silently pick
+// one. Produces an "ambiguous" ref instead, which stays unwritten until a
+// human picks the right one via resolveAmbiguousAttribution. Kept
+// separate from attachAboutRefs (used by the live fresh-extraction
+// pipeline) rather than changing that function's behavior for every
+// caller — this narrower ambiguity check only matters for reprocessing an
+// already-resolved document's fixed, known people[] list.
+export function attachFactsOnlyAboutRefs<P extends { name: string }>(
+  people: P[],
+  facts: z.infer<typeof documentCandidateFactSchema>[],
+  anecdotes: z.infer<typeof documentCandidateAnecdoteSchema>[],
+): { facts: DocumentCandidateFact[]; anecdotes: DocumentCandidateAnecdote[] } {
+  function resolve(about: string): AboutRef {
+    const base = resolveAbout(about, people);
+    if (base.type !== "person") return base;
+    const targetName = people[base.index].name.trim().toLowerCase();
+    const duplicates = people
+      .map((p, index) => ({ index, name: p.name }))
+      .filter((p) => p.name.trim().toLowerCase() === targetName);
+    if (duplicates.length > 1) {
+      return { type: "ambiguous", raw: about, candidates: duplicates };
+    }
+    return base;
+  }
+  return {
+    facts: facts.map((f) => ({ ...f, aboutRef: resolve(f.about) })),
+    anecdotes: anecdotes.map((a) => ({ ...a, aboutRef: resolve(a.about) })),
+  };
+}
+
 export const documentExtractionSchema = z.object({
   rawText: z.string().describe("The full transcribed text content of the document"),
   people: z

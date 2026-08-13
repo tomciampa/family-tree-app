@@ -13,6 +13,8 @@ import {
   confirmCandidateMatch,
   createPersonForCandidate,
   skipCandidateResolution,
+  saveNewFactsForResolvedCandidate,
+  resolveAmbiguousAttribution,
   type CandidateForReview,
 } from "../actions";
 import type {
@@ -216,6 +218,17 @@ export function DocumentReview({
   const unattributedAnecdotes = (extraction?.anecdotes ?? []).filter(
     (a) => a.aboutRef.type === "unresolved",
   );
+  // Facts/anecdotes whose `about` matched more than one same-named
+  // candidate on this document (see attachFactsOnlyAboutRefs) — kept as
+  // their own original index (not the filtered array's) so
+  // resolveAmbiguousAttribution can address the right entry. Never
+  // guessed automatically; a human picks one below.
+  const ambiguousFacts = (extraction?.facts ?? [])
+    .map((f, i) => ({ f, i }))
+    .filter(({ f }) => f.aboutRef.type === "ambiguous");
+  const ambiguousAnecdotes = (extraction?.anecdotes ?? [])
+    .map((a, i) => ({ a, i }))
+    .filter(({ a }) => a.aboutRef.type === "ambiguous");
 
   const transcriptionParts = useMemo(
     () => splitWithHighlight(doc.transcription_raw ?? "", highlightName),
@@ -374,19 +387,54 @@ export function DocumentReview({
                 Administrative (not matched as family)
               </p>
               <ul className="flex flex-col gap-1">
-                {adminEntries.map(({ c, index }) => (
-                  <li
-                    key={index}
-                    className="text-xs text-[color:var(--color-text-tertiary)]"
-                  >
-                    <span className="font-medium text-[color:var(--color-text-secondary)]">
-                      {c.name}
-                    </span>
-                    {c.relation && ` — ${c.relation}`}
-                    {c.dates && ` (${c.dates})`}
-                    {c.note && ` · ${c.note}`}
-                  </li>
-                ))}
+                {adminEntries.map(({ c, index }) => {
+                  // Administrative-role candidates never get a resolution
+                  // (no personId to link facts to — see writeAttributedFactsAndAnecdotes's
+                  // targetsThisCandidate), so any fact/anecdote attributed
+                  // here can never be written and has no Save button, unlike
+                  // FamilyCandidateRow. Shown read-only purely so it isn't
+                  // silently invisible — a real gap found reprocessing the
+                  // Vincenzo Ciampa death certificate, whose registrar
+                  // (an administrative role) had two real extracted facts
+                  // that were correctly never-writable but weren't shown
+                  // anywhere at all.
+                  const adminFacts = factsFor(index);
+                  const adminAnecdotes = anecdotesFor(index);
+                  return (
+                    <li
+                      key={index}
+                      className="text-xs text-[color:var(--color-text-tertiary)]"
+                    >
+                      <span className="font-medium text-[color:var(--color-text-secondary)]">
+                        {c.name}
+                      </span>
+                      {c.relation && ` — ${c.relation}`}
+                      {c.dates && ` (${c.dates})`}
+                      {c.note && ` · ${c.note}`}
+                      {(adminFacts.length > 0 || adminAnecdotes.length > 0) && (
+                        <div className="mt-1 ml-2 flex flex-col gap-0.5">
+                          {adminFacts.map((f, i) => (
+                            // included=true suppresses FactAnecdoteLine's own
+                            // "will be skipped for now" suffix (that phrasing
+                            // implies a pending decision — this has no
+                            // decision to make, it's structurally unwritable)
+                            // in favor of the explicit label below.
+                            <FactAnecdoteLine key={`f-${i}`} included={true} already={false} label={f.field}>
+                              {f.value}
+                              <span className="italic"> · administrative — not saved to anyone&apos;s facts</span>
+                            </FactAnecdoteLine>
+                          ))}
+                          {adminAnecdotes.map((a, i) => (
+                            <FactAnecdoteLine key={`a-${i}`} included={true} already={false} label="Story">
+                              {a.storyText}
+                              <span className="italic"> · administrative — not saved to anyone&apos;s facts</span>
+                            </FactAnecdoteLine>
+                          ))}
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}
@@ -406,6 +454,43 @@ export function DocumentReview({
                     {a.storyText}
                   </FactAnecdoteLine>
                 ))}
+              </div>
+            </div>
+          )}
+          {(ambiguousFacts.length > 0 || ambiguousAnecdotes.length > 0) && (
+            <div>
+              <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-[color:var(--color-warning)]">
+                Could belong to more than one person — pick one
+              </p>
+              <div className="flex flex-col gap-2">
+                {ambiguousFacts.map(({ f, i }) =>
+                  f.aboutRef.type === "ambiguous" ? (
+                    <AmbiguousItemRow
+                      key={`amb-f-${i}`}
+                      documentId={doc.id}
+                      kind="fact"
+                      itemIndex={i}
+                      label={f.field}
+                      text={f.value}
+                      candidates={f.aboutRef.candidates}
+                      onResolved={setExtraction}
+                    />
+                  ) : null,
+                )}
+                {ambiguousAnecdotes.map(({ a, i }) =>
+                  a.aboutRef.type === "ambiguous" ? (
+                    <AmbiguousItemRow
+                      key={`amb-a-${i}`}
+                      documentId={doc.id}
+                      kind="anecdote"
+                      itemIndex={i}
+                      label="Story"
+                      text={a.storyText}
+                      candidates={a.aboutRef.candidates}
+                      onResolved={setExtraction}
+                    />
+                  ) : null,
+                )}
               </div>
             </div>
           )}
@@ -446,6 +531,67 @@ export function DocumentReview({
           />
         </div>
       </div>
+    </div>
+  );
+}
+
+// One ambiguous fact/anecdote (see attachFactsOnlyAboutRefs) plus a button
+// per same-named candidate it could belong to — resolving just updates
+// which candidate it's attributed to; still needs that candidate's own
+// "Save new facts" (in FamilyCandidateRow below) before it's actually
+// written.
+function AmbiguousItemRow({
+  documentId,
+  kind,
+  itemIndex,
+  label,
+  text,
+  candidates,
+  onResolved,
+}: {
+  documentId: string;
+  kind: "fact" | "anecdote";
+  itemIndex: number;
+  label: string;
+  text: string;
+  candidates: { index: number; name: string }[];
+  onResolved: (updated: DocumentExtraction<CandidateForReview>) => void;
+}) {
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handlePick(chosenIndex: number) {
+    setIsSaving(true);
+    setError(null);
+    const result = await resolveAmbiguousAttribution(documentId, kind, itemIndex, chosenIndex);
+    setIsSaving(false);
+    if ("error" in result) {
+      setError(result.error);
+      return;
+    }
+    onResolved(result.extraction);
+  }
+
+  return (
+    <div className="rounded-[var(--radius-sm)] border border-[color:var(--color-warning)] bg-[color:var(--color-warning-subtle-bg)] p-2 text-[11px]">
+      <p className="text-[color:var(--color-warning-subtle-fg)]">
+        <span className="font-medium">{label}:</span> {text}
+      </p>
+      <p className="mt-1 text-[color:var(--color-text-secondary)]">Who is this about?</p>
+      <div className="mt-1 flex flex-wrap gap-1.5">
+        {candidates.map((c) => (
+          <button
+            key={c.index}
+            type="button"
+            disabled={isSaving}
+            onClick={() => handlePick(c.index)}
+            className="rounded-[var(--radius-xs)] border border-[color:var(--color-border)] bg-[color:var(--color-bg-surface)] px-2 py-0.5 transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] disabled:opacity-50"
+          >
+            {c.name}
+          </button>
+        ))}
+      </div>
+      {error && <p className="mt-1 text-[color:var(--color-error)]">{error}</p>}
     </div>
   );
 }
@@ -491,6 +637,8 @@ function FamilyCandidateRow({
   const [showAll, setShowAll] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isSavingFacts, setIsSavingFacts] = useState(false);
+  const [saveFactsError, setSaveFactsError] = useState<string | null>(null);
   // Explicit, independent of `selection`'s value — a manually-searched
   // person can legitimately coincide with one of the matcher's own (often
   // low-ranked, not-visible-by-default) suggestions, e.g. "Bob Ciampa"
@@ -528,6 +676,18 @@ function FamilyCandidateRow({
     setIsSaving(false);
     if ("error" in result) {
       setError(result.error);
+      return;
+    }
+    onUpdate(result.extraction);
+  }
+
+  async function handleSaveNewFacts() {
+    setIsSavingFacts(true);
+    setSaveFactsError(null);
+    const result = await saveNewFactsForResolvedCandidate(documentId, index);
+    setIsSavingFacts(false);
+    if ("error" in result) {
+      setSaveFactsError(result.error);
       return;
     }
     onUpdate(result.extraction);
@@ -603,13 +763,46 @@ function FamilyCandidateRow({
             </span>
 
             {candidate.resolution ? (
-              <p className="mt-1 text-[11px] text-[color:var(--color-text-secondary)]">
-                {candidate.resolution.action === "confirmed" &&
-                  `Confirmed → linked to ${resolvedPerson}`}
-                {candidate.resolution.action === "created" &&
-                  `Created new person: ${resolvedPerson}`}
-                {candidate.resolution.action === "skipped" && "Skipped"}
-              </p>
+              <div className="mt-1">
+                <p className="text-[11px] text-[color:var(--color-text-secondary)]">
+                  {candidate.resolution.action === "confirmed" &&
+                    `Confirmed → linked to ${resolvedPerson}`}
+                  {candidate.resolution.action === "created" &&
+                    `Created new person: ${resolvedPerson}`}
+                  {candidate.resolution.action === "skipped" && "Skipped"}
+                </p>
+                {/* Only reachable once identity is already resolved — this
+                    candidate's own Confirm button (above, hidden once
+                    resolved) already wrote facts alongside its identity
+                    confirm. This covers facts/anecdotes added afterward,
+                    e.g. by reextractFactsForResolvedDocument. Never shown
+                    for a skipped candidate — nothing should be attributed
+                    to someone explicitly skipped. */}
+                {(() => {
+                  if (candidate.resolution.action === "skipped") return null;
+                  const unwrittenCount =
+                    facts.filter((f) => !f.written).length +
+                    anecdotes.filter((a) => !a.written).length;
+                  if (unwrittenCount === 0) return null;
+                  return (
+                    <div className="mt-1">
+                      <button
+                        type="button"
+                        onClick={handleSaveNewFacts}
+                        disabled={isSavingFacts}
+                        className="rounded-[var(--radius-xs)] border border-[color:var(--color-border)] px-1.5 py-0.5 text-[11px] transition-colors duration-[var(--duration-base)] hover:bg-[color:var(--color-bg-surface-hover)] disabled:opacity-50"
+                      >
+                        {isSavingFacts
+                          ? "Saving…"
+                          : `Save ${unwrittenCount} new fact${unwrittenCount === 1 ? "" : "s"}`}
+                      </button>
+                      {saveFactsError && (
+                        <p className="mt-1 text-[color:var(--color-error)]">{saveFactsError}</p>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
             ) : (
               <div className="mt-2 flex flex-col gap-1.5 rounded-[var(--radius-sm)] border border-[color:var(--color-border)] p-2">
                 {!candidate.matchStatus && (
