@@ -813,6 +813,32 @@ placeholder.
   known incident start time, and cross-checking Storage listings against `documents.file_path`
   for orphaned uploads, is what actually confirmed no real data was lost in the 2026-08-02
   `AboutRef` incident above, since the logs themselves couldn't cover the full outage window.
+- **A shape migration must handle pre-existing rows in the OLD shape, not just `null`** — real
+  production-down incident, 2026-08-07/08-12: the `be4e0a1` commit ("Extract structured
+  facts/anecdotes from documents") changed a plain document's `candidate_people` from a bare
+  `CandidatePerson[]` array to `{ people, facts, anecdotes }`, but 14 real pre-existing documents
+  (extracted before that commit) still had the old bare-array shape in the database — never
+  backfilled. `getPendingReview` (`lib/pending-review.ts`) read every plain document
+  unconditionally on every authenticated homepage load and only guarded `candidate_people` being
+  `null` (`?? {...}`), not "non-null but old-shaped" — so `extraction.people` was `undefined` for
+  all 14 rows, and `.filter()` on it threw `TypeError: Cannot read properties of undefined
+  (reading 'filter')` on literally every logged-in homepage load, confirmed via real `vercel
+  logs` output. Anonymous visitors, `/login`, and `/demo` were unaffected (different code path,
+  no `getPendingReview` call), which is exactly why the report was "after logging in, the
+  homepage fails" — worth remembering as a diagnostic signal: an error confined to one route/path
+  that other routes on the same deploy don't share usually means a data-shape or session-gated
+  code path, not a deploy-wide crash. `lib/fork-family-remap.ts` had already solved this exact
+  problem months earlier (`Array.isArray(raw)` dispatch for the same legacy shape) but that
+  normalization was never reused elsewhere — fixed by extracting it as
+  `normalizeDocumentExtraction` (`documents/document-extraction-schema.ts`) and applying it at
+  the crash site plus two same-pattern latent-crash sites in `documents/actions.ts`
+  (`matchCandidatesForDocument`, `loadExtraction`) that would have crashed the moment anyone
+  confirmed/skipped/re-matched one of those 14 real documents. Verified against real production
+  data (a read-only query, not guessed) before and after the fix, and against a real authenticated
+  request (a saved session cookie replayed via `curl`, not just an anonymous check) after
+  deploying. General lesson: when a migration changes a JSONB column's shape, grep production
+  data for the old shape before assuming `?? defaultValue` covers every legacy row — `null` is
+  only one of the ways "old data" can look different from "new data."
 
 ## Known follow-ups (already on the todo list — don't rebuild without checking first)
 - Splitting interviews out of the shared `documents` table into their own model — see "Audio
