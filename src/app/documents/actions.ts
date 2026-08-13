@@ -878,9 +878,10 @@ export async function confirmCandidateMatch(
   documentId: string,
   candidateIndex: number,
   personId: string,
+  override?: { supabase: SupabaseClient; familyId: string },
 ): Promise<ResolveResult> {
-  const supabase = await requireUser();
-  const familyId = await getFamilyId();
+  const supabase = override?.supabase ?? (await requireUser());
+  const familyId = override?.familyId ?? (await getFamilyId());
 
   const loaded = await loadExtraction(supabase, documentId);
   if ("error" in loaded) return loaded;
