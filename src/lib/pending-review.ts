@@ -1,6 +1,6 @@
 import type { createClient } from "@/lib/supabase/server";
 import type { CandidateWithMatch } from "@/app/documents/actions";
-import type { DocumentExtraction } from "@/app/documents/document-extraction-schema";
+import { normalizeDocumentExtraction, type DocumentExtraction } from "@/app/documents/document-extraction-schema";
 import type { InterviewExtraction } from "@/app/interviews/actions";
 import type { EmailNoteExtraction } from "@/app/api/email-intake/email-body-extraction";
 
@@ -121,7 +121,7 @@ export async function getPendingReview(
     // a fact/anecdote only stays permanently unwritten if its candidate
     // was skipped or its aboutRef never resolved, both final states, not
     // "still pending".
-    const extraction = (doc.candidate_people ?? { people: [], facts: [], anecdotes: [] }) as unknown as DocumentExtraction<CandidateWithMatch>;
+    const extraction = normalizeDocumentExtraction<CandidateWithMatch>(doc.candidate_people);
     const familyCandidates = extraction.people.filter(
       (c) => c.roleCategory === "family",
     );

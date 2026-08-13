@@ -13,6 +13,7 @@ import {
 import {
   documentExtractionSchema,
   attachAboutRefs,
+  normalizeDocumentExtraction,
   type DocumentExtraction,
   type DocumentCandidateFact,
   type DocumentCandidateAnecdote,
@@ -617,7 +618,7 @@ export async function matchCandidatesForDocument(
     return { error: fetchError?.message ?? "Document not found." };
   }
 
-  const extraction = document.candidate_people as unknown as DocumentExtraction<CandidatePerson>;
+  const extraction = normalizeDocumentExtraction<CandidatePerson>(document.candidate_people);
   const matched = await matchExtractionCandidates(supabase, familyId, documentId, extraction);
   if ("error" in matched) return matched;
 
@@ -680,11 +681,7 @@ async function loadExtraction(
   if (error || !document) {
     return { error: error?.message ?? "Document not found." };
   }
-  const extraction = (document.candidate_people ?? {
-    people: [],
-    facts: [],
-    anecdotes: [],
-  }) as unknown as DocumentExtraction<CandidateWithMatch>;
+  const extraction = normalizeDocumentExtraction<CandidateWithMatch>(document.candidate_people);
   return { filename: document.filename, extraction };
 }
 

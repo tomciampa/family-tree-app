@@ -58,6 +58,26 @@ export type DocumentExtraction<P> = {
   anecdotes: DocumentCandidateAnecdote[];
 };
 
+// A plain document's stored candidate_people predates this file's
+// facts[]/anecdotes[] extraction for 14 real pre-existing rows (extracted
+// before this feature shipped): it's still the bare old CandidatePerson[]
+// shape, not { people, facts, anecdotes }. lib/fork-family-remap.ts's
+// remapCandidatePeople already had to dispatch on Array.isArray(raw) for
+// exactly this reason — this mirrors that same normalization for every
+// other reader of a document's candidate_people, so `extraction.people`
+// is never accessed on a bare array (undefined.filter/.some crash; this
+// took production's homepage down once already, see pending-review.ts).
+export function normalizeDocumentExtraction<P>(raw: unknown): DocumentExtraction<P> {
+  if (raw == null) return { people: [], facts: [], anecdotes: [] };
+  if (Array.isArray(raw)) return { people: raw as P[], facts: [], anecdotes: [] };
+  const extraction = raw as Partial<DocumentExtraction<P>>;
+  return {
+    people: extraction.people ?? [],
+    facts: extraction.facts ?? [],
+    anecdotes: extraction.anecdotes ?? [],
+  };
+}
+
 export function attachAboutRefs<P extends { name: string }>(
   people: P[],
   facts: z.infer<typeof documentCandidateFactSchema>[],
